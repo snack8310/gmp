@@ -1,6 +1,7 @@
-# Turns the rules in docs/history/memory/shell-script-portability.md from prose
-# into a gate, per the constraint-hardening order in AGENTS.md.
-name: shell
+# Turns prose rules into gates, per the constraint-hardening order in
+# AGENTS.md: shell portability (docs/history/memory/) and the docs consistency
+# checks that four rounds of manual review failed to hold.
+name: gates
 
 on:
   push:
@@ -36,3 +37,10 @@ jobs:
 
       - name: pre-push hook regression tests
         run: sh test/githooks/pre-push_test.sh
+
+      # Four evaluator rounds missed the same classes of defect by hand:
+      # retracted facts cited as grounds, numbering that skipped, documents
+      # classified by label rather than content, and change records describing
+      # products that do not exist.
+      - name: docs consistency
+        run: python3 test/docs/consistency_check.py
