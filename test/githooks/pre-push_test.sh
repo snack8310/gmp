@@ -86,7 +86,12 @@ run_suite() {
 	# --- allow: everything else ---
 	assert "$s" 0 "push to a feature branch" \
 		"refs/heads/chore/3-x $sha refs/heads/chore/3-x $zero"
-	assert "$s" 0 "delete a remote branch (all-zero local sha)" \
+	# Deleting a *protected* branch is the case that actually exercises the
+	# all-zero sha check. Pointing this at an unprotected branch would pass
+	# even with that check removed entirely.
+	assert "$s" 0 "delete the main branch (all-zero local sha)" \
+		"(delete) $zero refs/heads/main $sha"
+	assert "$s" 0 "delete an unprotected branch" \
 		"(delete) $zero refs/heads/old $sha"
 	assert "$s" 0 "push a tag" \
 		"refs/tags/v1.0.0 $sha refs/tags/v1.0.0 $zero"

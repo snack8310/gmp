@@ -10,12 +10,20 @@
 
 ## 落地层级
 
-本文档的规则**已固化为自动化检查**（issue #3），本文档只保留「为什么这么写」的解释：
+本文档的规则**部分已固化为自动化检查**（issue #3）。固化归属如下，未固化的部分仍是文档约定，不得声称为已固化：
 
 - `test/githooks/pre-push_test.sh`：跨 `sh` / `bash` / `dash` / `zsh` / `ksh` 执行，断言退出码。缺失的解释器会被报告为跳过；一个解释器都没跑到时判为失败，不报绿灯。
 - `.github/workflows/shell.yml`：在 push 到 `main` 与所有 PR 上运行上述用例，并对 `.githooks/*` 与 `test/githooks/*.sh` 执行 `shellcheck -s sh`。
 
-规则 1（词分割）可由 shellcheck SC2086 静态捕获；规则 2（EOF 兜底）shellcheck 覆盖不到，只能靠用例。因此两者缺一不可。
+| 规则 | 固化情况 |
+|---|---|
+| 规则 1（禁止未加引号变量词分割） | 已固化：shellcheck SC2086 + 用例（变异测试实证可捕获） |
+| 规则 2（`while read` 的 EOF 兜底） | 已固化：仅靠用例，shellcheck 覆盖不到 |
+| 规则 3（`case` 模式侧只用字面量） | 已固化：用例可捕获子串 / glob 匹配 |
+| 规则 3（`case` subject 加引号） | **未固化**，仍为文档约定。POSIX 下 case word 本就不做字段分割与路径展开，属防御性风格 |
+| 规则 4（新钩子必须配用例） | **未固化**，仍为文档约定 |
+
+规则 1 与规则 2 缺一不可：shellcheck 查写法，用例查行为，issue #2 的缺陷属于后者。
 
 新增 shell 脚本时，应一并纳入 workflow 的 shellcheck 路径。
 
