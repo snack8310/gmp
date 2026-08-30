@@ -23,6 +23,7 @@
 | 文档 | 类型 | 覆盖范围 | 状态 |
 |---|---|---|---|
 | [`campaign-user-stories.md`](campaign-user-stories.md) | 需求整理 | 活动视角的用户故事 | 讨论中 |
+| [`system-boundaries.md`](system-boundaries.md) | 需求整理 | 拆成哪几个子项目、什么跨边界 | 讨论中 |
 | [`audience-user-stories.md`](audience-user-stories.md) | 需求整理 | 受众侧（名单）的用户故事 | 讨论中（多处待活动侧定清后回填） |
 
 尚无设计文档。**先有用户故事，再有设计**——曾经有过一份直接从业务主线推导出的设计文档，因为跳过了需求这一步而被整份删除（见 `docs/history/changes/`，原文可在 git 历史中查看）。
