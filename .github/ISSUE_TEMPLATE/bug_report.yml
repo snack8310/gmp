@@ -1,0 +1,74 @@
+name: 缺陷报告
+description: 报告一个已存在行为的错误
+title: "[Bug] "
+labels: ["type/bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本模板对应仓库 `AGENTS.md` 中的任务类型「缺陷修复」。
+        请只描述**观察到的事实**，不要在此处给出实现方案 —— 方案在任务卡阶段确定。
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象
+      description: 出了什么问题。一到两段。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 逐步写清楚。无法稳定复现时，写明复现概率与已尝试的条件。
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 应该发生什么，以及依据是什么（规格文档、接口契约、既有约定）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么。有日志、报错、返回值请贴关键片段，注意脱敏。
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 影响面
+      description: 影响哪些模块、接口、数据或调用方；是否有数据被写坏；是否可通过重跑自愈。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 是否可能命中高风险项
+      description: 对照 `AGENTS.md` 的高风险判定标准。不确定选「不确定」，由处理时判定。
+      options:
+        - 否
+        - 是
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      description: 分支 / 提交、运行环境、配置差异、依赖版本等。
+    validations:
+      required: false

@@ -1,0 +1,93 @@
+name: 需求
+description: 提出一个新增能力或行为变更
+title: "[Feat] "
+labels: ["type/feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本模板对应仓库 `AGENTS.md` 中的任务类型「新需求开发」。
+        本 issue 是任务卡的**输入**，不是任务卡本身 —— 完整任务卡在实施前按
+        [任务入口检查清单](../blob/main/docs/ai-loop/task-intake-checklist.md) 产出。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 为什么需要这个能力。谁在什么场景下遇到了什么。
+    validations:
+      required: true
+
+  - type: textarea
+    id: essence
+    attributes:
+      label: 要解决的真实问题
+      description: |
+        不要把标题换种说法重写。请回答：表面请求是 A，真正要解决的问题是什么？
+        A 是不是唯一的解决方式？
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 硬约束
+      description: 哪些条件不可协商 —— 正确性、兼容性、性能下限、既有契约、时间。
+    validations:
+      required: true
+
+  - type: textarea
+    id: goals
+    attributes:
+      label: 目标与非目标
+      description: 本次要做什么，以及明确**不做**什么。非目标和目标同样重要。
+      placeholder: |
+        目标：
+        -
+
+        非目标：
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 可验证的条目。每条都要能被一个命令、一个测试或一次人工核对判定。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 是否可能命中高风险项
+      description: 对照 `AGENTS.md` 的高风险判定标准与项目高风险清单。
+      options:
+        - 否
+        - 是
+        - 不确定
+    validations:
+      required: true
+
+  - type: dropdown
+    id: breaking
+    attributes:
+      label: 是否为对外破坏性变更
+      description: 变更公开接口、协议、配置格式或数据格式的不兼容行为。
+      options:
+        - 否
+        - 是
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: 未讨论项
+      description: |
+        不确定是不是问题、且当前没有人在看的认知盲区。
+        想不清楚本身就是要记录的内容，不要因为想不清楚而留空。
+    validations:
+      required: false

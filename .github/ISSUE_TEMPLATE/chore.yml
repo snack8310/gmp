@@ -1,0 +1,55 @@
+name: 重构 / 文档治理
+description: 不改变外部行为的结构调整，或协作规范与文档的变更
+title: "[Chore] "
+labels: ["type/chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本模板对应仓库 `AGENTS.md` 中的任务类型「重构优化」与「文档治理」。
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 类型
+      options:
+        - 重构优化
+        - 文档治理
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 动机
+      description: 当前结构或文档哪里有问题，不动会付出什么代价。
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围与非目标
+      description: 动哪些、明确不动哪些。重构最容易死于范围失控。
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariance
+    attributes:
+      label: 外部行为不变的证明方式
+      description: |
+        重构必填：靠什么证明外部行为没变（现有测试、新增特征测试、前后对拍）。
+        文档治理可填「不适用」。
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardening
+    attributes:
+      label: 能否前置固化
+      description: |
+        对照 `AGENTS.md` 的「约束落地优先级」：本次要立的约束能否变成类型约束或一个必跑的测试？
+        如果只能写成文档规则，说明为什么无法前置固化。
+    validations:
+      required: false
