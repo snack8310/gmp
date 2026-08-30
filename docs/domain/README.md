@@ -22,7 +22,7 @@
 
 | 文档 | 覆盖概念 | 状态 |
 |---|---|---|
-| [`identity-and-audience.md`](identity-and-audience.md) | 用户身份、用户名单 | 已定稿（含待澄清项） |
+| [`identity-and-audience.md`](identity-and-audience.md) | 用户标识、用户名单 | 已定稿（含待澄清项） |
 
 后续轮次（尚未开始，顺序与理由见 [`identity-and-audience.md`](identity-and-audience.md#11-建模顺序与本轮位置)）：组件契约与一次执行、流程画布与运行实例、触达资格与权益额度、分流与实验。
 
