@@ -6,8 +6,18 @@
 - 逐行读取外部输入的 `while read` 循环必须写成 `while read -r f1 f2 ... || [ -n "$f1" ]; do`。POSIX `read` 在读到 EOF 且末行无换行符时返回非 0，循环体不执行，该行被静默丢弃。
 - `case` 的 subject 必须加引号（`case "$x" in`），模式侧只使用字面量；否则分支名中的 `*`、`?` 会被当作 glob 模式参与匹配。
 - 新增或修改 git 钩子时，必须同时提供一个「喂 stdin、断言退出码」的可执行用例，并至少在 `sh` / `bash` / `dash` / `zsh` 下跑通。
-  - **该规则应固化为自动化检查（CI 门禁），而不是停留在本文档。** 见 issue #3。在门禁建立前，本条由人工执行。
 - 上述前三条的验证用例应包含：zsh 解释器、末行无换行符、分支名含通配符字符。这三组是本类缺陷的最短触发路径。
+
+## 落地层级
+
+本文档的规则**已固化为自动化检查**（issue #3），本文档只保留「为什么这么写」的解释：
+
+- `test/githooks/pre-push_test.sh`：跨 `sh` / `bash` / `dash` / `zsh` / `ksh` 执行，断言退出码。缺失的解释器会被报告为跳过；一个解释器都没跑到时判为失败，不报绿灯。
+- `.github/workflows/shell.yml`：在 push 到 `main` 与所有 PR 上运行上述用例，并对 `.githooks/*` 与 `test/githooks/*.sh` 执行 `shellcheck -s sh`。
+
+规则 1（词分割）可由 shellcheck SC2086 静态捕获；规则 2（EOF 兜底）shellcheck 覆盖不到，只能靠用例。因此两者缺一不可。
+
+新增 shell 脚本时，应一并纳入 workflow 的 shellcheck 路径。
 
 ## 原因
 
