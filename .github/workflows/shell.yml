@@ -1,0 +1,38 @@
+# Turns the rules in docs/history/memory/shell-script-portability.md from prose
+# into a gate, per the constraint-hardening order in AGENTS.md.
+name: shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# No secrets are used and nothing is written back to the repository.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # dash, zsh and ksh are the interpreters that expose the portability
+      # traps this suite exists to catch; sh and bash are already present.
+      - name: Install shells
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dash zsh ksh shellcheck
+
+      - name: Report interpreter versions
+        run: |
+          for s in sh bash dash zsh ksh; do
+            printf '%-6s %s\n' "$s" "$(command -v "$s" || echo MISSING)"
+          done
+          shellcheck --version
+
+      - name: shellcheck
+        run: shellcheck -s sh .githooks/* test/githooks/*.sh
+
+      - name: pre-push hook regression tests
+        run: sh test/githooks/pre-push_test.sh
