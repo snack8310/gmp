@@ -13,6 +13,16 @@
 7. **提 PR**，填完 `.github/pull_request_template.md`，关联 `Closes #N`。
 8. **人工放行**。合并由人工执行，AI 不得自行合并。
 
+## 启用本地钩子
+
+clone 之后执行一次：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-push` 会在推送到 `main` 前拦截并提示。它是本地兜底，不是强制边界 —— 远端同样设有保护规则，`--no-verify` 绕过本地钩子后推送依然会被拒绝。
+
 ## Commit
 
 Conventional Commits，英文书写：

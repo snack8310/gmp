@@ -1,0 +1,55 @@
+#!/bin/sh
+# Reject pushes that would update a protected branch.
+#
+# This is a local convenience guard, not the enforcement boundary: the
+# authoritative rule is the server-side ruleset on the remote. It exists to
+# fail before the push instead of after it, and to point at this repository's
+# own conventions rather than at a generic server error.
+#
+# Enable with: git config core.hooksPath .githooks
+#
+# Git feeds one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# A deletion has an all-zero local sha; we let those through, since deleting a
+# protected branch is already refused by the remote and is not what this hook
+# is about.
+
+PROTECTED_BRANCHES="main master"
+
+blocked=""
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	# Skip blank lines and, defensively, malformed input.
+	[ -z "$remote_ref" ] && continue
+
+	# Branch deletion: local sha is all zeroes. Not our concern.
+	case "$local_sha" in
+		*[!0]*) ;;
+		*) continue ;;
+	esac
+
+	# Only branch refs matter; tags and other refs are unaffected.
+	case "$remote_ref" in
+		refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
+		*) continue ;;
+	esac
+
+	for protected in $PROTECTED_BRANCHES; do
+		if [ "$branch" = "$protected" ]; then
+			blocked="$blocked $branch"
+		fi
+	done
+done
+
+if [ -n "$blocked" ]; then
+	echo "✗ 已阻止：禁止直接推送到受保护分支 ($(echo "$blocked" | tr -s ' ' | sed 's/^ //'))。" >&2
+	echo "" >&2
+	echo "  所有变更走「issue → 分支 → PR → 人工放行」。" >&2
+	echo "  分支命名：<type>/<issue 编号>-<短横线主题>" >&2
+	echo "  流程见 CONTRIBUTING.md，规则见 AGENTS.md。" >&2
+	echo "" >&2
+	echo "  本钩子只是本地兜底；远端同样设有保护规则，绕过它推送依然会被拒绝。" >&2
+	exit 1
+fi
+
+exit 0
