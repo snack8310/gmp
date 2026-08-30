@@ -18,6 +18,9 @@
 
 blocked=""
 
+# remote_sha is read only to consume the fourth field; shellcheck cannot
+# see that it is positional rather than unused.
+# shellcheck disable=SC2034
 while read -r local_ref local_sha remote_ref remote_sha || [ -n "$local_ref" ]; do
 	# Skip blank lines and, defensively, malformed input.
 	[ -z "$remote_ref" ] && continue

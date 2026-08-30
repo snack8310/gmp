@@ -13,7 +13,7 @@
 
 set -u
 
-repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 hook="$repo_root/.githooks/pre-push"
 
 zero=0000000000000000000000000000000000000000
