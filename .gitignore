@@ -1,0 +1,5 @@
+# Running the docs gate locally leaves bytecode in test/docs/. It carries the
+# developer's absolute paths, and this repository is cloned by downstream repos
+# as a spec source. A gate for artifacts already tracked is issue #18.
+__pycache__/
+*.pyc
