@@ -26,7 +26,7 @@ issue #17（把 `docs/domain/business-scenarios.md` 的场景状态标记从 `�
 - **明确该停止条件的正确动作不是续修，而是转固化**：把载体形态问题转成固化 issue，并按当前产物状态交人工裁决。
 - **判定归属写死给评估器**：「阻断问题是否全部落在载体」由评估器在裁决中显式标注。理由写在条款里——归类结果决定主 Agent 自己能否继续，它在此有自利倾向。
 - **条款内如实标注两条新规则均未固化**，并写明不可机检的真实原因：「自修复轮次」这个量在仓库内不存在，每轮裁决目前只存在于会话与 PR 正文，没有受版本控制的产物记录轮次与每轮的阻断问题归类，机检无遍历基准。前置条件是评估轮次记录入库，承接见 issue #18。
-- **把 commit message 纳入送审载体清单**（人工裁定并入）。来源实证：PR #24 的首个 commit `094ae08` 的 message 写有「Three other items are recorded as not added」，而最终 head `f20aec1` 上该去向表已重构，这句计数不再成立；评估器判定当时不构成违反（commit message 不在列举内）但形态同型。纳入后，`review-package-consistency.md` 的其余规则**逐条判定是否对 commit message 成立**，不整体套用——四条判为不适用并各自写明理由。失真句原样保留在历史中，不追溯改写。
+- **把 commit message 纳入送审载体清单**（人工裁定并入）。来源实证：PR #24 的首个 commit `094ae08` 的 message 写有「Three other items are recorded as not added」，而最终 head `f20aec1` 上该去向表已重构，这句计数不再成立；评估器判定当时不构成违反（commit message 不在列举内）但形态同型。纳入后，`review-package-consistency.md` 的其余规则**逐条判定是否对 commit message 成立**，不整体套用——判为不适用的是「取送审 SHA 并核对」「CI 的 headSha 等于送审 SHA」「外部工具写出后回读确认」「人工确认三态」，各自写明理由。失真句原样保留在历史中，不追溯改写。
 - **顺带修正一处计数**：`review-package-consistency.md` 原文「核对三者对同一事实」中的「三者」既是计数、又在载体增加后失真，改为「各载体」；同句被核对事实中的「条目数」一并移除（它本身就是禁令所指的计数）。
 - **条款内保留了来源实证**，遵循 `docs/history/README.md`「没有原因的规则会在半年后被当成教条删掉」。
 
@@ -44,7 +44,7 @@ issue #17（把 `docs/domain/business-scenarios.md` 的场景状态标记从 `�
 | `python3 test/docs/consistency_check.py` | 通过，但**对本次改动零断言** | 退出码 0，无不通过项。该脚本只扫 `docs/domain/` 与 `docs/history/changes/` 的结构，不校验 `AGENTS.md` 内容 |
 | `sh test/githooks/pre-push_test.sh` | 通过，与本次改动无关 | 退出码 0，报告 `OK`；`sh` / `bash` / `dash` / `zsh` / `ksh` 均实际执行，无跳过 |
 | 全仓枚举「陈述自修复轮次或停止条件的位置」 | 通过 | 以来源侧为遍历基准的 grep（`自修复`、`轮次上限`）。改前的位置全部在 `AGENTS.md`：三条分级规则、以及「与 AI Loop 的衔接」一节末尾对上限的泛指引用。**该泛指引用在新增档位与停止条件后仍成立**，已逐字复核，未改动。仓库内无其他文件复述该规则 |
-| 全仓枚举「列举送审载体清单的位置」 | 通过 | 以 grep（`送审载体`、`任务卡、变更证据`、`PR 正文、变更证据`）为遍历基准。定义该清单的位置：`AGENTS.md` 停止条件、`source-enumeration-fidelity.md` 计数禁令、`review-package-consistency.md` 载体定义——三处均已同步。其余命中为 `docs/history/changes/` 内的历史证据记录（不可追溯改写）与不列举清单的引述，逐条复核后判定不需改动 |
+| 全仓枚举「列举送审载体清单的位置」 | 通过 | 以 grep（`送审载体`、`任务卡、变更证据`、`PR 正文、变更证据`）为遍历基准。定义该清单的位置：`AGENTS.md` 停止条件、`source-enumeration-fidelity.md` 计数禁令、`review-package-consistency.md` 载体定义——均已同步。其余命中为 `docs/history/changes/` 内的历史证据记录（不可追溯改写）与不列举清单的引述，逐条复核后判定不需改动 |
 | 与评估器协议的冲突核对 | 通过 | `docs/ai-loop/evaluator-protocol-template.md`「裁决规则」约束评估器何时必须判 `FAIL`；本次新增条款约束主 Agent 何时必须停止自修复。作用对象不同，可同时成立，未产生重叠或矛盾 |
 | 改动范围核对 | 通过 | 以实测 `git diff main...HEAD --name-only` 为准，非手写自评。落点：`AGENTS.md`、`docs/history/memory/source-enumeration-fidelity.md`、`docs/history/memory/review-package-consistency.md`、`docs/history/changes/2026-09-01-self-repair-round-limits.md` |
 | 已跟踪文件中的构建产物核对 | 通过 | `git ls-files` 过滤 `__pycache__/` 与 `.pyc` 无命中。**注意**：本分支自 `main` 切出，`.gitignore` 尚在 issue #17 的分支上未合并，故本地存在未跟踪的字节码目录；本次提交按显式路径 `git add`，未使用 `git add -A` |
@@ -66,6 +66,6 @@ issue #17（把 `docs/domain/business-scenarios.md` 的场景状态标记从 `�
 
 - 人工裁定：文档治理类小任务的上限定为 1 轮是否合适。
 - 人工裁定：「连续两轮」的阈值是否合适。定 1 会让第一次载体问题就中断流程，定 3 则与轮次上限本身重叠。
-- 人工裁定：`review-package-consistency.md` 中判为「不适用于 commit message」的四条，其判定是否成立。
+- 人工裁定：`review-package-consistency.md` 中判为「不适用于 commit message」的各条（「取送审 SHA 并核对」「CI 的 headSha 等于送审 SHA」「外部工具写出后回读确认」「人工确认三态」），其判定是否成立。
 - 人工裁定：本任务自身按哪个上限执行。它是文档治理类小任务，若新规则立即对自己生效则只有 1 轮额度。**本次按「新规则自合并后生效，本任务仍按旧规则」处理**，需人工确认这一读法。
 - issue #18：评估轮次记录入库，使本次两条规则具备可机检的前置条件。
