@@ -42,6 +42,9 @@ func run(out *os.File) error {
 	if err := showArms(out, stack); err != nil {
 		return err
 	}
+	if err := showDelivery(out, stack); err != nil {
+		return err
+	}
 	// A fresh stack: the sections above have already coloured this
 	// population, and a store that is already full would make the real run
 	// look as though it colours nobody either.
@@ -49,7 +52,7 @@ func run(out *os.File) error {
 		return err
 	}
 
-	fmt.Fprintln(out, "\n未覆盖：场景 ① 与 ⑤ 需要事件串与执行侧，两者尚未建立。")
+	fmt.Fprintln(out, "\n未覆盖：场景 ① 与 ⑤ 需要事件与回流，尚未建立。")
 	return nil
 }
 
@@ -211,6 +214,80 @@ func why(reason campaign.LossReason) string {
 	default:
 		return string(reason)
 	}
+}
+
+func showDelivery(out *os.File, stack *scenarios.Stack) error {
+	section(out, "执行侧 · 幂等键贯穿三段",
+		"决策 → 投递 → 回执，三段带同一个键。断一节，那次执行就永远挂着，且不报错。")
+
+	delivery, err := stack.ArmDelivery(2)
+	if err != nil {
+		return err
+	}
+	// Learn the keys without sending, then make one of them fail every attempt.
+	planned, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Rehearsal())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  演练：打算投递 %d 人，执行记录 %d 条（演练不落记录）\n",
+		len(planned.Planned), delivery.Log.Size())
+	if len(planned.Planned) == 0 {
+		return nil
+	}
+	doomed := planned.Planned[0].Key
+	delivery.Deliverer.FailNext(doomed, 99)
+
+	report, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Live())
+	if err != nil {
+		return err
+	}
+	var failed int
+	for _, execution := range report.Executions {
+		if execution.State == campaign.StateFailed {
+			failed++
+		}
+	}
+	fmt.Fprintf(out, "  真实跑：投递 %d 人，其中 %d 人重试耗尽仍失败\n", len(report.Executions), failed)
+
+	// Pick one the downstream actually took: a receipt saying something
+	// arrived, for a delivery that was never accepted, would be nonsense.
+	var sample campaign.Execution
+	for _, execution := range report.Executions {
+		if execution.State == campaign.StateDelivered {
+			sample = execution
+			break
+		}
+	}
+	if sample.Key == "" {
+		fmt.Fprintln(out, "  没有一条被下游接收，回执这一段跳过")
+		return nil
+	}
+	fmt.Fprintf(out, "  取一条被接收的看三段：\n")
+	fmt.Fprintf(out, "    决策产出 → 投放项 %s，落点 %s\n", sample.Treatment, sample.Placements[0])
+	fmt.Fprintf(out, "    投递携带 → 幂等键 %q，尝试 %d 次\n", sample.Key, sample.Attempts)
+	if err := delivery.Runner.RecordReceipt(sample.Key, true, "carrier-8891"); err != nil {
+		return err
+	}
+	closed, _, err := delivery.Log.Lookup(sample.Key)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "    回执带同一个键回来 → 状态 %s，外部标识 %s\n", closed.State, closed.ExternalRef)
+
+	if err := delivery.Runner.RecordReceipt("一个从没投递过的键", true, ""); err != nil {
+		fmt.Fprintf(out, "  对不上的回执被拒绝：%v\n", err)
+	} else {
+		fmt.Fprintln(out, "  对不上的回执被接受了 —— 这是个缺陷")
+	}
+
+	before := delivery.Deliverer.Effects()
+	if _, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Live()); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  同一次进入重跑一遍：实际投递次数 %d → %d（键相同，下游认得出来）\n",
+		before, delivery.Deliverer.Effects())
+	fmt.Fprintf(out, "  失败的那 %d 人仍带着自己的份号入账 —— 剔掉他们等于偷偷筛人群\n", failed)
+	return nil
 }
 
 func sorted(counts map[string]int) []string {

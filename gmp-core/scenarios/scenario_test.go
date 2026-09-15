@@ -225,7 +225,9 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the audience definition: %v", err)
 	}
-	action, err := campaign.RegisterAction("show-image", "image")
+	action, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "show-image", Direction: campaign.DirectionPull, Required: []string{"image"},
+	})
 	if err != nil {
 		t.Fatalf("registering the action: %v", err)
 	}
@@ -267,5 +269,63 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 	}
 	if stack.Colouring.Size() == 0 {
 		t.Fatal("the real run coloured nobody, so the rehearsal assertion proves nothing")
+	}
+}
+
+// Scenario 2's delivery half, across all three layers: the second arm gets a
+// message, every execution carries both the treatment and the arm, and the ones
+// the send fails for stay in the arm.
+func TestScenarioTwoDeliveryCarriesTreatmentAndArm(t *testing.T) {
+	stack := newStack(t, 600)
+	delivery, err := stack.ArmDelivery(2)
+	if err != nil {
+		t.Fatalf("setting up the delivery: %v", err)
+	}
+
+	// Learn the keys without sending anything, then make every send fail so the
+	// failing path is the one under test.
+	planned, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Rehearsal())
+	if err != nil {
+		t.Fatalf("rehearsing: %v", err)
+	}
+	if len(planned.Planned) == 0 {
+		t.Fatal("the rehearsal planned nothing, so this asserts nothing")
+	}
+	if delivery.Log.Size() != 0 {
+		t.Fatalf("the rehearsal recorded %d executions", delivery.Log.Size())
+	}
+	for _, plan := range planned.Planned[:1] {
+		delivery.Deliverer.FailNext(plan.Key, 99)
+	}
+
+	report, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Live())
+	if err != nil {
+		t.Fatalf("running the delivery: %v", err)
+	}
+	if len(report.Executions) != len(planned.Planned) {
+		t.Fatalf("the real run produced %d executions, the rehearsal planned %d",
+			len(report.Executions), len(planned.Planned))
+	}
+
+	var failed int
+	for _, execution := range report.Executions {
+		if execution.Treatment != delivery.Treatment {
+			t.Fatalf("%q was recorded under treatment %q", execution.Key, execution.Treatment)
+		}
+		if len(execution.Placements) == 0 {
+			t.Fatalf("%q carries no placement, so its result cannot be attributed to an arm", execution.Key)
+		}
+		if got := execution.Placements[0].Share; got != delivery.Arm {
+			t.Fatalf("%q is placed in share %d, expected arm %d", execution.Key, got, delivery.Arm)
+		}
+		if execution.State == campaign.StateFailed {
+			failed++
+		}
+	}
+	if failed == 0 {
+		t.Fatal("no delivery failed, so the intention-to-treat assertion proves nothing")
+	}
+	if failed == len(report.Executions) {
+		t.Fatal("every delivery failed, so the comparison has no discriminating power")
 	}
 }
