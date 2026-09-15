@@ -261,7 +261,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 
 	log := campaign.NewMemoryLog()
 	runner, err := campaign.NewRunner(campaign.RunnerSpec{
-		Audiences: s.Audiences, Log: log, MaxAttempts: 3,
+		Audiences: s.Audiences, Log: log, Events: campaign.DiscardEvents(), MaxAttempts: 3,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the runner: %w", err)

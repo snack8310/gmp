@@ -38,6 +38,7 @@ type Report struct {
 type Runner struct {
 	audiences   *audience.Service
 	log         Log
+	events      EventSink
 	deliverers  map[ActionID]Deliverer
 	maxAttempts int
 }
@@ -48,6 +49,10 @@ type RunnerSpec struct {
 	Audiences *audience.Service
 	// Log keeps the executions.
 	Log Log
+	// Events is where this platform's own events go. Use DiscardEvents when
+	// nothing subscribes -- there is no nil default, because dropped events
+	// look exactly like a next step whose conditions match nobody.
+	Events EventSink
 	// MaxAttempts is how many times one delivery may be tried before it is
 	// given up on. There is no default: a silent one would decide, for every
 	// downstream at once, how hard to try before someone goes unreached.
@@ -62,12 +67,16 @@ func NewRunner(spec RunnerSpec) (*Runner, error) {
 	if spec.Log == nil {
 		return nil, errors.New("campaign: runner has no execution log")
 	}
+	if spec.Events == nil {
+		return nil, ErrNoEventSink
+	}
 	if spec.MaxAttempts <= 0 {
 		return nil, fmt.Errorf("%w: %d", ErrNonPositiveAttempts, spec.MaxAttempts)
 	}
 	return &Runner{
 		audiences:   spec.Audiences,
 		log:         spec.Log,
+		events:      spec.Events,
 		deliverers:  make(map[ActionID]Deliverer),
 		maxAttempts: spec.MaxAttempts,
 	}, nil
@@ -182,6 +191,13 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 		if err := r.log.Append(execution); err != nil {
 			return report, fmt.Errorf("campaign %q: recording the execution for %q: %w", c.ID(), uid, err)
 		}
+		// Only a delivery the downstream took becomes an event. A step that
+		// failed every attempt must not tell the next one it succeeded.
+		if execution.State == StateDelivered {
+			if err := r.publish(execution, DeliveredEvent(execution.Action), nil); err != nil {
+				return report, err
+			}
+		}
 		report.Executions = append(report.Executions, execution)
 	}
 	return report, nil
@@ -194,21 +210,50 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 // the delivery carried; a key nothing was delivered under is refused rather
 // than dropped, because dropping it is exactly how an execution ends up
 // hanging with nobody able to say what became of it.
-func (r *Runner) RecordReceipt(key IdempotencyKey, arrived bool, externalRef string) error {
-	execution, found, err := r.log.Lookup(key)
+func (r *Runner) RecordReceipt(receipt Receipt) error {
+	if err := receipt.validate(); err != nil {
+		return err
+	}
+	execution, found, err := r.log.Lookup(receipt.Key)
 	if err != nil {
 		return fmt.Errorf("campaign: looking up the execution for a receipt: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%w: %q", ErrNoSuchExecution, key)
+		return fmt.Errorf("%w: %q", ErrNoSuchExecution, receipt.Key)
 	}
-	if arrived {
+	name := NotArrivedEvent(execution.Action)
+	execution.State = StateNotArrived
+	if receipt.Arrived {
+		name = ArrivedEvent(execution.Action)
 		execution.State = StateArrived
-	} else {
-		execution.State = StateNotArrived
 	}
-	if externalRef != "" {
-		execution.ExternalRef = externalRef
+	if receipt.ExternalRef != "" {
+		execution.ExternalRef = receipt.ExternalRef
 	}
-	return r.log.Update(execution)
+	if err := r.log.Update(execution); err != nil {
+		return err
+	}
+	return r.publish(execution, name, receipt.Attributes)
+}
+
+// publish turns an execution into an event other treatments can react to.
+//
+// The event carries the key, so whatever reacts can trace it back to the
+// execution that produced it; and the placement, so a result reached this way
+// can still be attributed to an arm.
+func (r *Runner) publish(execution Execution, name EventName, attributes map[string]string) error {
+	owned := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		owned[key] = value
+	}
+	event := Event{
+		Name: name, UID: execution.UID, Key: execution.Key,
+		Campaign: execution.Campaign, Treatment: execution.Treatment,
+		Action: execution.Action, Placements: execution.Placements,
+		Attributes: owned,
+	}
+	if err := r.events.Publish(event); err != nil {
+		return fmt.Errorf("campaign: publishing %q for %q: %w", name, execution.Key, err)
+	}
+	return nil
 }

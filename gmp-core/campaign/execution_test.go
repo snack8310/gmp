@@ -19,6 +19,26 @@ type pushWorld struct {
 	log       *campaign.MemoryLog
 	deliverer *campaign.MemoryDeliverer
 	action    campaign.Action
+	events    *recordingSink
+}
+
+// recordingSink keeps every event so that what the platform published can be
+// asserted on rather than assumed.
+type recordingSink struct{ published []campaign.Event }
+
+func (s *recordingSink) Publish(event campaign.Event) error {
+	s.published = append(s.published, event)
+	return nil
+}
+
+func (s *recordingSink) named(name campaign.EventName) []campaign.Event {
+	var out []campaign.Event
+	for _, event := range s.published {
+		if event.Name == name {
+			out = append(out, event)
+		}
+	}
+	return out
 }
 
 func newPushWorld(t *testing.T, population int) *pushWorld {
@@ -31,8 +51,9 @@ func newPushWorld(t *testing.T, population int) *pushWorld {
 		t.Fatalf("registering the action: %v", err)
 	}
 	log := campaign.NewMemoryLog()
+	events := &recordingSink{}
 	runner, err := campaign.NewRunner(campaign.RunnerSpec{
-		Audiences: w.audiences, Log: log, MaxAttempts: 3,
+		Audiences: w.audiences, Log: log, Events: events, MaxAttempts: 3,
 	})
 	if err != nil {
 		t.Fatalf("building the runner: %v", err)
@@ -41,7 +62,7 @@ func newPushWorld(t *testing.T, population int) *pushWorld {
 	if err := runner.RegisterDeliverer(sendSMS, deliverer); err != nil {
 		t.Fatalf("wiring the deliverer: %v", err)
 	}
-	return &pushWorld{world: w, runner: runner, log: log, deliverer: deliverer, action: action}
+	return &pushWorld{world: w, runner: runner, log: log, deliverer: deliverer, action: action, events: events}
 }
 
 func (p *pushWorld) smsTreatment(t *testing.T, id string, who audience.Definition) campaign.Treatment {
@@ -107,7 +128,7 @@ func TestOneKeyRunsThroughDeliveryRecordAndReceipt(t *testing.T) {
 			t.Fatalf("the log filed %q under %q", execution.Key, stored.Key)
 		}
 		// The third segment: a receipt arriving with that same key closes it.
-		if err := w.runner.RecordReceipt(execution.Key, true, "carrier-ref"); err != nil {
+		if err := w.runner.RecordReceipt(campaign.Receipt{Key: execution.Key, Arrived: true, ExternalRef: "carrier-ref"}); err != nil {
 			t.Fatalf("recording a receipt for %q: %v", execution.Key, err)
 		}
 		closed, _, err := w.log.Lookup(execution.Key)
@@ -125,7 +146,7 @@ func TestOneKeyRunsThroughDeliveryRecordAndReceipt(t *testing.T) {
 // became of it.
 func TestAReceiptThatMatchesNothingIsRefused(t *testing.T) {
 	w := newPushWorld(t, 20)
-	if err := w.runner.RecordReceipt("a-key-nothing-was-sent-under", true, ""); !errors.Is(err, campaign.ErrNoSuchExecution) {
+	if err := w.runner.RecordReceipt(campaign.Receipt{Key: "a-key-nothing-was-sent-under", Arrived: true}); !errors.Is(err, campaign.ErrNoSuchExecution) {
 		t.Fatalf("an unmatched receipt should be refused, got %v", err)
 	}
 }
@@ -308,7 +329,7 @@ func TestRunnerRefusesWhatItCannotResolve(t *testing.T) {
 		t.Fatalf("expected an unknown-treatment refusal, got %v", err)
 	}
 	if _, err := campaign.NewRunner(campaign.RunnerSpec{
-		Audiences: w.audiences, Log: campaign.NewMemoryLog(), MaxAttempts: 0,
+		Audiences: w.audiences, Log: campaign.NewMemoryLog(), Events: campaign.DiscardEvents(), MaxAttempts: 0,
 	}); !errors.Is(err, campaign.ErrNonPositiveAttempts) {
 		t.Fatalf("expected a non-positive-attempts refusal, got %v", err)
 	}
@@ -319,7 +340,7 @@ func TestRunnerRefusesWhatItCannotResolve(t *testing.T) {
 func TestRunnerNeedsADelivererForTheAction(t *testing.T) {
 	w := newPushWorld(t, 20)
 	bare, err := campaign.NewRunner(campaign.RunnerSpec{
-		Audiences: w.audiences, Log: campaign.NewMemoryLog(), MaxAttempts: 3,
+		Audiences: w.audiences, Log: campaign.NewMemoryLog(), Events: campaign.DiscardEvents(), MaxAttempts: 3,
 	})
 	if err != nil {
 		t.Fatalf("building a runner with nothing wired: %v", err)

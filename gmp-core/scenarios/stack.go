@@ -2,6 +2,7 @@ package scenarios
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
 	"github.com/snack8310/gmp/gmp-core/campaign"
@@ -129,4 +130,10 @@ func EqualAssignment(id string, shares int, coloured bool) (experimentation.Defi
 // Share is the n-th share, counted from one as everywhere else.
 func Share(n int) (experimentation.BucketNumber, error) {
 	return experimentation.NewBucketNumber(n)
+}
+
+// sortRecords puts records in a stable order so that an enumeration over any
+// feed in this package is reproducible.
+func sortRecords(records []audience.Record) {
+	sort.Slice(records, func(i, j int) bool { return records[i].UID < records[j].UID })
 }
