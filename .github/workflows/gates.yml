@@ -81,9 +81,18 @@ jobs:
         working-directory: gmp-core
         run: go vet ./...
 
-      # Covers the domain assertions for experimentation and the
+      # Covers the domain assertions for every layer and the
       # dependency-direction check in internal/arch, including the mutations
       # that prove that check is not vacuous.
       - name: go test
         working-directory: gmp-core
         run: go test ./...
+
+      # The demo compiles under go build above, but compiling is not running:
+      # it could still panic on a nil map or an unhandled error. Running it
+      # here is what makes "the demo works" a fact rather than a claim. Its
+      # output is for humans and deliberately not asserted on -- the
+      # regression cases live in the scenarios package.
+      - name: go run the demo
+        working-directory: gmp-core
+        run: go run ./cmd/gmp-demo > /dev/null

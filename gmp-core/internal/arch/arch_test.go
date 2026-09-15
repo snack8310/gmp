@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/snack8310/gmp/gmp-core/internal/arch"
@@ -65,6 +66,63 @@ var layers = []layer{
 		// rule, which is what the layering is actually about.
 		opts: arch.Options{ExemptExternalTests: true},
 	},
+	{
+		name: "scenarios",
+		dir:  "../../scenarios",
+		// Nothing sits above scenarios, so it has nothing to forbid. It is in
+		// the table anyway: the completeness check below requires every layer
+		// to be listed, and leaving this one out would make that check pass by
+		// not knowing about it.
+		forbidden: nil,
+		opts:      arch.Options{ExemptExternalTests: true},
+	},
+}
+
+// notLayers are directories under gmp-core that are deliberately outside the
+// layering.
+//
+// cmd is the composition root: assembling the model is exactly the job of
+// seeing every layer at once, so a rule against that would be a rule against
+// the thing it exists to do. internal holds this check itself.
+var notLayers = map[string]bool{"cmd": true, "internal": true}
+
+// The table is the only place the layering is written down, so a layer missing
+// from it is not checked at all -- and nothing would fail. Adding a package
+// under gmp-core and forgetting to list it is the exact mistake this catches.
+func TestEveryLayerIsInTheTable(t *testing.T) {
+	const root = "../.."
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("reading %s: %v", root, err)
+	}
+	listed := map[string]bool{}
+	for _, l := range layers {
+		listed[l.name] = true
+	}
+
+	found := 0
+	for _, entry := range entries {
+		if !entry.IsDir() || notLayers[entry.Name()] || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		holdsGo, err := filepath.Glob(filepath.Join(root, entry.Name(), "*.go"))
+		if err != nil {
+			t.Fatalf("looking for Go files in %s: %v", entry.Name(), err)
+		}
+		if len(holdsGo) == 0 {
+			continue
+		}
+		found++
+		if !listed[entry.Name()] {
+			t.Fatalf("%q is a layer under gmp-core but is not in the layering table, so nothing checks it", entry.Name())
+		}
+	}
+	if found == 0 {
+		t.Fatal("no layers were found on disk, so this check asserted nothing")
+	}
+	if found != len(layers) {
+		t.Fatalf("the table lists %d layers and %d were found on disk", len(layers), found)
+	}
 }
 
 func TestNoLayerDependsOnOneAboveIt(t *testing.T) {
@@ -122,6 +180,15 @@ func TestCheckCatchesAnUpwardImport(t *testing.T) {
 	for _, l := range layers {
 		t.Run(l.name, func(t *testing.T) {
 			path, ok := upward[l.name]
+			if len(l.forbidden) == 0 {
+				// Nothing sits above this layer, so there is no upward import
+				// to try. Skipping silently would let a layer that should have
+				// a fixture lose one unnoticed, so say why.
+				if ok {
+					t.Fatalf("layer %q forbids nothing yet has an upward fixture", l.name)
+				}
+				t.Skipf("%q is the top layer: nothing above it to reach for", l.name)
+			}
 			if !ok {
 				t.Fatalf("no upward import fixture for layer %q", l.name)
 			}
