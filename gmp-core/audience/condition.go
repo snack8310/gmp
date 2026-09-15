@@ -34,6 +34,10 @@ var (
 // Condition is one test a person either passes or does not.
 type Condition interface {
 	matches(eval evaluation, record Record) (bool, error)
+	// equals reports whether two conditions test exactly the same thing. It
+	// exists so that one definition can be shown to demand everything another
+	// one does; == will not do, since some conditions carry a split.
+	equals(other Condition) bool
 	// Describe renders the condition for a human reading a configuration.
 	Describe() string
 }
@@ -62,6 +66,11 @@ func Attribute(name, value string) (Condition, error) {
 func (c attributeCondition) matches(_ evaluation, record Record) (bool, error) {
 	got, present := record.Attributes[c.name]
 	return present && got == c.value, nil
+}
+
+func (c attributeCondition) equals(other Condition) bool {
+	got, ok := other.(attributeCondition)
+	return ok && got == c
 }
 
 func (c attributeCondition) Describe() string {
@@ -117,8 +126,66 @@ func (c shareCondition) matches(eval evaluation, record Record) (bool, error) {
 	return got == c.share, nil
 }
 
+func (c shareCondition) equals(other Condition) bool {
+	got, ok := other.(shareCondition)
+	return ok && got.share == c.share && got.assignment.SameRevisionAs(c.assignment)
+}
+
 func (c shareCondition) Describe() string {
 	return fmt.Sprintf("assignment %q %s", c.assignment.ID(), c.share)
+}
+
+type shareAtMostCondition struct {
+	assignment experimentation.Definition
+	upTo       experimentation.BucketNumber
+}
+
+// ShareAtMost matches people falling in the given share of the assignment or
+// any earlier one.
+//
+// This is what a rollout is: the shares taken in so far. It is one condition
+// rather than a run of alternatives because the carve-up is ordered, which is
+// also why widening it can never drop anyone who was already in.
+func ShareAtMost(assignment experimentation.Definition, upTo experimentation.BucketNumber) (Condition, error) {
+	if assignment.ID() == "" {
+		return nil, ErrUnbuiltShareCondition
+	}
+	if upTo.IsZero() {
+		return nil, fmt.Errorf("%w: the zero value is not a share", experimentation.ErrBucketOutOfRange)
+	}
+	if upTo.Value() > assignment.Split().Shares() {
+		return nil, fmt.Errorf("%w: %s, assignment %q carves fewer", experimentation.ErrBucketOutOfRange, upTo, assignment.ID())
+	}
+	return shareAtMostCondition{assignment: assignment, upTo: upTo}, nil
+}
+
+func (c shareAtMostCondition) matches(eval evaluation, record Record) (bool, error) {
+	if eval.experiments == nil {
+		return false, errors.New("audience: no experimentation service to ask about shares")
+	}
+	key := record.UID.assignmentKey()
+	var (
+		got experimentation.BucketNumber
+		err error
+	)
+	if eval.mode.IsRehearsal() {
+		got, err = eval.experiments.PeekAssign(c.assignment, key)
+	} else {
+		got, err = eval.experiments.Assign(c.assignment, key)
+	}
+	if err != nil {
+		return false, fmt.Errorf("audience: asking for the share of %q: %w", record.UID, err)
+	}
+	return got.Value() <= c.upTo.Value(), nil
+}
+
+func (c shareAtMostCondition) equals(other Condition) bool {
+	got, ok := other.(shareAtMostCondition)
+	return ok && got.upTo == c.upTo && got.assignment.SameRevisionAs(c.assignment)
+}
+
+func (c shareAtMostCondition) Describe() string {
+	return fmt.Sprintf("assignment %q up to %s", c.assignment.ID(), c.upTo)
 }
 
 // --- elapsed since an event --------------------------------------------------
@@ -160,6 +227,11 @@ func (c elapsedCondition) matches(_ evaluation, record Record) (bool, error) {
 		return false, nil
 	}
 	return age >= c.window, nil
+}
+
+func (c elapsedCondition) equals(other Condition) bool {
+	got, ok := other.(elapsedCondition)
+	return ok && got == c
 }
 
 func (c elapsedCondition) Describe() string {

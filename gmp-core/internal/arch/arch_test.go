@@ -18,6 +18,7 @@ type layer struct {
 	name      string
 	dir       string
 	forbidden []string
+	opts      arch.Options
 }
 
 // layers is the whole layering, stated once. The domain documents make zero
@@ -33,6 +34,10 @@ var layers = []layer{
 			"gmp-core/campaign",
 			"gmp-core/scenarios",
 		},
+		// The bottom layer is meant to be lifted out whole, and the domain
+		// documents say its tests travel with it rather than being rewritten.
+		// So its test files are held to the rule too.
+		opts: arch.Options{ExemptExternalTests: false},
 	},
 	{
 		name: "audience",
@@ -42,13 +47,30 @@ var layers = []layer{
 			"gmp-core/campaign",
 			"gmp-core/scenarios",
 		},
+		opts: arch.Options{ExemptExternalTests: true},
+	},
+	{
+		name: "campaign",
+		dir:  "../../campaign",
+		// campaign may depend on audience, and on nothing above it. Reaching
+		// experimentation directly is forbidden too: a rollout is expressed as
+		// an audience definition precisely so this layer never has to.
+		forbidden: []string{
+			"gmp-core/experimentation",
+			"gmp-core/scenarios",
+		},
+		// An upper layer's external test package is where the whole stack gets
+		// wired together: testing through campaign means constructing the
+		// layers underneath it. The package's own files are still held to the
+		// rule, which is what the layering is actually about.
+		opts: arch.Options{ExemptExternalTests: true},
 	},
 }
 
 func TestNoLayerDependsOnOneAboveIt(t *testing.T) {
 	for _, l := range layers {
 		t.Run(l.name, func(t *testing.T) {
-			if err := arch.ZeroDependency(l.dir, l.forbidden); err != nil {
+			if err := arch.ZeroDependency(l.dir, l.forbidden, l.opts); err != nil {
 				t.Fatalf("%s must not depend on any upper layer: %v", l.name, err)
 			}
 		})
@@ -65,7 +87,7 @@ func TestCheckFailsWhenAGuardedPackageIsGone(t *testing.T) {
 	for _, l := range layers {
 		t.Run(l.name, func(t *testing.T) {
 			missing := filepath.Join(t.TempDir(), "renamed-away")
-			err := arch.ZeroDependency(missing, l.forbidden)
+			err := arch.ZeroDependency(missing, l.forbidden, l.opts)
 			if err == nil {
 				t.Fatal("a missing package directory must fail the check, it passed")
 			}
@@ -82,7 +104,7 @@ func TestCheckFailsWhenAGuardedPackageIsGone(t *testing.T) {
 func TestCheckFailsWhenNothingWasExamined(t *testing.T) {
 	for _, l := range layers {
 		t.Run(l.name, func(t *testing.T) {
-			if err := arch.ZeroDependency(t.TempDir(), l.forbidden); !errors.Is(err, arch.ErrNoSourcesExamined) {
+			if err := arch.ZeroDependency(t.TempDir(), l.forbidden, l.opts); !errors.Is(err, arch.ErrNoSourcesExamined) {
 				t.Fatalf("an empty directory must fail the check, got %v", err)
 			}
 		})
@@ -95,6 +117,7 @@ func TestCheckCatchesAnUpwardImport(t *testing.T) {
 	upward := map[string]string{
 		"experimentation": "github.com/snack8310/gmp/gmp-core/audience",
 		"audience":        "github.com/snack8310/gmp/gmp-core/campaign",
+		"campaign":        "github.com/snack8310/gmp/gmp-core/scenarios",
 	}
 	for _, l := range layers {
 		t.Run(l.name, func(t *testing.T) {
@@ -107,7 +130,7 @@ func TestCheckCatchesAnUpwardImport(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "leak.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("writing the fixture: %v", err)
 			}
-			if err := arch.ZeroDependency(dir, l.forbidden); !errors.Is(err, arch.ErrForbiddenImport) {
+			if err := arch.ZeroDependency(dir, l.forbidden, l.opts); !errors.Is(err, arch.ErrForbiddenImport) {
 				t.Fatalf("an upward import must fail the check, got %v", err)
 			}
 		})
@@ -134,16 +157,59 @@ var (
 	if err := os.WriteFile(filepath.Join(dir, "fine.go"), []byte(source), 0o600); err != nil {
 		t.Fatalf("writing the fixture: %v", err)
 	}
-	var forbidden []string
-	for _, l := range layers {
-		if l.name == "audience" {
-			forbidden = l.forbidden
+	var found *layer
+	for i := range layers {
+		if layers[i].name == "audience" {
+			found = &layers[i]
 		}
 	}
-	if forbidden == nil {
+	if found == nil {
 		t.Fatal("the audience layer is not in the table, so this test asserts nothing")
 	}
-	if err := arch.ZeroDependency(dir, forbidden); err != nil {
+	if err := arch.ZeroDependency(dir, found.forbidden, found.opts); err != nil {
 		t.Fatalf("depending downwards must pass the check, got %v", err)
+	}
+}
+
+// The exemption for external test files is a hole in the check, so it gets its
+// own cases. An in-package test file is part of the package and stays held to
+// the rule even where the exemption is on.
+func TestInPackageTestFilesAreNeverExempt(t *testing.T) {
+	dir := t.TempDir()
+	source := `package campaign
+
+import "github.com/snack8310/gmp/gmp-core/scenarios"
+
+var _ = scenarios.Anything
+`
+	if err := os.WriteFile(filepath.Join(dir, "sneaky_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+	opts := arch.Options{ExemptExternalTests: true}
+	if err := arch.ZeroDependency(dir, []string{"gmp-core/scenarios"}, opts); !errors.Is(err, arch.ErrForbiddenImport) {
+		t.Fatalf("an in-package test file reaching upward must fail even with the exemption on, got %v", err)
+	}
+}
+
+// And a package that is nothing but exempt files has had nothing checked, which
+// must read as a failure rather than a pass.
+func TestOnlyExemptFilesCountsAsNothingExamined(t *testing.T) {
+	dir := t.TempDir()
+	source := `package campaign_test
+
+import "github.com/snack8310/gmp/gmp-core/scenarios"
+
+var _ = scenarios.Anything
+`
+	if err := os.WriteFile(filepath.Join(dir, "wiring_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing the fixture: %v", err)
+	}
+	opts := arch.Options{ExemptExternalTests: true}
+	if err := arch.ZeroDependency(dir, []string{"gmp-core/scenarios"}, opts); !errors.Is(err, arch.ErrNoSourcesExamined) {
+		t.Fatalf("a package of nothing but exempt files must fail the check, got %v", err)
+	}
+	// With the exemption off, the same file is checked and caught.
+	if err := arch.ZeroDependency(dir, []string{"gmp-core/scenarios"}, arch.Options{}); !errors.Is(err, arch.ErrForbiddenImport) {
+		t.Fatalf("with the exemption off the same file must be caught, got %v", err)
 	}
 }

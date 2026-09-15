@@ -160,3 +160,25 @@ func (d Definition) AlignedTo() AssignmentID { return d.alignedTo }
 
 // isZero reports whether this is the zero value rather than a built definition.
 func (d Definition) isZero() bool { return d.id == "" }
+
+// SameRevisionAs reports whether two definitions are the same revision of the
+// same assignment -- identical in every field that decides where a key lands.
+//
+// It exists because a caller above this layer may need to know that two
+// conditions are talking about exactly the same carve-up, and cannot work that
+// out for itself: the salt is deliberately not exposed. Answering here keeps
+// it that way.
+//
+// Same assignment id is not enough on its own. Two revisions of one assignment
+// may carve differently, and an uncoloured key moves between them.
+func (d Definition) SameRevisionAs(other Definition) bool {
+	if d.isZero() || other.isZero() {
+		return false
+	}
+	return d.id == other.id &&
+		d.salt == other.salt &&
+		d.algorithm == other.algorithm &&
+		d.colored == other.colored &&
+		d.alignedTo == other.alignedTo &&
+		d.split.equals(other.split)
+}
