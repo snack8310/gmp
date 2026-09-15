@@ -1,0 +1,223 @@
+// Command gmp-demo walks the business scenarios over the in-memory model and
+// prints what happens.
+//
+// It exists to make the model visible, not to test it: the regression cases
+// live in the scenarios package and run under go test. Nothing here reads
+// configuration, listens on anything, or writes to disk.
+package main
+
+import (
+	"fmt"
+	"os"
+	"sort"
+
+	"github.com/snack8310/gmp/gmp-core/audience"
+	"github.com/snack8310/gmp/gmp-core/campaign"
+	"github.com/snack8310/gmp/gmp-core/scenarios"
+)
+
+const population = 1000
+
+func main() {
+	if err := run(os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "gmp-demo: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(out *os.File) error {
+	stack, err := scenarios.NewStack(population)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "抽象模型已装配：%d 人的样本，来源 %q，三层全部走内存实现\n", len(stack.People), scenarios.SourceID)
+	fmt.Fprintln(out, "不接数据库、不接渠道、不起服务。以下全部是模型算出来的真实结果。")
+
+	if err := showBannerContest(out, stack); err != nil {
+		return err
+	}
+	if err := showRollout(out, stack); err != nil {
+		return err
+	}
+	if err := showArms(out, stack); err != nil {
+		return err
+	}
+	// A fresh stack: the sections above have already coloured this
+	// population, and a store that is already full would make the real run
+	// look as though it colours nobody either.
+	if err := showRehearsal(out); err != nil {
+		return err
+	}
+
+	fmt.Fprintln(out, "\n未覆盖：场景 ① 与 ⑤ 需要事件串与执行侧，两者尚未建立。")
+	return nil
+}
+
+func section(out *os.File, title, note string) {
+	fmt.Fprintf(out, "\n── %s ──\n%s\n\n", title, note)
+}
+
+func showBannerContest(out *os.File, stack *scenarios.Stack) error {
+	section(out, "场景 ③ · APP 首页 banner",
+		"大促（优先级 100）与会员召回（优先级 50）抢同一个位子；大促内部用决策表分新客 / 老客。")
+
+	contest, err := stack.BannerContest()
+	if err != nil {
+		return err
+	}
+	counts := map[string]int{}
+	shown := 0
+	for _, person := range stack.People {
+		decision, err := contest.Campaigns.Decide(scenarios.BannerSlot, person.UID, audience.Live())
+		if err != nil {
+			return err
+		}
+		if decision.Won {
+			counts[string(decision.Award.Campaign)+" / "+string(decision.Award.Treatment)]++
+		} else {
+			counts["无人接手"]++
+		}
+		if shown < 3 {
+			shown++
+			printOne(out, person, decision)
+		}
+	}
+	fmt.Fprintln(out, "  全样本落点：")
+	for _, line := range sorted(counts) {
+		fmt.Fprintf(out, "    %s\n", line)
+	}
+	return nil
+}
+
+func printOne(out *os.File, person audience.Record, decision campaign.Decision) {
+	tier := person.Attributes["tier"]
+	if decision.Won {
+		image, _ := decision.Award.Call.Param("image")
+		fmt.Fprintf(out, "  %s（%s）→ %s / %s，素材 %s\n",
+			person.UID, tier, decision.Award.Campaign, decision.Award.Treatment, image)
+	} else {
+		fmt.Fprintf(out, "  %s（%s）→ 什么都不给\n", person.UID, tier)
+	}
+	for _, loss := range decision.Losses {
+		fmt.Fprintf(out, "      留痕：%s / %s 未中，原因：%s\n", loss.Campaign, loss.Treatment, why(loss.Reason))
+	}
+}
+
+func showRollout(out *os.File, stack *scenarios.Stack) error {
+	section(out, "场景 ④ · 灰度放量",
+		"切 100 份，逐步纳入。关键不是纳入了多少，是已经进来的人一个都不掉。")
+
+	var previous map[audience.UID]bool
+	for _, step := range []int{5, 20, 100} {
+		service, err := stack.RolloutAdmitting(step)
+		if err != nil {
+			return err
+		}
+		current := map[audience.UID]bool{}
+		for _, person := range stack.People {
+			decision, err := service.Decide(scenarios.BannerSlot, person.UID, audience.Live())
+			if err != nil {
+				return err
+			}
+			if decision.Won {
+				current[person.UID] = true
+			}
+		}
+		dropped := 0
+		for uid := range previous {
+			if !current[uid] {
+				dropped++
+			}
+		}
+		fmt.Fprintf(out, "  放到前 %d 份：纳入 %d 人", step, len(current))
+		if previous == nil {
+			fmt.Fprintln(out, "")
+		} else {
+			fmt.Fprintf(out, "，上一步的人掉出去 %d 个\n", dropped)
+		}
+		previous = current
+	}
+	fmt.Fprintln(out, "  用「随机取 5%」的话，第二次取的跟第一次不是同一批人，而且不报错。")
+	return nil
+}
+
+func showArms(out *os.File, stack *scenarios.Stack) error {
+	section(out, "场景 ② · 双十一分组实验",
+		"近 30 天有加购的人切四份。对照组挂零个投放项，但必须在系统里存在。")
+
+	arms, err := stack.ExperimentArms()
+	if err != nil {
+		return err
+	}
+	base, err := stack.Audiences.Enumerate(arms.Base, audience.Live())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  基础人群：%d 人\n", len(base))
+	covered := 0
+	for _, name := range arms.Order {
+		members, err := stack.Audiences.Enumerate(arms.Arms[name], audience.Live())
+		if err != nil {
+			return err
+		}
+		covered += len(members)
+		note := ""
+		if name == arms.Control {
+			note = "  ← 对照组，挂 0 个投放项"
+		}
+		fmt.Fprintf(out, "    %-18s %d 人%s\n", name, len(members), note)
+	}
+	fmt.Fprintf(out, "  四臂合计 %d 人，与基础人群相差 %d —— 不重不漏\n", covered, covered-len(base))
+	return nil
+}
+
+func showRehearsal(out *os.File) error {
+	section(out, "演练 · 不能有副作用",
+		"演练走「只读问一下」：算份号但不写染色记录，否则演练会改变它要预览的东西。")
+
+	stack, err := scenarios.NewStack(population)
+	if err != nil {
+		return err
+	}
+	before := stack.Colouring.Size()
+	arms, err := stack.ExperimentArms()
+	if err != nil {
+		return err
+	}
+	if _, err = stack.Audiences.Enumerate(arms.Arms[arms.Control], audience.Rehearsal()); err != nil {
+		return err
+	}
+	afterRehearsal := stack.Colouring.Size()
+	if _, err := stack.Audiences.Enumerate(arms.Arms[arms.Control], audience.Live()); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  染色记录：演练前 %d，演练后 %d，真实跑一遍后 %d\n",
+		before, afterRehearsal, stack.Colouring.Size())
+	return nil
+}
+
+// why renders a loss reason for a human reading the demo. The reasons
+// themselves stay in the domain's own vocabulary; this is presentation.
+func why(reason campaign.LossReason) string {
+	switch reason {
+	case campaign.LossOutsideRollout:
+		return "不在当前放量范围内"
+	case campaign.LossAudienceDidNotMatch:
+		return "人群不命中"
+	case campaign.LossRoutedElsewhere:
+		return "决策表把他路由到别处"
+	case campaign.LossOnPriority:
+		return "优先级输了"
+	default:
+		return string(reason)
+	}
+}
+
+func sorted(counts map[string]int) []string {
+	out := make([]string, 0, len(counts))
+	for key, value := range counts {
+		out = append(out, fmt.Sprintf("%-40s %d 人", key, value))
+	}
+	sort.Strings(out)
+	return out
+}
