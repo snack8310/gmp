@@ -47,6 +47,13 @@ jobs:
       - name: docs consistency
         run: python3 test/docs/consistency_check.py
 
+      # Every check in that gate finds its own subjects, so every one of them
+      # can pass by finding none. These cases break one thing at a time in a
+      # copy of the tree and require the gate to notice -- without them a green
+      # exit code says nothing about whether anything was examined.
+      - name: docs gate mutations
+        run: python3 test/docs/consistency_check_test.py
+
       # The version comes from gmp-core/go.mod rather than being pinned here,
       # so the toolchain the gate runs cannot drift from the one the module
       # declares.
