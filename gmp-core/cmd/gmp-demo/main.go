@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
 	"github.com/snack8310/gmp/gmp-core/campaign"
@@ -45,6 +46,9 @@ func run(out *os.File) error {
 	if err := showDelivery(out, stack); err != nil {
 		return err
 	}
+	if err := showTwoStep(out); err != nil {
+		return err
+	}
 	// A fresh stack: the sections above have already coloured this
 	// population, and a store that is already full would make the real run
 	// look as though it colours nobody either.
@@ -52,7 +56,7 @@ func run(out *os.File) error {
 		return err
 	}
 
-	fmt.Fprintln(out, "\n未覆盖：场景 ① 与 ⑤ 需要事件与回流，尚未建立。")
+	fmt.Fprintln(out, "\n未覆盖：场景 ① 的「未使用」来自券系统，属另一个来源；一份人群定义能否跨多个来源仍是开放问题。")
 	return nil
 }
 
@@ -201,6 +205,59 @@ func showRehearsal(out *os.File) error {
 
 // why renders a loss reason for a human reading the demo. The reasons
 // themselves stay in the domain's own vocabulary; this is presentation.
+func showTwoStep(out *os.File) error {
+	section(out, "场景 ⑤ · 两级触达，只靠事件相连",
+		"第一步发 WhatsApp，四小时后对未读的人发短信。两个投放项互不相识——第二步的人群定义建在回流来源上。")
+
+	// A fresh stack: this chain registers its own backflow source.
+	stack, err := scenarios.NewStack(population)
+	if err != nil {
+		return err
+	}
+	chain, err := stack.CrossBorderWinBack()
+	if err != nil {
+		return err
+	}
+
+	first, err := chain.Runner.Run(chain.First, chain.FirstStep, "entry", audience.Live())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  第一步：发出 %d 条 WhatsApp\n", len(first.Executions))
+
+	var unread int
+	for i, execution := range first.Executions {
+		status := "yes"
+		if i%2 != 0 {
+			status = "no"
+			unread++
+		}
+		if err := chain.Runner.RecordReceipt(campaign.Receipt{
+			Key: execution.Key, Arrived: true, Attributes: map[string]string{"read": status},
+		}); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(out, "  渠道回执：其中 %d 人未读（「未读」是渠道自己的说法，平台不解释）\n", unread)
+
+	tooSoon, err := chain.Runner.Run(chain.Second, chain.SecondStep, "follow-up", audience.Live())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  还没到四小时就跑第二步：触达 %d 人\n", len(tooSoon.Executions))
+
+	chain.Backflow.Advance(4 * time.Hour)
+	fmt.Fprintln(out, "  回流来源把时间推进四小时（时间归来源，核心从不问现在几点）")
+
+	second, err := chain.Runner.Run(chain.Second, chain.SecondStep, "follow-up", audience.Live())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  第二步：对 %d 人发短信 —— 正是未读的那批\n", len(second.Executions))
+	fmt.Fprintln(out, "  第二步的配置里没有任何指向第一步的引用，只有一个建在回流来源上的人群定义。")
+	return nil
+}
+
 func why(reason campaign.LossReason) string {
 	switch reason {
 	case campaign.LossOutsideRollout:
@@ -265,7 +322,7 @@ func showDelivery(out *os.File, stack *scenarios.Stack) error {
 	fmt.Fprintf(out, "  取一条被接收的看三段：\n")
 	fmt.Fprintf(out, "    决策产出 → 投放项 %s，落点 %s\n", sample.Treatment, sample.Placements[0])
 	fmt.Fprintf(out, "    投递携带 → 幂等键 %q，尝试 %d 次\n", sample.Key, sample.Attempts)
-	if err := delivery.Runner.RecordReceipt(sample.Key, true, "carrier-8891"); err != nil {
+	if err := delivery.Runner.RecordReceipt(campaign.Receipt{Key: sample.Key, Arrived: true, ExternalRef: "carrier-8891"}); err != nil {
 		return err
 	}
 	closed, _, err := delivery.Log.Lookup(sample.Key)
@@ -274,7 +331,7 @@ func showDelivery(out *os.File, stack *scenarios.Stack) error {
 	}
 	fmt.Fprintf(out, "    回执带同一个键回来 → 状态 %s，外部标识 %s\n", closed.State, closed.ExternalRef)
 
-	if err := delivery.Runner.RecordReceipt("一个从没投递过的键", true, ""); err != nil {
+	if err := delivery.Runner.RecordReceipt(campaign.Receipt{Key: "一个从没投递过的键", Arrived: true}); err != nil {
 		fmt.Fprintf(out, "  对不上的回执被拒绝：%v\n", err)
 	} else {
 		fmt.Fprintln(out, "  对不上的回执被接受了 —— 这是个缺陷")
