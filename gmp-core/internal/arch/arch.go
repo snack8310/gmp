@@ -41,12 +41,30 @@ type Violation struct {
 
 func (v Violation) String() string { return fmt.Sprintf("%s imports %q", v.File, v.Import) }
 
-// ZeroDependency parses every Go file under dir, including test files, and
-// reports any import whose path contains one of the forbidden fragments.
+// Options tunes what ZeroDependency holds to the rule.
+type Options struct {
+	// ExemptExternalTests skips files declaring the external test package
+	// (package X_test) when checking imports.
+	//
+	// Such a file is a consumer of the package, not part of it, and for an
+	// upper layer it is the only place the whole stack gets wired together --
+	// something has to construct the layers below in order to test through
+	// them. Leave it false wherever the tests are expected to travel with the
+	// package: the bottom layer is meant to be lifted out whole, tests
+	// included, so a test of it reaching upward is as much of a problem as the
+	// package itself doing so.
+	//
+	// In-package test files are never exempt: they are the package.
+	ExemptExternalTests bool
+}
+
+// ZeroDependency parses every Go file under dir and reports any import whose
+// path contains one of the forbidden fragments.
 //
-// It fails when dir cannot be read or holds no Go files, so that a package
-// which was renamed or deleted produces a failure rather than a quiet pass.
-func ZeroDependency(dir string, forbidden []string) error {
+// It fails when dir cannot be read or holds no files it actually checked, so
+// that a package which was renamed, deleted, or reduced to nothing but exempt
+// files produces a failure rather than a quiet pass.
+func ZeroDependency(dir string, forbidden []string, opts Options) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return fmt.Errorf("arch: cannot inspect %s: %w", dir, err)
@@ -69,6 +87,9 @@ func ZeroDependency(dir string, forbidden []string) error {
 		file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
 		if err != nil {
 			return fmt.Errorf("arch: parsing %s: %w", path, err)
+		}
+		if opts.ExemptExternalTests && strings.HasSuffix(file.Name.Name, "_test") {
+			return nil
 		}
 		examined++
 		for _, spec := range file.Imports {
