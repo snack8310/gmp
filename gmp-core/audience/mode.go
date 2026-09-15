@@ -28,6 +28,13 @@ func Rehearsal() Mode { return Mode{rehearsal: true, set: true} }
 // IsRehearsal reports whether this is a rehearsal.
 func (m Mode) IsRehearsal() bool { return m.rehearsal }
 
+// IsSet reports whether a mode was chosen at all.
+//
+// A layer above may need to refuse work before starting it rather than let the
+// refusal surface from somewhere deeper, where the error would read as being
+// about the wrong thing.
+func (m Mode) IsSet() bool { return m.set }
+
 func (m Mode) validate() error {
 	if !m.set {
 		return ErrModeNotSet

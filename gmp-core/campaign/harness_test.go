@@ -75,7 +75,9 @@ func newWorld(t *testing.T, population int) *world {
 		t.Fatalf("registering the feed: %v", err)
 	}
 
-	show, err := campaign.RegisterAction("show-image", "image")
+	show, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "show-image", Direction: campaign.DirectionPull, Required: []string{"image"},
+	})
 	if err != nil {
 		t.Fatalf("registering the action: %v", err)
 	}

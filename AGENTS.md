@@ -221,11 +221,11 @@ AI 默认按以下顺序建立上下文：
 
   | 场景 | 状态 | 落点 |
   |---|---|---|
-  | ① 新客首单转化 | **未建立** | 需要事件串与执行侧，两者尚未建立 |
-  | ② 双十一预热分组实验 | **分组与对照组已建立**；触达与指标未建立 | `gmp-core/scenarios/`、`gmp-core/audience/` |
+  | ① 新客首单转化 | **未建立** | 执行侧已建立；仍缺事件与回流，第二步无从触发 |
+  | ② 双十一预热分组实验 | **分组、对照组与触达已建立**；指标未建立 | `gmp-core/scenarios/`、`gmp-core/audience/`、`gmp-core/campaign/` |
   | ③ APP 首页 banner 个性化 | **已建立**：抢位、决策表、当场决定 | `gmp-core/scenarios/`、`gmp-core/campaign/` |
   | ④ 新玩法灰度放量 | **放量单调性已建立**；执行部分未建立 | `gmp-core/scenarios/`、`gmp-core/experimentation/` |
-  | ⑤ 跨境召回 · 两级触达 | **未建立** | 同 ① |
+  | ⑤ 跨境召回 · 两级触达 | **未建立** | 同 ①。其中幂等键贯穿三段与重试已建立，见 `gmp-core/campaign/` |
 
   已建立的部分随 `go test ./...` 在 CI 中必跑。**未建立的部分仍适用原规则**：核心业务模型触及它们的改动只能靠人工与评估器逐条核对场景文档，**并在变更证据中如实记为未覆盖项**，不得省略。
 - 按「约束落地优先级」，本条的目标是自动化检查而非文档约定；**停留在文档层只是过渡状态**。承接方式见 [`docs/domain/system-boundaries.md`](docs/domain/system-boundaries.md) 的 B7。

@@ -193,7 +193,9 @@ func mustAttribute(name, value string) audience.Condition {
 }
 
 func treatment(id string, who audience.Definition, image string) (campaign.Treatment, error) {
-	action, err := campaign.RegisterAction("show-image", "image")
+	action, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "show-image", Direction: campaign.DirectionPull, Required: []string{"image"},
+	})
 	if err != nil {
 		return campaign.Treatment{}, fmt.Errorf("scenarios: registering the action: %w", err)
 	}
@@ -207,4 +209,69 @@ func treatment(id string, who audience.Definition, image string) (campaign.Treat
 		Who:  who,
 		Call: call,
 	})
+}
+
+// ArmDelivery is scenario 2's delivery half for one arm: the people in that
+// arm, and the machinery to push a message to each of them.
+type ArmDelivery struct {
+	Campaign  campaign.Campaign
+	Treatment campaign.TreatmentID
+	Runner    *campaign.Runner
+	Log       *campaign.MemoryLog
+	Deliverer *campaign.MemoryDeliverer
+	// Arm is which share this treatment is aimed at.
+	Arm int
+}
+
+// ArmDelivery builds the push side for one arm of scenario 2.
+func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
+	arms, err := s.ExperimentArms()
+	if err != nil {
+		return nil, err
+	}
+	if arm < 1 || arm > len(arms.Order) {
+		return nil, fmt.Errorf("scenarios: arm %d is outside the experiment", arm)
+	}
+	who := arms.Arms[arms.Order[arm-1]]
+
+	action, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "send-sms", Direction: campaign.DirectionPush, Required: []string{"copy"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: registering the action: %w", err)
+	}
+	call, err := action.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: filling in the action: %w", err)
+	}
+	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
+		ID: "warmup-sms", Slot: BannerSlot, Who: who, Call: call,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the treatment: %w", err)
+	}
+	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID:         "double-eleven-delivery",
+		Priority:   campaign.NewPriority(100),
+		Treatments: []campaign.Treatment{treatment},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the campaign: %w", err)
+	}
+
+	log := campaign.NewMemoryLog()
+	runner, err := campaign.NewRunner(campaign.RunnerSpec{
+		Audiences: s.Audiences, Log: log, MaxAttempts: 3,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
+	}
+	deliverer := campaign.NewMemoryDeliverer()
+	if err := runner.RegisterDeliverer("send-sms", deliverer); err != nil {
+		return nil, fmt.Errorf("scenarios: wiring the deliverer: %w", err)
+	}
+	return &ArmDelivery{
+		Campaign: built, Treatment: treatment.ID(),
+		Runner: runner, Log: log, Deliverer: deliverer, Arm: arm,
+	}, nil
 }
