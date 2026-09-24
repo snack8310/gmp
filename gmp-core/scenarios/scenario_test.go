@@ -394,13 +394,24 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 
 	// Without this the loops below can run over empty arms and pass while
 	// asserting nothing.
+	//
+	// The bound is not "non-empty": one member of an arm is spent per
+	// treatment below, to make a send fail. An arm with no more members than
+	// it has treatments would have every member short of something, and for
+	// the arm prescribed more than one action nobody would be left whose
+	// comparison says both arrived -- with every other guard silent.
+	treatmentsPerArm := map[string]int{}
+	for _, treatment := range built.Treatments {
+		treatmentsPerArm[treatment.Arm]++
+	}
 	for _, name := range built.Arms.Order {
 		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
 		if err != nil {
 			t.Fatalf("enumerating arm %q: %v", name, err)
 		}
-		if len(members) == 0 {
-			t.Fatalf("arm %q is empty, so everything asserted about it is vacuous", name)
+		if len(members) <= treatmentsPerArm[name] {
+			t.Fatalf("arm %q has %d members and %d treatments; with one member spent per treatment, none is left whose comparison says everything arrived",
+				name, len(members), treatmentsPerArm[name])
 		}
 	}
 	var acting int
