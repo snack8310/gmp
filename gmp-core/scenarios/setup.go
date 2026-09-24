@@ -158,7 +158,7 @@ func (s *Stack) ExperimentArms() (*ExperimentArms, error) {
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := EqualAssignment("double-eleven-warmup", 4, true)
+	assignment, err := EqualAssignment(ArmAssignment, 4, true)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 	who := arms.Arms[arms.Order[arm-1]]
 
 	action, err := campaign.RegisterAction(campaign.ActionSpec{
-		ID: "send-sms", Direction: campaign.DirectionPush, Required: []string{"copy"},
+		ID: SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: registering the action: %w", err)
@@ -267,7 +267,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
 	}
 	deliverer := campaign.NewMemoryDeliverer()
-	if err := runner.RegisterDeliverer("send-sms", deliverer); err != nil {
+	if err := runner.RegisterDeliverer(SMSAction, deliverer); err != nil {
 		return nil, fmt.Errorf("scenarios: wiring the deliverer: %w", err)
 	}
 	return &ArmDelivery{

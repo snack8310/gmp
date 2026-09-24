@@ -366,6 +366,22 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 		t.Fatalf("the control arm %q is prescribed %v; it is supposed to get nothing",
 			built.Arms.Control, got)
 	}
+	// Which share each arm is. Stated here, and deliberately a different value
+	// per arm: an execution's placement is checked against this rather than
+	// merely checked for being present. A placement that exists but always
+	// says the same share would record every arm's results under one arm, and
+	// the experiment side would attribute all of them wrongly.
+	share := map[string]int{
+		"A-control":        1,
+		"B-sms":            2,
+		"C-sms-and-coupon": 3,
+		"D-coupon":         4,
+	}
+	for _, name := range built.Arms.Order {
+		if _, held := share[name]; !held {
+			t.Fatalf("arm %q is in the experiment but no share is stated for it", name)
+		}
+	}
 
 	// The campaign has to hang exactly that, arm by arm.
 	hangs := built.ByArm()
@@ -400,6 +416,11 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 	// Run every treatment, then ask what each person actually received.
 	received := map[audience.UID][]campaign.ActionID{}
 	for _, treatment := range built.Treatments {
+		want, held := share[treatment.Arm]
+		if !held {
+			t.Fatalf("treatment %q names arm %q, which is not in the experiment",
+				treatment.ID, treatment.Arm)
+		}
 		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
 		if err != nil {
 			t.Fatalf("running treatment %q: %v", treatment.ID, err)
@@ -415,9 +436,23 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 				t.Fatalf("%q was recorded under treatment %q, expected %q",
 					execution.Key, execution.Treatment, treatment.ID)
 			}
-			if len(execution.Placements) == 0 {
-				t.Fatalf("%q carries no placement, so its result cannot be attributed to an arm",
-					execution.Key)
+			if len(execution.Placements) != 1 {
+				t.Fatalf("%q carries %d placements, expected exactly the one assignment its arm is a share of",
+					execution.Key, len(execution.Placements))
+			}
+			placement := execution.Placements[0]
+			if placement.Assignment != scenarios.ArmAssignment {
+				t.Fatalf("%q is placed in assignment %q, expected %q",
+					execution.Key, placement.Assignment, scenarios.ArmAssignment)
+			}
+			if placement.Share != want {
+				t.Fatalf("%q is in arm %q and placed in share %d, expected share %d",
+					execution.Key, treatment.Arm, placement.Share, want)
+			}
+			if execution.State == campaign.StateFailed {
+				// Recorded in its arm either way -- dropping it would quietly
+				// filter the audience -- but it is not something received.
+				continue
 			}
 			received[execution.UID] = append(received[execution.UID], execution.Action)
 		}

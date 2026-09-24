@@ -27,6 +27,14 @@ const (
 	CouponSlot = campaign.SlotID("coupon")
 )
 
+// ArmAssignment is the assignment scenario 2's arms are shares of.
+//
+// It is named here rather than only inside the builder so that a case can
+// state which assignment an execution's placement has to point at. Checking
+// only that a placement exists would let every arm be recorded under one
+// share, which is exactly the attribution the scenario needs.
+const ArmAssignment = "double-eleven-warmup"
+
 // Stack is the three layers wired together over in-memory implementations.
 //
 // It is ordinary code rather than a test helper so that the demo and the
