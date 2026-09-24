@@ -291,6 +291,9 @@ type ArmCampaign struct {
 	Treatments []ArmTreatment
 	Runner     *campaign.Runner
 	Log        *campaign.MemoryLog
+	// Deliverers is what each action was wired to, so that a case can make a
+	// send fail and check that a failure is still recorded in its arm.
+	Deliverers map[campaign.ActionID]*campaign.MemoryDeliverer
 }
 
 // ArmTreatment is one treatment together with the arm it is aimed at.
@@ -396,14 +399,18 @@ func (s *Stack) ArmCampaign() (*ArmCampaign, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
 	}
+	deliverers := make(map[campaign.ActionID]*campaign.MemoryDeliverer, len(described))
 	for _, action := range []campaign.ActionID{SMSAction, CouponAction} {
-		if err := runner.RegisterDeliverer(action, campaign.NewMemoryDeliverer()); err != nil {
+		deliverer := campaign.NewMemoryDeliverer()
+		if err := runner.RegisterDeliverer(action, deliverer); err != nil {
 			return nil, fmt.Errorf("scenarios: wiring the deliverer for %q: %w", action, err)
 		}
+		deliverers[action] = deliverer
 	}
 
 	return &ArmCampaign{
-		Campaign: built, Arms: arms, Treatments: described, Runner: runner, Log: log,
+		Campaign: built, Arms: arms, Treatments: described,
+		Runner: runner, Log: log, Deliverers: deliverers,
 	}, nil
 }
 

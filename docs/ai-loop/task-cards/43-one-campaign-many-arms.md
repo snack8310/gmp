@@ -22,9 +22,9 @@
 
 - **范围内**：`gmp-core/scenarios/setup.go`（新增共享装配）、`gmp-core/scenarios/stack.go`（新增位子与分流常量）、`gmp-core/scenarios/scenario_test.go`（新增跨层回归用例）、`gmp-core/cmd/gmp-demo/main.go`（新增一节）。
 - **非目标**：见 issue #43。特别地——**不做实验指标**；**不修订根 `AGENTS.md`**；不改 `docs/domain/`；不改三层既有代码；不给 demo 输出加快照断言。
-- **影响面**：上述 `gmp-core/scenarios/` 下三个文件与 `gmp-core/cmd/gmp-demo/main.go`，加上评估器判定后补写的 `docs/history/memory/mechanization-claims.md` 与本任务卡。`experimentation` / `audience` / `campaign` 三层与 `internal/arch`、CI workflow 均不改动。
+- **影响面**：`gmp-core/scenarios/setup.go`、`gmp-core/scenarios/stack.go`、`gmp-core/scenarios/scenario_test.go`、`gmp-core/cmd/gmp-demo/main.go`，加上评估器判定后补写的 `docs/history/memory/mechanization-claims.md`、`docs/history/changes/2026-09-24-one-campaign-many-arms.md` 与本任务卡。`experimentation` / `audience` / `campaign` 三层与 `internal/arch`、CI workflow 均不改动。
 
-  > 初版此处写「仅上述三个文件」，漏掉了 `stack.go`——新增的位子常量就落在那里。由评估器按 `review-package-consistency`「载体之间对同一事实出现不一致陈述时以仓库内产物为准」抓出并修正。
+  > 初版此处写「仅上述三个文件」，漏掉了 `stack.go`——新增的位子常量就落在那里。由评估器按 `review-package-consistency`「载体之间对同一事实出现不一致陈述时以仓库内产物为准」抓出。第二轮复审指出改后那行仍是计数形态且仍漏了变更证据自身，本轮改为逐份枚举，计数一并去掉。
 - **外部系统读写影响**：无。全程内存实现，不读配置、不起服务、不落盘。
 
 ## 高风险项
@@ -163,3 +163,17 @@
 非阻断风险 2（`received` 把失败的执行也算作「收到」）一并消掉：失败的执行仍记在它的臂里（剔掉等于偷偷筛人群），但不计入「收到」。
 
 评估器判定应新增抽象记忆，已按其落点建议扩写进 `docs/history/memory/mechanization-claims.md` 规则 8，可机检的那一半承接见 #46；D1 判定为登记后续 issue 而非沉淀记忆，见 #45。
+
+### 复审裁决 `FAIL`，阻断全部落在载体
+
+| 阻断问题 | 落在 | 处理 |
+|---|---|---|
+| 变更证据的「关键文件」与存量复核那句写了计数；任务卡「影响面」改后仍是计数形态，且仍漏了变更证据自身 | 载体侧 | 全部改为枚举。任务卡该行改为逐份列出文件路径 |
+
+复审确认产物侧阻断已真修复：期望份号逐臂独立写出、运行时实际取到的值各不相同，且评估器自行设计的两条新攻击路径（整体反转份号顺序、让描述与实际人群脱钩）经论证均已封死。
+
+复审另提一条非阻断：「失败不算收到」的分支当时**永不执行**（装配从不让投递失败），删掉照样全绿，与规则 7 的循环空转同族。**本轮不按「在文档里降格」处理，改为注入失败让它变成被断言的性质**——第一次改法把失败的人从比较里豁免，变异实测**未捕获**（豁免等于不比较）；改为从期望里扣减后捕获。
+
+复审建议把计数禁令本身下沉为静态检查（本仓库第三次复发），已登记 #47，并在其中写明前置条件：`source-enumeration-fidelity.md` 需先按 `mechanization-claims` 规则 2 补编号清单与固化归属表。
+
+**停止条件如实标注**：首轮阻断中有一条落在产物侧，复审阻断全部落在载体侧。根 `AGENTS.md` 的停止条件要求**连续两轮**全落载体，本轮未连续，自修复继续；若下一轮仍全落载体，则停止自修复并交人工裁决。
