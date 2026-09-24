@@ -425,6 +425,11 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 	// the comparison: excusing them would stop the comparison from noticing a
 	// failed send being counted as received.
 	missing := map[audience.UID][]campaign.ActionID{}
+	// How many treatments of an arm have already had a send made to fail, so
+	// that the next one picks a different person. Failing the same person on
+	// every treatment of their arm would subtract their whole prescription,
+	// and their comparison would degenerate to empty against empty.
+	failedSoFar := map[string]int{}
 	var failures int
 	for _, treatment := range built.Treatments {
 		want, held := share[treatment.Arm]
@@ -449,9 +454,16 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 		if !wired {
 			t.Fatalf("action %q has no deliverer", treatment.Action)
 		}
-		deliverer.FailNext(rehearsed.Planned[0].Key, 99)
-		failedBy[treatment.ID] = rehearsed.Planned[0].UID
-		missing[rehearsed.Planned[0].UID] = append(missing[rehearsed.Planned[0].UID], treatment.Action)
+		at := failedSoFar[treatment.Arm]
+		failedSoFar[treatment.Arm]++
+		if at >= len(rehearsed.Planned) {
+			t.Fatalf("arm %q has more treatments than people, so two of them would fail the same person",
+				treatment.Arm)
+		}
+		victim := rehearsed.Planned[at]
+		deliverer.FailNext(victim.Key, 99)
+		failedBy[treatment.ID] = victim.UID
+		missing[victim.UID] = append(missing[victim.UID], treatment.Action)
 		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
 		if err != nil {
 			t.Fatalf("running treatment %q: %v", treatment.ID, err)
@@ -495,6 +507,16 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 	}
 	if failures != len(built.Treatments) {
 		t.Fatalf("%d sends failed, expected one per treatment", failures)
+	}
+	// The failures are spread over different people. Stacking them on one
+	// person would subtract their whole prescription, and for the arm that is
+	// prescribed more than one action that person's comparison would stop
+	// saying anything about getting both.
+	for uid, actions := range missing {
+		if len(actions) > 1 {
+			t.Fatalf("%q had %v subtracted; failures are supposed to fall on different people",
+				uid, actions)
+		}
 	}
 
 	for _, name := range built.Arms.Order {
