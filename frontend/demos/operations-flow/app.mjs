@@ -27,11 +27,12 @@ const nodes = [
  {id:'success',name:'触达成功',kind:'SUCCESS TERMINAL',x:410,z:-135,w:92,d:84,h:34,desc:'已抵达终点并获得模拟成功回执的虚拟用户。它不是阅读率、下单率或业务转化。',rules:[['状态','终态'],['口径','模拟回执成功'],['业务转化','未模拟']]},
  {id:'failed',name:'触达失败',kind:'FAILURE TERMINAL',x:410,z:145,w:92,d:84,h:24,desc:'预设脚本产生的终态失败。延迟回执与尚未进入的人不计入这里；不自动补发。',rules:[['状态','终态'],['失败原因','模拟渠道拒绝'],['真实重试','无']]},
 ];
+icons.flowExperiment='<path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5"/>';
 icons.a2=icons.a;icons.b2=icons.b;icons.control2=icons.control;
-nodes.push({id:'a2',name:'A1 组',kind:'ADDITIONAL EXPERIMENT A',x:70,z:-245,w:53,d:53,h:28,desc:'画布额外实验的 A 出口，只从所选分支接收用户，不改变继承实验分组。',rules:[]},{id:'b2',name:'A2 组',kind:'ADDITIONAL EXPERIMENT B',x:70,z:-85,w:53,d:53,h:28,desc:'画布额外实验的 B 出口。分母是所选分支，不是整个人群。',rules:[]},{id:'control2',name:'副对照',kind:'ADDITIONAL NO DELIVERY',x:70,z:90,w:53,d:53,h:28,desc:'画布额外实验的对照出口，不进入触达渠道，不属于失败。',rules:[]});
+nodes.push({id:'flowExperiment',name:'流程实验',kind:'FLOW EXPERIMENT NODE',x:-60,z:0,w:62,d:62,h:50,desc:'进入后的独立流程实验节点。仅对从指定路径到达本节点的模拟用户分组，不改入口人群或继承实验。',rules:[]},{id:'a2',name:'A1 组',kind:'ADDITIONAL EXPERIMENT A',x:70,z:-245,w:53,d:53,h:28,desc:'画布额外实验的 A 出口，只从所选分支接收用户，不改变继承实验分组。',rules:[]},{id:'b2',name:'A2 组',kind:'ADDITIONAL EXPERIMENT B',x:70,z:-85,w:53,d:53,h:28,desc:'画布额外实验的 B 出口。分母是所选分支，不是整个人群。',rules:[]},{id:'control2',name:'副对照',kind:'ADDITIONAL NO DELIVERY',x:70,z:90,w:53,d:53,h:28,desc:'画布额外实验的对照出口，不进入触达渠道，不属于失败。',rules:[]});
 const byId = Object.fromEntries(nodes.map(n => [n.id,n]));
 let currentAudience = null;let extraConfig=null;let canvasPicker;
-const visibleNodes = () => nodes.filter(n => ['a2','b2','control2'].includes(n.id)?Boolean(scenario.extra):scenario.experimentId?n.id!=='direct':!['a','b','control'].includes(n.id));
+const visibleNodes = () => nodes.filter(n => ['flowExperiment','a2','b2','control2'].includes(n.id)?Boolean(scenario.extra):scenario.experimentId?n.id!=='direct':!['a','b','control'].includes(n.id));
 let selected = 'audience', scenario = createScenario(), data = snapshot(scenario,0);
 let yaw = -.28, pitch = .55, zoom = 1, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
@@ -67,7 +68,8 @@ function personPosition(state){
  const {person:p,phase,progress}=state;
  if(phase==='queued')return [-428+(p.id%20)*6,19,-36+Math.floor(p.id/20)*6];
  if(phase==='entry')return pathPosition(route('audience',p.group),progress);
- if(phase==='extraSplit')return pathPosition(route(p.group,p.extraGroup),progress);
+ if(phase==='extraEntry')return pathPosition(route(p.group,'flowExperiment'),progress);
+ if(phase==='extraSplit')return pathPosition(route('flowExperiment',p.extraGroup),progress);
  if(phase==='dispatch')return pathPosition(route(p.extraGroup||p.group,p.channel),progress);
  if(phase==='waiting'){const n=byId[p.channel];return [n.x-40-(p.id%4)*3,17,n.z-22+Math.floor(p.id/4)%12*4];}
  if(phase==='result')return pathPosition(route(p.channel,p.failed?'failed':'success'),progress);
@@ -82,6 +84,9 @@ function building(n){
  let svg=cube(n.x,n.z,n.w+16,n.d+16,8,0)+cube(n.x,n.z,n.w,n.d,7,8);
  if(n.id==='audience'){
   svg+=cube(n.x-56,n.z-63,6,8,34,15)+cube(n.x+56,n.z-63,6,8,34,15)+cube(n.x,n.z-63,118,8,9,49,true);
+ } else if(n.id==='flowExperiment'){
+  svg+=cube(n.x,n.z,44,44,34,15)+cube(n.x,n.z,48,48,5,49,true);
+  const [x,y]=project(n.x,65,n.z);svg+=`<text x="${x}" y="${y}" text-anchor="middle" font-size="22" fill="${colors.blue}">E</text>`;
  } else if(['a','b','direct','control','a2','b2','control2'].includes(n.id)){
   svg+=cube(n.x,n.z,43,43,20,15)+cube(n.x,n.z,43,43,3,35,true);
   const [x,y]=project(n.x,46,n.z);svg+=`<text x="${x}" y="${y}" text-anchor="middle" font-family="Georgia,serif" font-size="24" fill="${colors.blue}">${n.id==='direct'?'→':n.id.startsWith('control')?'Ⅱ':n.id==='a2'?'1':n.id==='b2'?'2':n.id.toUpperCase()}</text>`;
@@ -99,19 +104,27 @@ function drawScene(){
  $('ground').innerHTML=cube(0,0,1040,680,9,-9)+poly([[-520,.2,-340],[520,.2,-340],[520,.2,340],[-520,.2,340]],colors.paper,colors.line)+Array.from({length:18},(_,i)=>line([[-500,1,-320+i*38],[500,1,-320+i*38]],colors.line,.35)).join('')+Array.from({length:27},(_,i)=>line([[-500+i*38,1,-320],[-500+i*38,1,320]],colors.line,.35)).join('');
  const groups=scenario.experimentId?['a','b']:['direct'];
  const routed=groups.filter(g=>g!==scenario.extra?.branch);
- const connections=[...groups.map(g=>['audience',g]),...(scenario.experimentId?[['audience','control']]:[]),...routed.flatMap(g=>CHANNELS.map(c=>[g,c])),...(scenario.extra?[...['a2','b2','control2'].map(g=>[scenario.extra.branch,g]),...['a2','b2'].flatMap(g=>CHANNELS.map(c=>[g,c]))]:[]),...CHANNELS.flatMap(c=>[[c,'success'],[c,'failed']])];
+ const connections=[...groups.map(g=>['audience',g]),...(scenario.experimentId?[['audience','control']]:[]),...routed.flatMap(g=>CHANNELS.map(c=>[g,c])),...(scenario.extra?[[scenario.extra.branch,'flowExperiment'],...['a2','b2','control2'].map(g=>['flowExperiment',g]),...['a2','b2'].flatMap(g=>CHANNELS.map(c=>[g,c]))]:[]),...CHANNELS.flatMap(c=>[[c,'success'],[c,'failed']])];
  $('routes').innerHTML=connections.map(([a,b])=>line(route(a,b),colors.white,9)+line(route(a,b),b==='failed'?colors.ink:colors.blue,1.25,b==='failed'?'4 5':'')).join('');
  const figures = reduced ? [] : data.states.map(personFigure);
  // Painter ordering uses camera depth for solids and people.
  $('objects').innerHTML=[...visibleNodes().map(building),...figures].sort((a,b)=>a.z-b.z).map(o=>o.svg).join('');
  $('labels').innerHTML=visibleNodes().map(n=>{
-  const [x,y]=CHANNELS.includes(n.id)?project(n.x-(scenario.extra?0:84),scenario.extra?100:24,n.z):project(n.x,0,n.z+n.d/2+22), width=n.id==='whatsapp'?100:86;
+  const [x,y]=CHANNELS.includes(n.id)?project(n.x-(scenario.extra?0:84),scenario.extra?100:24,n.z):project(n.x,0,n.z+n.d/2+22), width=n.id==='flowExperiment'?126:n.id==='whatsapp'?100:86;
   const count=data.nodes[n.id].arrived;
-  return `<g class="scene-node ${selected===n.id?'selected-label':''}" data-node="${n.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><rect class="node-label-back node-outline" x="${-width/2}" y="-2" width="${width}" height="38" rx="3"/><text class="scene-label" text-anchor="middle" y="13">${n.name}</text><text class="scene-sub" text-anchor="middle" y="28">${count} ${n.id==='audience'?'样本':'累计'}</text></g>`;
+  if(n.id==='flowExperiment')return `<g class="scene-node ${selected===n.id?'selected-label':''}" data-node="flowExperiment" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><title>${escapeHTML(n.experimentName||'流程实验节点')}</title><rect class="node-label-back node-outline" x="-63" y="-2" width="126" height="52" rx="3"/><text class="scene-label" text-anchor="middle" y="13">流程实验节点</text><text class="scene-sub" text-anchor="middle" y="28">${escapeHTML((n.experimentName||'').slice(0,9))}${(n.experimentName||'').length>9?'…':''}</text><text class="scene-sub" text-anchor="middle" y="42">${count} 累计到达</text></g>`;
+  return `<g class="scene-node ${selected===n.id?'selected-label':''}" data-node="${n.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><rect class="node-label-back node-outline" x="${-width/2}" y="-2" width="${width}" height="38" rx="3"/><text class="scene-label" text-anchor="middle" y="13">${escapeHTML(n.name)}</text><text class="scene-sub" text-anchor="middle" y="28">${count} ${n.id==='audience'?'样本':'累计'}</text></g>`;
  }).join('');
+ if(currentAudience&&!extraConfig&&audienceUI.store.experiments().length){
+  $('labels').innerHTML+=(scenario.experimentId?['a','b']:['direct']).map(branch=>{
+   const n=byId[branch],[x,y]=project(n.x+105,8,n.z+35);
+   return `<g class="scene-node add-flow-node" data-node="add-${branch}" transform="translate(${x},${y})"><rect x="-53" y="-13" width="106" height="26" rx="4" fill="#ebf0f7" stroke="#2c4a7c" stroke-dasharray="3 2"/><text text-anchor="middle" y="4" font-size="11" fill="#2c4a7c">＋ 添加实验节点</text></g>`;
+  }).join('');
+ }
 }
 function renderDetails(){
  const n=byId[selected],s=data.nodes[selected];
+ $('flow-node-editor').hidden=selected!=='flowExperiment'||!extraConfig;
  $('detail-index').textContent=String(nodes.indexOf(n)+1).padStart(2,'0');
  $('detail-icon').innerHTML=icon(n.id);$('detail-kind').textContent=n.kind;$('detail-title').textContent=n.name;$('detail-desc').textContent=n.desc;
  $('arrived-label').textContent=n.id==='audience'?'固定样本':'累计到达';$('detail-arrived').textContent=s.arrived;$('detail-active').textContent=s.active;
@@ -136,6 +149,7 @@ const clock=createClock({duration:scenario.duration,render,request:cb=>requestAn
 function rebuildNodeList(){ $('node-list').innerHTML=visibleNodes().map(n=>`<button class="node-button ${n.id===selected?'active':''}" data-node="${n.id}" data-list-node="${n.id}" aria-pressed="${n.id===selected}">${icon(n.id)}<span>${n.name}</span><span class="count">0</span></button>`).join('');$('node-total').textContent=visibleNodes().length; }
 rebuildNodeList();
 function selectNode(id){
+ if(id?.startsWith('add-')){addFlowNode(id.slice(4));return;}
  if(!byId[id])return;selected=id;
  document.querySelectorAll('[data-list-node]').forEach(b=>{const on=b.dataset.node===id;b.classList.toggle('active',on);b.setAttribute('aria-pressed',on);});
  renderDetails();drawScene();$('status-message').textContent=`已选择${byId[id].name}，详情已更新。`;
@@ -175,11 +189,9 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clock.pause
 window.addEventListener('pagehide',()=>clock.pause(),{once:true});
 function applyAudience(item,preserveExtra=false){
  clock.pause();currentAudience=item;
- if(!preserveExtra){extraConfig=null;$('canvas-experiment-enabled').checked=false;}
+ if(!preserveExtra){extraConfig=null;canvasPicker?.close();}
  const users=item?filterAudience(item.rules):[];
  const experimentId=item?.experimentId||null;
- if(!preserveExtra){$('canvas-experiment-branch').innerHTML=experimentId?'<option value="a">继承实验 · A 分支</option><option value="b">继承实验 · B 分支</option>':'<option value="direct">整个人群 · 单一出口</option>';$('canvas-experiment-branch').value=experimentId?'a':'direct';}
- $('canvas-experiment-config').hidden=!$('canvas-experiment-enabled').checked;
  scenario=createScenario($('scenario').value||'baseline',users,experimentId,extraConfig);
  selected='audience';
  const experiments=audienceUI.store.experiments();
@@ -188,10 +200,16 @@ function applyAudience(item,preserveExtra=false){
  const branchPrefix=extraConfig?.branch==='b'?'B':extraConfig?.branch==='a'?'A':'分支';
  byId.a2.name=`${branchPrefix}1 组`;byId.b2.name=`${branchPrefix}2 组`;
  // Main exits move left only when an additional stage needs canvas space.
- for(const id of ['a','b','direct','control'])byId[id].x=extraConfig?-140:-75;
+ for(const id of ['a','b','direct','control'])byId[id].x=extraConfig?-200:-75;
  for(const id of ['a','b','control'])byId[id].rules=[['继承实验',inherited?.name||'无'],['ID',experimentId||'无'],['作用分母',`${users.length} 位符合条件用户`],['生产分桶','未接入']];
+ if(extraConfig){byId.flowExperiment.z=byId[extraConfig.branch].z;const base=extraConfig.branch==='a'?-110:extraConfig.branch==='b'?120:0;byId.a2.z=base-140;byId.b2.z=base;byId.control2.z=base+140;}
  const branchCount=scenario.people.filter(p=>p.group===extraConfig?.branch).length;
- for(const id of ['a2','b2','control2'])byId[id].rules=[['画布额外实验',additional?.name||'无'],['ID',additional?.id||'无'],['分支分母',`${branchCount} 位`],['分配',extraConfig?.experimentId===experimentId?'复用同一结果 · 不重新随机':'独立展示实验']];
+ for(const id of ['a2','b2','control2'])byId[id].rules=[['流程节点实验',additional?.name||'无'],['ID',additional?.id||'无'],['分支分母',`${branchCount} 位`],['分配',extraConfig?.experimentId===experimentId?'复用同一结果 · 不重新随机':'独立展示实验']];
+ byId.flowExperiment.experimentName=additional?.name||'';
+ byId.flowExperiment.rules=[['引用实验',additional?.name||'无'],['ID',additional?.id||'无'],['到达路径',extraConfig?.branch==='direct'?'普通出口':`${extraConfig?.branch?.toUpperCase()||''} 分支`],['路径分母',`${branchCount} 位`]];
+ byId.flowExperiment.desc=additional?`引用「${additional.name}」。只对到达本节点的人分组，不改变入口绑定。`:'独立流程实验节点';
+ $('flow-node-scope').textContent=extraConfig?`${extraConfig.branch==='direct'?'普通出口':extraConfig.branch.toUpperCase()+' 分支'} → 本节点；分母 ${branchCount} 位。`:'尚未添加流程节点';
+ $('flow-path-actions').innerHTML=!item?'请先选择人群':extraConfig?'<button data-inspect-flow-node="true">编辑流程实验节点 ↗</button>':!experiments.length?'暂无可引用实验，请先在人群管理新建实验。':(experimentId?['a','b']:['direct']).map(branch=>`<button data-add-branch="${branch}">${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'} → ＋ 添加实验节点</button>`).join('');
  rebuildNodeList();
  $('flow-entry-title').textContent=item?(item.entry.mode==='event'?'事件人群 · 已保存触发配置':'批量人群 · 已保存来源与排期'):'请先创建人群';
  $('flow-entry-summary').textContent=item?summarizeEntry(item):'画布入口只引用人群管理中的已保存定义。';
@@ -199,25 +217,26 @@ function applyAudience(item,preserveExtra=false){
  $('flow-reference').textContent=item?`引用：${item.name} · ${summarizeRules(item.rules)}`:'暂无人群定义，请先到人群管理新建。';
  const count=g=>scenario.people.filter(p=>p.group===g).length,count2=g=>scenario.people.filter(p=>p.extraGroup===g).length;
  $('inherited-experiment-name').textContent=inherited?`${inherited.name} · ${inherited.id}`:'此人群未引用实验 · 单一出口';
- $('inherited-experiment-note').textContent=inherited?`随人群继承，不可在画布取消或替换。分母 ${users.length}：A ${count('a')} / B ${count('b')} / 对照 ${count('control')}（不触达）。请通过「编辑此人群」修改引用。`:'圈选条件决定谁符合。可以编辑人群引用实验，也可以只在此画布增加实验。';
- $('split-summary').textContent=additional?`额外：${additional.name} · ${extraConfig.branch==='direct'?'整个人群':extraConfig.branch.toUpperCase()+' 分支'}分母 ${branchCount} → ${byId.a2.name} ${count2('a2')} / ${byId.b2.name} ${count2('b2')} / 副对照 ${count2('control2')}${extraConfig.experimentId===experimentId?' · 同一实验，复用原分配':''}`:'未增加画布实验 · 继承的人群配置保持不变';
- $('flow-audience').value=item?.id||'';$('edit-flow-audience').disabled=!item;$('canvas-experiment-enabled').disabled=!item;
+ $('inherited-experiment-note').textContent=inherited?`随人群继承，不可在画布取消或替换。分母 ${users.length}：A ${count('a')} / B ${count('b')} / 对照 ${count('control')}（不触达）。请通过「编辑此人群」修改引用。`:'圈选条件决定谁符合。可以编辑人群引用实验，进入后的路径可以添加独立流程实验节点。';
+ $('split-summary').textContent=additional?`流程节点：${additional.name} · ${extraConfig.branch==='direct'?'整个人群':extraConfig.branch.toUpperCase()+' 分支'}分母 ${branchCount} → ${byId.a2.name} ${count2('a2')} / ${byId.b2.name} ${count2('b2')} / 副对照 ${count2('control2')}${extraConfig.experimentId===experimentId?' · 同一实验，复用原分配':''}`:'进入后普通流程 · 可在路径添加实验节点';
+ $('flow-audience').value=item?.id||'';$('edit-flow-audience').disabled=!item;
  $('timeline').max=scenario.duration;$('duration').textContent=timeFormat(scenario.duration);$('scenario-note').textContent=scenario.config.note+(users.length?'':' 当前匹配为零，请修改人群条件。');
  clock.reset(scenario.duration);$('status-message').textContent='人群或配置已更新，沙盘重置并暂停。';
 }
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
 function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(currentAudience)applyAudience(currentAudience,true);}
 const audienceUI=mountAudiences({onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onTab:tab=>{if(tab==='audience')clock.pause();},onExperimentSaved:refreshExperiments});
-function changeExtra(){
- const experimentId=canvasPicker.getValue();
- extraConfig=$('canvas-experiment-enabled').checked&&experimentId?{experimentId,branch:$('canvas-experiment-branch').value}:null;
- if($('canvas-experiment-enabled').checked&&!experimentId)$('status-message').textContent='请先新建一个可引用实验。';
- applyAudience(currentAudience,true);
+function addFlowNode(branch){
+ if(!currentAudience||extraConfig||!(currentAudience.experimentId?['a','b']:['direct']).includes(branch))return;
+ const experiment=audienceUI.store.experiments()[0];if(!experiment){$('status-message').textContent='请先在人群管理新建可引用实验。';return;}
+ extraConfig={experimentId:experiment.id,branch};canvasPicker.setValue(experiment.id);applyAudience(currentAudience,true);selectNode('flowExperiment');
+ $('status-message').textContent=`已在${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'}后插入流程实验节点，可在检查器更换引用；入口未改变。`;
 }
-canvasPicker=mountExperimentPicker({rootId:'canvas-experiment-picker',store:audienceUI.store,onChange:changeExtra,onSaved:refreshExperiments});
+function changeFlowNode(){if(!extraConfig)return;const experimentId=canvasPicker.getValue();if(!experimentId)return;extraConfig={...extraConfig,experimentId};applyAudience(currentAudience,true);selectNode('flowExperiment');}
+canvasPicker=mountExperimentPicker({rootId:'flow-node-picker',store:audienceUI.store,onChange:changeFlowNode,onSaved:refreshExperiments});
+$('flow-path-actions').addEventListener('click',event=>{const add=event.target.closest('[data-add-branch]');if(add)addFlowNode(add.dataset.addBranch);else if(event.target.closest('[data-inspect-flow-node]'))selectNode('flowExperiment');});
+$('remove-flow-node').addEventListener('click',()=>{if(!extraConfig)return;extraConfig=null;canvasPicker.close();applyAudience(currentAudience,true);$('status-message').textContent='已删除进入后的流程实验节点，入口人群和继承实验未改变。';});
 refreshAudienceOptions(audienceUI.list());applyAudience(audienceUI.list()[0]||null);
 $('flow-audience').addEventListener('change',e=>applyAudience(audienceUI.list().find(a=>a.id===e.target.value)||null));
-$('canvas-experiment-enabled').addEventListener('change',changeExtra);
-$('canvas-experiment-branch').addEventListener('change',changeExtra);
 $('edit-flow-audience').addEventListener('click',()=>{if(currentAudience)audienceUI.edit(currentAudience.id);});
 updateMotion();

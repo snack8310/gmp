@@ -34,7 +34,8 @@ export function personState(person, time) {
   if (before(0)) return { phase: 'queued', progress: 0 };
   if (before(4)) return { phase: 'entry', progress: age / 4 };
   if (person.group === 'control') return { phase: 'control', node: 'control', progress: 1 };
-  if (person.extraGroup && before(8)) return { phase: 'extraSplit', progress: (age - 4) / 4 };
+  if (person.extraGroup && before(6)) return { phase: 'extraEntry', progress: (age - 4) / 2 };
+  if (person.extraGroup && before(8)) return { phase: 'extraSplit', progress: (age - 6) / 2 };
   if (person.extraGroup === 'control2') return { phase: 'control', node: 'control2', progress: 1 };
   const dispatchStart = person.extraGroup ? 8 : 4;
   const arrival = dispatchStart + 5;
@@ -47,7 +48,7 @@ export function snapshot(scenario, time) {
   const now = Math.max(-0.001, Math.min(scenario.duration, time));
   const stateTime = time === 0 ? -0.001 : now;
   const counts = { total: scenario.people.length, queued: 0, active: 0, success: 0, failed: 0, control: 0 };
-  const nodes = Object.fromEntries(['audience', 'direct', 'a', 'b', 'control', 'a2', 'b2', 'control2', ...CHANNELS, 'success', 'failed'].map(k => [k, { arrived: 0, active: 0, success: 0, failed: 0 }]));
+  const nodes = Object.fromEntries(['audience', 'direct', 'a', 'b', 'control', 'flowExperiment', 'a2', 'b2', 'control2', ...CHANNELS, 'success', 'failed'].map(k => [k, { arrived: 0, active: 0, success: 0, failed: 0 }]));
   nodes.audience.arrived = scenario.people.length;
   const states = scenario.people.map(person => {
     // Zero is an intentionally clean, paused start frame.
@@ -55,13 +56,15 @@ export function snapshot(scenario, time) {
     const terminal = ['success', 'failed', 'control'].includes(state.phase);
     counts[state.phase === 'queued' ? 'queued' : terminal ? state.phase : 'active']++;
     if (stateTime >= person.start + 4) nodes[person.group].arrived++;
+    if (person.extraGroup && stateTime >= person.start + 6) nodes.flowExperiment.arrived++;
     if (person.extraGroup && stateTime >= person.start + 8) nodes[person.extraGroup].arrived++;
     const arrival = person.extraGroup ? 13 : 9;
     const noDelivery = person.group === 'control' || person.extraGroup === 'control2';
     if (!noDelivery && stateTime >= person.start + arrival) nodes[person.channel].arrived++;
     if (!terminal) {
       const owner = ['queued', 'entry'].includes(state.phase) ? 'audience'
-        : state.phase === 'extraSplit' ? person.group
+        : state.phase === 'extraEntry' ? person.group
+        : state.phase === 'extraSplit' ? 'flowExperiment'
         : state.phase === 'dispatch' ? person.extraGroup || person.group : person.channel;
       nodes[owner].active++;
     } else if (state.phase !== 'control') {

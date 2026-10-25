@@ -99,7 +99,7 @@ test('downstream experiments conserve every boundary and never deliver either co
  for (const users of [[],MOCK_USERS.slice(0,1),MOCK_USERS]) for (const [entry, extra] of cases) {
   const scenario=createScenario('baseline',users,entry,extra);
   const times=new Set([0,-2,scenario.duration,scenario.duration+20]);
-  for(const p of scenario.people) for(const age of [0,4,8,9,13,14+p.hold,18+p.hold]) for(const epsilon of [-.00001,0,.00001]) times.add(p.start+age+epsilon);
+  for(const p of scenario.people) for(const age of [0,4,6,8,9,13,14+p.hold,18+p.hold]) for(const epsilon of [-.00001,0,.00001]) times.add(p.start+age+epsilon);
   for(const time of times){
    const state=snapshot(scenario,time);
    assert.equal(state.queued+state.active+state.success+state.failed+state.control,users.length);
@@ -145,4 +145,34 @@ test('exact-end seeking finishes every cohort length despite floating-point subt
   assert.equal(end.active,0,`${length} ${key} ${entry}`);assert.equal(end.queued,0);
   assert.equal(end.success+end.failed+end.control,length);
  }
+});
+
+
+test('the explicit canvas experiment node receives only its selected branch and owns its outgoing split',()=>{
+ for (const [entry,extra] of [[null,{experimentId:'exp-extra',branch:'direct'}],['exp-entry',{experimentId:'exp-extra',branch:'a'}],['exp-entry',{experimentId:'exp-entry',branch:'b'}]]) {
+  const scenario=createScenario('baseline',MOCK_USERS,entry,extra);
+  const branch=scenario.people.filter(p=>p.group===extra.branch);
+  assert.ok(branch.length>0);
+  const end=snapshot(scenario,scenario.duration);
+  assert.equal(end.nodes.flowExperiment.arrived,branch.length);
+  assert.equal(end.nodes.flowExperiment.active,0);
+  assert.equal(end.nodes.a2.arrived+end.nodes.b2.arrived+end.nodes.control2.arrived,branch.length);
+  for(const person of branch){
+   assert.equal(personState(person,person.start+4).phase,'extraEntry');
+   assert.ok(Math.abs(personState(person,person.start+5).progress-.5)<1e-12);
+   assert.equal(personState(person,person.start+6).phase,'extraSplit');
+   assert.ok(Math.abs(personState(person,person.start+7).progress-.5)<1e-12);
+   assert.notEqual(personState(person,person.start+8).phase,'extraSplit');
+  }
+  for(let time=0;time<=scenario.duration;time+=.113){
+   const state=snapshot(scenario,time);
+   const expected=state.states.filter(p=>p.phase==='extraSplit').length;
+   assert.equal(state.nodes.flowExperiment.active,expected);
+   assert.equal(state.nodes.flowExperiment.arrived,branch.filter(p=>time>=p.start+6).length);
+   assert.equal(Object.values(state.nodes).reduce((sum,node)=>sum+node.active,0),state.active+state.queued);
+   assert.equal(state.queued+state.active+state.success+state.failed+state.control,MOCK_USERS.length);
+  }
+ }
+ const plain=createScenario();
+ assert.deepEqual(snapshot(plain,plain.duration).nodes.flowExperiment,{arrived:0,active:0,success:0,failed:0});
 });

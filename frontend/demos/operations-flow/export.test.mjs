@@ -36,3 +36,12 @@ test('entry configuration controls are confined to audience management, canvas o
  assert.ok(canvas.includes('id="flow-audience"'));
  for(const id of ['flow-entry-title','flow-entry-summary','flow-entry-boundary'])assert.ok(canvas.includes(`id="${id}"`));
 });
+
+test('flow node tools are inside canvas paths and the inspector, not audience entry controls',async()=>{
+ const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
+ assert.doesNotMatch(html,/canvas-experiment-enabled|canvas-experiment-branch|画布额外增加实验/);
+ const workspace=html.indexOf('<section class="workspace">');
+ assert.ok(html.indexOf('id="flow-path-actions"')>workspace);
+ assert.ok(html.indexOf('id="flow-node-picker"')>html.indexOf('<aside class="detail-panel"'));
+ assert.ok(html.indexOf('id="remove-flow-node"')>workspace);
+});

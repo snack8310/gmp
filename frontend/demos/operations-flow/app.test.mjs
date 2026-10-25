@@ -95,38 +95,39 @@ test('audience create, cancel, save and reuse reset only when the referenced def
  fire('cancel-audience','click');assert.equal(element('total').textContent,0);
 });
 
-test('audience experiment is inherited read-only and extra canvas experiment cannot change it',()=>{
- fire('flow-audience','change',{target:{value:'aud-app'}});
- fire('edit-flow-audience','click');
- element('audience-experiment-enabled').checked=true;
- element('audience-experiment-picker-select').value='exp-recall';fire('audience-form','change');
- assert.ok(element('preview-assignment').textContent.includes('对照'));
+test('flow experiment is a selectable path node, separate from read-only inherited audience',()=>{
+ fire('flow-audience','change',{target:{value:'aud-app'}});fire('edit-flow-audience','click');
+ element('audience-experiment-enabled').checked=true;element('audience-experiment-picker-select').value='exp-recall';fire('audience-form','change');
  fire('audience-form','submit',{preventDefault(){}});
- assert.equal(element('total').textContent,192);
- assert.ok(element('inherited-experiment-note').textContent.includes('不可在画布取消'));
- assert.ok(!element('node-list').innerHTML.includes('策略闸机'));
- assert.ok(element('node-list').innerHTML.includes('对照组'));
- const inherited=element('inherited-experiment-note').textContent;
- element('canvas-experiment-enabled').checked=true;
- element('canvas-experiment-picker-select').value='exp-onboarding';
- fire('canvas-experiment-enabled','change');
- assert.equal(element('inherited-experiment-note').textContent,inherited);
- assert.ok(element('split-summary').textContent.includes('A 分支'));
+ const inherited=element('inherited-experiment-note').textContent,entry=element('flow-entry-summary').textContent;
+ assert.ok(inherited.includes('不可在画布取消'));
+ assert.ok(element('labels').innerHTML.includes('data-node="add-a"'));
+ assert.ok(!element('labels').innerHTML.includes('data-node="add-control"'));
+ fire('world','pointerdown',pointer('add-control'));fire('world','pointerup');
+ assert.ok(!element('node-list').innerHTML.includes('data-node="flowExperiment"'));
+ fire('world','pointerdown',pointer('add-a'));fire('world','pointerup');
+ assert.ok(element('node-list').innerHTML.includes('data-node="flowExperiment"'));
+ assert.equal(element('flow-node-editor').hidden,false);assert.equal(element('detail-title').textContent,'流程实验');
+ assert.ok(element('flow-node-scope').textContent.includes('A 分支'));
+ assert.ok(element('split-summary').textContent.includes('同一实验，复用原分配'));
+ assert.ok(!element('labels').innerHTML.includes('data-node="add-a"'));
+ element('flow-node-picker-select').value='exp-onboarding';fire('flow-node-picker-select','change');
+ assert.equal(element('inherited-experiment-note').textContent,inherited);assert.equal(element('flow-entry-summary').textContent,entry);
  fire('timeline','input',{target:{value:element('timeline').max}});
  assert.equal(Number(element('success').textContent)+Number(element('failed').textContent)+Number(element('control').textContent),192);
- assert.equal(element('active').textContent,0);
- fire('play','click');assert.equal(pending.size,1);
- element('canvas-experiment-enabled').checked=false;fire('canvas-experiment-enabled','change');assert.equal(pending.size,0);
- assert.equal(element('inherited-experiment-note').textContent,inherited);
- assert.ok(element('node-list').innerHTML.includes('对照组'));
- assert.ok(!element('node-list').innerHTML.includes('副对照'));
- element('canvas-experiment-enabled').checked=true;element('canvas-experiment-picker-select').value='exp-recall';fire('canvas-experiment-enabled','change');
- assert.ok(element('split-summary').textContent.includes('同一实验，复用原分配'));
+ assert.equal(element('active').textContent,0);assert.ok(Number(element('detail-arrived').textContent)>0);
+ fire('world','pointerdown',pointer('audience'));fire('world','pointerup');assert.equal(element('flow-node-editor').hidden,true);
+ fire('world','pointerdown',pointer('flowExperiment'));fire('world','pointerup');assert.equal(element('flow-node-editor').hidden,false);
+ fire('play','click');assert.equal(pending.size,1);fire('remove-flow-node','click');assert.equal(pending.size,0);
+ assert.equal(element('inherited-experiment-note').textContent,inherited);assert.equal(element('flow-entry-summary').textContent,entry);
+ assert.ok(!element('node-list').innerHTML.includes('data-node="flowExperiment"'));assert.equal(element('flow-node-editor').hidden,true);
+ fire('remove-flow-node','click');assert.equal(element('inherited-experiment-note').textContent,inherited);
  fire('flow-audience','change',{target:{value:'aud-whitelist-new'}});
- assert.equal(element('canvas-experiment-enabled').checked,false);
  assert.ok(element('inherited-experiment-name').textContent.includes('未引用'));
- element('canvas-experiment-enabled').checked=true;fire('canvas-experiment-enabled','change');
- assert.ok(element('split-summary').textContent.includes('整个人群'));
+ fire('flow-path-actions','click',{target:{closest:selector=>selector==='[data-add-branch]'?{dataset:{addBranch:'direct'}}:null}});
+ assert.ok(element('flow-node-scope').textContent.includes('普通出口'));assert.equal(element('flow-node-editor').hidden,false);
+ fire('flow-audience','change',{target:{value:'aud-app'}});
+ assert.equal(element('flow-node-editor').hidden,true);assert.ok(!element('node-list').innerHTML.includes('data-node="flowExperiment"'));
 });
 
 test('shared experiment picker creates, renames and cancels independently while keeping identity',()=>{
