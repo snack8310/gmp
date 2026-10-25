@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { MOCK_USERS, assignGroup } from './audience.mjs';
 import { TOTAL, CHANNELS, SCENARIOS, createScenario, snapshot, createClock, personState } from './model.mjs';
 
 test('fixtures are deterministic, complete, mutually exclusive, and fixed-size', () => {
@@ -9,8 +10,7 @@ test('fixtures are deterministic, complete, mutually exclusive, and fixed-size',
   assert.equal(s.people.length, TOTAL);
   assert.equal(new Set(s.people.map(p=>p.id)).size, TOTAL);
   for (const c of CHANNELS) assert.equal(s.people.filter(p=>p.channel===c).length, TOTAL/4);
-  assert.equal(s.people.filter(p=>p.group==='a').length, TOTAL/2);
-  assert.equal(s.people.filter(p=>p.group==='b').length, TOTAL/2);
+  assert.equal(s.people.filter(p=>p.group==='direct').length, TOTAL);
  }
  assert.throws(()=>createScenario('unknown'), RangeError);
 });
@@ -20,7 +20,7 @@ test('counts conserve the population at every transition and over each full time
   const s = createScenario(key);
   const times = new Set([0, -10, s.duration, s.duration+100]);
   for (let t=0;t<s.duration;t+=.137) times.add(t);
-  for(const p of s.people) for(const age of [0,3,7,12,12+p.hold,17+p.hold]) for(const epsilon of [-.00001,0,.00001]) times.add(p.start+age+epsilon);
+  for(const p of s.people) for(const age of [0,4,9,9+p.hold,14+p.hold]) for(const epsilon of [-.00001,0,.00001]) times.add(p.start+age+epsilon);
   for(const t of times) {
    const v = snapshot(s,t);
    assert.equal(v.queued+v.active+v.success+v.failed,TOTAL, `${key} at ${t}`);
@@ -33,8 +33,8 @@ test('counts conserve the population at every transition and over each full time
   assert.equal(initial.queued,TOTAL);assert.equal(initial.active,0);
   assert.equal(end.queued,0);assert.equal(end.active,0);assert.equal(end.success+end.failed,TOTAL);
   assert.ok(end.success>0);assert.ok(end.failed>0);
-  assert.equal(end.nodes.strategy.arrived,TOTAL);
-  assert.equal(end.nodes.a.arrived+end.nodes.b.arrived,TOTAL);
+  assert.equal(Object.hasOwn(end.nodes,'strategy'),false);
+  assert.equal(end.nodes.direct.arrived,TOTAL);
   assert.equal(CHANNELS.reduce((n,c)=>n+end.nodes[c].arrived,0),TOTAL);
  }
 });
@@ -68,4 +68,81 @@ test('play is idempotent, pause freezes, reset cancels, and repeated scene chang
 test('clock bounds seeking and speed, stops at completion, and can replay cleanly', () => {
  const h=harness();h.clock.seek(-3);assert.equal(h.clock.time,0);h.clock.setSpeed(4);h.clock.play();h.step(0);h.step(250);assert.equal(h.clock.time,1);h.step(500);assert.equal(h.clock.time,2);assert.equal(h.clock.playing,false);assert.equal(h.pending.size,0);
  h.clock.play();assert.equal(h.pending.size,0);h.clock.reset();h.clock.play();assert.equal(h.pending.size,1);h.clock.seek(999);assert.equal(h.clock.time,2);assert.equal(h.pending.size,0);assert.throws(()=>h.clock.setSpeed(99),RangeError);
+});
+
+test('filtered experimental populations conserve control separately, including empty and single-user cases', () => {
+ for (const users of [[],[{uid:'SIM-0001'}],Array.from({length:80},(_,i)=>({uid:`SIM-${String(i+1).padStart(4,'0')}`}))]) {
+  for (const experiment of [null,'exp-entry']) for(const key of Object.keys(SCENARIOS)) {
+   const scenario=createScenario(key,users,experiment);
+   for(let time=0;time<=scenario.duration+1;time+=.17){
+    const s=snapshot(scenario,time);
+    assert.equal(s.queued+s.active+s.success+s.failed+s.control,users.length);
+    assert.equal(s.nodes.control.arrived,s.control);
+    assert.equal(Object.values(s.nodes).reduce((n,x)=>n+x.active,0),s.active+s.queued);
+   }
+   const end=snapshot(scenario,scenario.duration);
+   assert.equal(end.active,0);assert.equal(end.queued,0);
+   assert.equal(end.control,scenario.people.filter(p=>p.group==='control').length);
+   assert.equal(CHANNELS.reduce((n,c)=>n+end.nodes[c].arrived,0),users.length-end.control);
+  }
+ }
+});
+
+
+test('downstream experiments conserve every boundary and never deliver either control cohort', () => {
+ const cases = [
+  [null, {experimentId:'exp-extra',branch:'direct'}],
+  ['exp-entry', {experimentId:'exp-extra',branch:'a'}],
+  ['exp-entry', {experimentId:'exp-extra',branch:'b'}],
+  ['exp-entry', {experimentId:'exp-entry',branch:'a'}],
+ ];
+ for (const users of [[],MOCK_USERS.slice(0,1),MOCK_USERS]) for (const [entry, extra] of cases) {
+  const scenario=createScenario('baseline',users,entry,extra);
+  const times=new Set([0,-2,scenario.duration,scenario.duration+20]);
+  for(const p of scenario.people) for(const age of [0,4,8,9,13,14+p.hold,18+p.hold]) for(const epsilon of [-.00001,0,.00001]) times.add(p.start+age+epsilon);
+  for(const time of times){
+   const state=snapshot(scenario,time);
+   assert.equal(state.queued+state.active+state.success+state.failed+state.control,users.length);
+   assert.equal(state.nodes.control.arrived+state.nodes.control2.arrived,state.control);
+   assert.equal(Object.values(state.nodes).reduce((sum,n)=>sum+n.active,0),state.queued+state.active);
+   for(const node of Object.values(state.nodes))assert.ok(node.active>=0&&node.arrived>=0);
+  }
+  const end=snapshot(scenario,scenario.duration);
+  assert.equal(end.active,0);assert.equal(end.queued,0);
+  assert.equal(end.control,scenario.people.filter(p=>p.group==='control'||p.extraGroup==='control2').length);
+  assert.equal(CHANNELS.reduce((sum,key)=>sum+end.nodes[key].arrived,0),users.length-end.control);
+  assert.ok(scenario.people.filter(p=>p.group==='control').every(p=>p.extraGroup===null));
+ }
+});
+
+test('the extra experiment only partitions its eligible branch and never changes inherited assignments',()=>{
+ const base=createScenario('baseline',MOCK_USERS,'exp-entry');
+ const extra=createScenario('baseline',MOCK_USERS,'exp-entry',{experimentId:'exp-extra',branch:'a'});
+ const reused=createScenario('baseline',MOCK_USERS,'exp-entry',{experimentId:'exp-entry',branch:'a'});
+ for(const person of extra.people){
+  assert.equal(person.group,base.people[person.id].group);
+  if(person.group==='a')assert.equal(person.extraGroup,`${assignGroup(person.uid,'exp-extra')}2`);
+  else assert.equal(person.extraGroup,null);
+ }
+ assert.ok(reused.people.filter(p=>p.group==='a').every(p=>p.extraGroup==='a2'));
+ assert.ok(reused.people.every(p=>p.extraGroup!=='control2'&&p.extraGroup!=='b2'));
+ const selected=MOCK_USERS.filter((_,i)=>i%3===0).reverse();
+ const filtered=createScenario('baseline',selected,'exp-entry',{experimentId:'exp-extra',branch:'a'});
+ for(const p of filtered.people){const original=extra.people.find(x=>x.uid===p.uid);assert.equal(p.group,original.group);assert.equal(p.extraGroup,original.extraGroup);}
+});
+
+test('invalid experiment identities and branches fail closed',()=>{
+ for(const inherited of [false,true,'',42,'<bad>'])assert.throws(()=>createScenario('baseline',[],inherited),RangeError);
+ for(const extra of [{experimentId:'',branch:'a'},{experimentId:'exp',branch:'control'},{experimentId:'exp',branch:'direct'},{}])assert.throws(()=>createScenario('baseline',[],'exp-entry',extra),RangeError);
+ assert.throws(()=>createScenario('baseline',[],null,{experimentId:'exp',branch:'a'}),RangeError);
+});
+
+
+test('exact-end seeking finishes every cohort length despite floating-point subtraction',()=>{
+ for(let length=1;length<=MOCK_USERS.length;length++)for(const key of Object.keys(SCENARIOS))for(const [entry,extra] of [[null,null],['exp-entry',null],['exp-entry',{experimentId:'exp-extra',branch:'a'}],[null,{experimentId:'exp-extra',branch:'direct'}]]){
+  const scenario=createScenario(key,MOCK_USERS.slice(0,length),entry,extra);
+  const end=snapshot(scenario,scenario.duration);
+  assert.equal(end.active,0,`${length} ${key} ${entry}`);assert.equal(end.queued,0);
+  assert.equal(end.success+end.failed+end.control,length);
+ }
 });

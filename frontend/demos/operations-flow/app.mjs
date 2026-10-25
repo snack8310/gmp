@@ -1,9 +1,11 @@
+import { filterAudience, summarizeRules } from './audience.mjs';
+import { mountAudiences, mountExperimentPicker, escapeHTML } from './audience-ui.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
 const icons = {
  audience: '<circle cx="9" cy="8" r="3"/><path d="M3 20v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 5"/>',
- strategy: '<path d="M4 4h16l-6 7v8l-4 2V11z"/>',
+ direct: '<path d="M3 12h18m-6-6 6 6-6 6"/>', control: '<path d="M7 5v14M17 5v14"/>',
  a: '<path d="M5 20 12 4l7 16M8 14h8"/>', b: '<path d="M6 4h7a4 4 0 0 1 0 8H6zm0 8h8a4 4 0 0 1 0 8H6z"/>',
  sms: '<path d="M3 5h18v13H8l-5 3zM7 9h10M7 13h6"/>',
  push: '<path d="M5 17h14l-2-4V9a5 5 0 0 0-10 0v4zm4 3h6M12 2v2"/>',
@@ -14,9 +16,10 @@ const icons = {
 const icon = key => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[key]}</svg>`;
 const nodes = [
  {id:'audience',name:'人群池',kind:'AUDIENCE SOURCE',x:-370,z:0,w:130,d:125,h:14,desc:'等待进入本次模拟的人群。所有样本仅存在于浏览器内存，不是真实用户。',rules:[['来源','构造样本'],['人群规模','240 人'],['数据连接','无']]},
- {id:'strategy',name:'策略闸机',kind:'STRATEGY GATE',x:-170,z:0,w:90,d:74,h:70,desc:'让人群沿固定时间轴进入分流。这是展示闸机，不执行生产资格或决策表规则。',rules:[['策略模式','固定演示脚本'],['生产决策','未接入'],['后续流向','A / B 组']]},
- {id:'a',name:'A 组',kind:'SIMULATED SEGMENT A',x:5,z:-155,w:65,d:65,h:32,desc:'固定脚本分配的 A 组，与 B 组互斥。这里不使用产品分桶、染色或对照组语义。',rules:[['预设占比','50%'],['触达渠道','按脚本分配'],['分组算法','展示专用']]},
- {id:'b',name:'B 组',kind:'SIMULATED SEGMENT B',x:5,z:155,w:65,d:65,h:32,desc:'固定脚本分配的 B 组，与 A 组共同覆盖全部演示样本，不表示实验效果。',rules:[['预设占比','50%'],['触达渠道','按脚本分配'],['生产分桶','未调用']]},
+ {id:'direct',name:'直接触达',kind:'NO EXPERIMENT',x:5,z:0,w:65,d:65,h:32,desc:'A/B 已关闭。符合属性条件的全部模拟用户直接进入渠道，不做随机分组。',rules:[['分组','关闭'],['来源','已保存人群定义']]},
+ {id:'control',name:'对照组',kind:'NO DELIVERY CONTROL',x:5,z:290,w:65,d:65,h:32,desc:'符合人群条件、但被稳定分配为对照组的模拟用户。不触达，不计入成功或失败。',rules:[['目标区间','10%（实际人数可偏离）'],['触达','不执行'],['算法','展示专用 v1']]},
+ {id:'a',name:'A 组',kind:'SIMULATED SEGMENT A',x:5,z:-155,w:65,d:65,h:32,desc:'通过展示专用稳定哈希分配到 A 组。先符合属性条件，再随机分组；不调用生产分桶，不写染色。',rules:[['目标区间','45%'],['触达渠道','按脚本分配'],['分组算法','展示专用']]},
+ {id:'b',name:'B 组',kind:'SIMULATED SEGMENT B',x:5,z:155,w:65,d:65,h:32,desc:'展示专用 B 组，与 A 组及对照组互斥。目标占比是分桶区间，不保证小样本人数精确相等。',rules:[['目标区间','45%'],['触达渠道','按脚本分配'],['生产分桶','未调用']]},
  {id:'sms',name:'短信',kind:'SMS CHANNEL',x:200,z:-245,w:60,d:56,h:65,desc:'模拟短信通道的发送与回执。等待阶段仍为处理中，到终点才记成功或失败。',rules:[['预设分配','25%'],['服务连接','无'],['回执来源','预设脚本']]},
  {id:'push',name:'Push',kind:'PUSH CHANNEL',x:200,z:-80,w:60,d:56,h:65,desc:'模拟 App 推送通道。画面中的成功仅指回执成功，不代表用户已阅读。',rules:[['预设分配','25%'],['设备数据','无'],['回执来源','预设脚本']]},
  {id:'whatsapp',name:'WhatsApp',kind:'WHATSAPP CHANNEL',x:200,z:80,w:60,d:56,h:65,desc:'模拟跨境消息通道。在回执延迟场景下停留更久，等待中的用户不会被提前判成失败。',rules:[['预设分配','25%'],['服务连接','无'],['等待时长','随场景变化']]},
@@ -24,7 +27,11 @@ const nodes = [
  {id:'success',name:'触达成功',kind:'SUCCESS TERMINAL',x:410,z:-135,w:92,d:84,h:34,desc:'已抵达终点并获得模拟成功回执的虚拟用户。它不是阅读率、下单率或业务转化。',rules:[['状态','终态'],['口径','模拟回执成功'],['业务转化','未模拟']]},
  {id:'failed',name:'触达失败',kind:'FAILURE TERMINAL',x:410,z:145,w:92,d:84,h:24,desc:'预设脚本产生的终态失败。延迟回执与尚未进入的人不计入这里；不自动补发。',rules:[['状态','终态'],['失败原因','模拟渠道拒绝'],['真实重试','无']]},
 ];
+icons.a2=icons.a;icons.b2=icons.b;icons.control2=icons.control;
+nodes.push({id:'a2',name:'A1 组',kind:'ADDITIONAL EXPERIMENT A',x:70,z:-245,w:53,d:53,h:28,desc:'画布额外实验的 A 出口，只从所选分支接收用户，不改变继承实验分组。',rules:[]},{id:'b2',name:'A2 组',kind:'ADDITIONAL EXPERIMENT B',x:70,z:-85,w:53,d:53,h:28,desc:'画布额外实验的 B 出口。分母是所选分支，不是整个人群。',rules:[]},{id:'control2',name:'副对照',kind:'ADDITIONAL NO DELIVERY',x:70,z:90,w:53,d:53,h:28,desc:'画布额外实验的对照出口，不进入触达渠道，不属于失败。',rules:[]});
 const byId = Object.fromEntries(nodes.map(n => [n.id,n]));
+let currentAudience = null;let extraConfig=null;let canvasPicker;
+const visibleNodes = () => nodes.filter(n => ['a2','b2','control2'].includes(n.id)?Boolean(scenario.extra):scenario.experimentId?n.id!=='direct':!['a','b','control'].includes(n.id));
 let selected = 'audience', scenario = createScenario(), data = snapshot(scenario,0);
 let yaw = -.28, pitch = .55, zoom = 1, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
@@ -59,12 +66,12 @@ function pathPosition(vertices,t){
 function personPosition(state){
  const {person:p,phase,progress}=state;
  if(phase==='queued')return [-428+(p.id%20)*6,19,-36+Math.floor(p.id/20)*6];
- if(phase==='entry')return pathPosition(route('audience','strategy'),progress);
- if(phase==='split')return pathPosition(route('strategy',p.group),progress);
- if(phase==='dispatch')return pathPosition(route(p.group,p.channel),progress);
+ if(phase==='entry')return pathPosition(route('audience',p.group),progress);
+ if(phase==='extraSplit')return pathPosition(route(p.group,p.extraGroup),progress);
+ if(phase==='dispatch')return pathPosition(route(p.extraGroup||p.group,p.channel),progress);
  if(phase==='waiting'){const n=byId[p.channel];return [n.x-40-(p.id%4)*3,17,n.z-22+Math.floor(p.id/4)%12*4];}
  if(phase==='result')return pathPosition(route(p.channel,p.failed?'failed':'success'),progress);
- const n=byId[phase];return [n.x+58+(Math.floor(p.id/4)%8)*4,17,n.z-30+(p.id%16)*4];
+ const n=byId[state.node||phase];return [n.x+58+(Math.floor(p.id/4)%8)*4,17,n.z-30+(p.id%16)*4];
 }
 function personFigure(state){
  const p=personPosition(state), [x,y]=project(...p), scale=zoom*(state.phase==='queued'?.63:.82);
@@ -75,12 +82,9 @@ function building(n){
  let svg=cube(n.x,n.z,n.w+16,n.d+16,8,0)+cube(n.x,n.z,n.w,n.d,7,8);
  if(n.id==='audience'){
   svg+=cube(n.x-56,n.z-63,6,8,34,15)+cube(n.x+56,n.z-63,6,8,34,15)+cube(n.x,n.z-63,118,8,9,49,true);
- } else if(n.id==='strategy') {
-  svg+=cube(n.x-33,n.z,15,48,63,15)+cube(n.x+33,n.z,15,48,63,15)+cube(n.x,n.z,81,48,11,78,true);
-  svg+=cube(n.x+33,n.z+3,18,25,24,15,true);
- } else if(n.id==='a'||n.id==='b'){
+ } else if(['a','b','direct','control','a2','b2','control2'].includes(n.id)){
   svg+=cube(n.x,n.z,43,43,20,15)+cube(n.x,n.z,43,43,3,35,true);
-  const [x,y]=project(n.x,46,n.z);svg+=`<text x="${x}" y="${y}" text-anchor="middle" font-family="Georgia,serif" font-size="24" fill="${colors.blue}">${n.id.toUpperCase()}</text>`;
+  const [x,y]=project(n.x,46,n.z);svg+=`<text x="${x}" y="${y}" text-anchor="middle" font-family="Georgia,serif" font-size="24" fill="${colors.blue}">${n.id==='direct'?'→':n.id.startsWith('control')?'Ⅱ':n.id==='a2'?'1':n.id==='b2'?'2':n.id.toUpperCase()}</text>`;
  } else if(CHANNELS.includes(n.id)){
   svg+=cube(n.x,n.z,40,35,51,15)+cube(n.x,n.z,44,39,6,66,true);
   svg+=cube(n.x-15,n.z+19,9,8,34,15,true);
@@ -93,13 +97,15 @@ function building(n){
 }
 function drawScene(){
  $('ground').innerHTML=cube(0,0,1040,680,9,-9)+poly([[-520,.2,-340],[520,.2,-340],[520,.2,340],[-520,.2,340]],colors.paper,colors.line)+Array.from({length:18},(_,i)=>line([[-500,1,-320+i*38],[500,1,-320+i*38]],colors.line,.35)).join('')+Array.from({length:27},(_,i)=>line([[-500+i*38,1,-320],[-500+i*38,1,320]],colors.line,.35)).join('');
- const connections=[['audience','strategy'],['strategy','a'],['strategy','b'],...['a','b'].flatMap(g=>CHANNELS.map(c=>[g,c])),...CHANNELS.flatMap(c=>[[c,'success'],[c,'failed']])];
+ const groups=scenario.experimentId?['a','b']:['direct'];
+ const routed=groups.filter(g=>g!==scenario.extra?.branch);
+ const connections=[...groups.map(g=>['audience',g]),...(scenario.experimentId?[['audience','control']]:[]),...routed.flatMap(g=>CHANNELS.map(c=>[g,c])),...(scenario.extra?[...['a2','b2','control2'].map(g=>[scenario.extra.branch,g]),...['a2','b2'].flatMap(g=>CHANNELS.map(c=>[g,c]))]:[]),...CHANNELS.flatMap(c=>[[c,'success'],[c,'failed']])];
  $('routes').innerHTML=connections.map(([a,b])=>line(route(a,b),colors.white,9)+line(route(a,b),b==='failed'?colors.ink:colors.blue,1.25,b==='failed'?'4 5':'')).join('');
  const figures = reduced ? [] : data.states.map(personFigure);
  // Painter ordering uses camera depth for solids and people.
- $('objects').innerHTML=[...nodes.map(building),...figures].sort((a,b)=>a.z-b.z).map(o=>o.svg).join('');
- $('labels').innerHTML=nodes.map(n=>{
-  const [x,y]=CHANNELS.includes(n.id)?project(n.x-84,24,n.z):project(n.x,0,n.z+n.d/2+22), width=n.id==='whatsapp'?100:86;
+ $('objects').innerHTML=[...visibleNodes().map(building),...figures].sort((a,b)=>a.z-b.z).map(o=>o.svg).join('');
+ $('labels').innerHTML=visibleNodes().map(n=>{
+  const [x,y]=CHANNELS.includes(n.id)?project(n.x-(scenario.extra?0:84),scenario.extra?100:24,n.z):project(n.x,0,n.z+n.d/2+22), width=n.id==='whatsapp'?100:86;
   const count=data.nodes[n.id].arrived;
   return `<g class="scene-node ${selected===n.id?'selected-label':''}" data-node="${n.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><rect class="node-label-back node-outline" x="${-width/2}" y="-2" width="${width}" height="38" rx="3"/><text class="scene-label" text-anchor="middle" y="13">${n.name}</text><text class="scene-sub" text-anchor="middle" y="28">${count} ${n.id==='audience'?'样本':'累计'}</text></g>`;
  }).join('');
@@ -109,37 +115,38 @@ function renderDetails(){
  $('detail-index').textContent=String(nodes.indexOf(n)+1).padStart(2,'0');
  $('detail-icon').innerHTML=icon(n.id);$('detail-kind').textContent=n.kind;$('detail-title').textContent=n.name;$('detail-desc').textContent=n.desc;
  $('arrived-label').textContent=n.id==='audience'?'固定样本':'累计到达';$('detail-arrived').textContent=s.arrived;$('detail-active').textContent=s.active;
- $('detail-progress').style.width=(s.arrived/240*100)+'%';
- $('detail-rules').innerHTML=n.rules.map(([a,b])=>`<div><span>${a}</span><strong>${b}</strong></div>`).join('')+(CHANNELS.includes(n.id)?`<div><span>终态成功 / 失败</span><strong>${s.success} / ${s.failed}</strong></div>`:'');
+ $('detail-progress').style.width=(data.total?s.arrived/data.total*100:0)+'%';
+ $('detail-rules').innerHTML=n.rules.map(([a,b])=>`<div><span>${escapeHTML(a)}</span><strong>${escapeHTML(b)}</strong></div>`).join('')+(CHANNELS.includes(n.id)?`<div><span>终态成功 / 失败</span><strong>${s.success} / ${s.failed}</strong></div>`:'');
 }
 const timeFormat = t => `${String(Math.floor(t/60)).padStart(2,'0')}:${(t%60).toFixed(1).padStart(4,'0')}`;
 let lastTime=-1,lastPlaying=false;
 function render(time,playing){
  if(playing===lastPlaying&&playing&&Math.abs(time-lastTime)<.04)return;
  lastTime=time;lastPlaying=playing;data=snapshot(scenario,time);
- for(const k of ['total','queued','active','success','failed'])$(k).textContent=data[k];
- $('balance').textContent=`${data.queued+data.active+data.success+data.failed} / ${data.total}`;
+ for(const k of ['total','queued','active','success','failed','control'])$(k).textContent=data[k];
+ $('balance').textContent=`${data.queued+data.active+data.success+data.failed+data.control} / ${data.total}`;
  $('time').textContent=timeFormat(time);$('timeline').value=time;
- $('play').textContent=playing?'暂停模拟':time>=scenario.duration?'重新播放':time===0?'开始模拟':'继续模拟';
+ $('play').disabled=data.total===0;
+ $('play').textContent=data.total===0?'无人可模拟':playing?'暂停模拟':time>=scenario.duration?'重新播放':time===0?'开始模拟':'继续模拟';
  $('play-state').textContent=playing?'模拟运行中':time>=scenario.duration?'模拟结束':'已暂停';
- for(const n of nodes)document.querySelector(`[data-list-node="${n.id}"] .count`).textContent=data.nodes[n.id].arrived;
+ for(const n of visibleNodes())document.querySelector(`[data-list-node="${n.id}"] .count`).textContent=data.nodes[n.id].arrived;
  renderDetails();drawScene();
 }
 const clock=createClock({duration:scenario.duration,render,request:cb=>requestAnimationFrame(cb),cancel:id=>cancelAnimationFrame(id)});
-$('node-list').innerHTML=nodes.map(n=>`<button class="node-button ${n.id===selected?'active':''}" data-node="${n.id}" data-list-node="${n.id}" aria-pressed="${n.id===selected}">${icon(n.id)}<span>${n.name}</span><span class="count">0</span></button>`).join('');
+function rebuildNodeList(){ $('node-list').innerHTML=visibleNodes().map(n=>`<button class="node-button ${n.id===selected?'active':''}" data-node="${n.id}" data-list-node="${n.id}" aria-pressed="${n.id===selected}">${icon(n.id)}<span>${n.name}</span><span class="count">0</span></button>`).join('');$('node-total').textContent=visibleNodes().length; }
+rebuildNodeList();
 function selectNode(id){
  if(!byId[id])return;selected=id;
  document.querySelectorAll('[data-list-node]').forEach(b=>{const on=b.dataset.node===id;b.classList.toggle('active',on);b.setAttribute('aria-pressed',on);});
  renderDetails();drawScene();$('status-message').textContent=`已选择${byId[id].name}，详情已更新。`;
 }
 $('node-list').addEventListener('click',e=>{const b=e.target.closest('[data-node]');if(b)selectNode(b.dataset.node);});
-$('play').addEventListener('click',()=>{if(clock.playing)clock.pause();else{if(clock.time>=scenario.duration)clock.reset();clock.play();}$('status-message').textContent=clock.playing?'模拟已开始，仅使用构造数据。':'模拟已暂停。';});
+$('play').addEventListener('click',()=>{if(!data.total)return;if(clock.playing)clock.pause();else{if(clock.time>=scenario.duration)clock.reset();clock.play();}$('status-message').textContent=clock.playing?'模拟已开始，仅使用构造数据。':'模拟已暂停。';});
 $('reset').addEventListener('click',()=>{clock.reset();$('status-message').textContent='模拟已重置并暂停。';});
 $('speed').addEventListener('change',e=>clock.setSpeed(Number(e.target.value)));
 $('timeline').addEventListener('input',e=>clock.seek(e.target.value));
-$('scenario').addEventListener('change',e=>{
- clock.pause();scenario=createScenario(e.target.value);$('timeline').max=scenario.duration;$('duration').textContent=timeFormat(scenario.duration);$('scenario-note').textContent=scenario.config.note;clock.reset(scenario.duration);$('status-message').textContent=`已切换${scenario.config.name}，模拟已重置并暂停。`;
-});
+$('scenario').addEventListener('change',()=>applyAudience(currentAudience,true));
+
 function view(mode){pitch=mode==='top'?.96:.55;yaw=mode==='top'?0:-.28;zoom=1;$('isometric').classList.toggle('active',mode!=='top');$('top').classList.toggle('active',mode==='top');$('isometric').setAttribute('aria-pressed',mode!=='top');$('top').setAttribute('aria-pressed',mode==='top');drawScene();}
 $('isometric').addEventListener('click',()=>view('iso'));$('top').addEventListener('click',()=>view('top'));
 $('view-reset').addEventListener('click',()=>view('iso'));
@@ -166,4 +173,48 @@ function updateMotion(){reduced=motionQuery.matches;if(reduced)clock.pause();$('
 motionQuery.addEventListener('change',updateMotion);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)clock.pause();});
 window.addEventListener('pagehide',()=>clock.pause(),{once:true});
-$('timeline').max=scenario.duration;$('duration').textContent=timeFormat(scenario.duration);render(0,false);updateMotion();
+function applyAudience(item,preserveExtra=false){
+ clock.pause();currentAudience=item;
+ if(!preserveExtra){extraConfig=null;$('canvas-experiment-enabled').checked=false;}
+ const users=item?filterAudience(item.rules):[];
+ const experimentId=item?.experimentId||null;
+ if(!preserveExtra){$('canvas-experiment-branch').innerHTML=experimentId?'<option value="a">继承实验 · A 分支</option><option value="b">继承实验 · B 分支</option>':'<option value="direct">整个人群 · 单一出口</option>';$('canvas-experiment-branch').value=experimentId?'a':'direct';}
+ $('canvas-experiment-config').hidden=!$('canvas-experiment-enabled').checked;
+ scenario=createScenario($('scenario').value||'baseline',users,experimentId,extraConfig);
+ selected='audience';
+ const experiments=audienceUI.store.experiments();
+ const inherited=experiments.find(e=>e.id===experimentId),additional=experiments.find(e=>e.id===extraConfig?.experimentId);
+ byId.audience.rules=[['来源',item?item.name:'尚未选择'],['匹配人数',`${users.length} 位模拟用户`],['继承实验',inherited?.name||'无 · 单一出口']];
+ const branchPrefix=extraConfig?.branch==='b'?'B':extraConfig?.branch==='a'?'A':'分支';
+ byId.a2.name=`${branchPrefix}1 组`;byId.b2.name=`${branchPrefix}2 组`;
+ // Main exits move left only when an additional stage needs canvas space.
+ for(const id of ['a','b','direct','control'])byId[id].x=extraConfig?-140:-75;
+ for(const id of ['a','b','control'])byId[id].rules=[['继承实验',inherited?.name||'无'],['ID',experimentId||'无'],['作用分母',`${users.length} 位符合条件用户`],['生产分桶','未接入']];
+ const branchCount=scenario.people.filter(p=>p.group===extraConfig?.branch).length;
+ for(const id of ['a2','b2','control2'])byId[id].rules=[['画布额外实验',additional?.name||'无'],['ID',additional?.id||'无'],['分支分母',`${branchCount} 位`],['分配',extraConfig?.experimentId===experimentId?'复用同一结果 · 不重新随机':'独立展示实验']];
+ rebuildNodeList();
+ $('flow-reference').textContent=item?`引用：${item.name} · ${summarizeRules(item.rules)}`:'暂无人群定义，请先到人群管理新建。';
+ const count=g=>scenario.people.filter(p=>p.group===g).length,count2=g=>scenario.people.filter(p=>p.extraGroup===g).length;
+ $('inherited-experiment-name').textContent=inherited?`${inherited.name} · ${inherited.id}`:'此人群未引用实验 · 单一出口';
+ $('inherited-experiment-note').textContent=inherited?`随人群继承，不可在画布取消或替换。分母 ${users.length}：A ${count('a')} / B ${count('b')} / 对照 ${count('control')}（不触达）。请通过「编辑此人群」修改引用。`:'圈选条件决定谁符合。可以编辑人群引用实验，也可以只在此画布增加实验。';
+ $('split-summary').textContent=additional?`额外：${additional.name} · ${extraConfig.branch==='direct'?'整个人群':extraConfig.branch.toUpperCase()+' 分支'}分母 ${branchCount} → ${byId.a2.name} ${count2('a2')} / ${byId.b2.name} ${count2('b2')} / 副对照 ${count2('control2')}${extraConfig.experimentId===experimentId?' · 同一实验，复用原分配':''}`:'未增加画布实验 · 继承的人群配置保持不变';
+ $('flow-audience').value=item?.id||'';$('edit-flow-audience').disabled=!item;$('canvas-experiment-enabled').disabled=!item;
+ $('timeline').max=scenario.duration;$('duration').textContent=timeFormat(scenario.duration);$('scenario-note').textContent=scenario.config.note+(users.length?'':' 当前匹配为零，请修改人群条件。');
+ clock.reset(scenario.duration);$('status-message').textContent='人群或配置已更新，沙盘重置并暂停。';
+}
+function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
+function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(currentAudience)applyAudience(currentAudience,true);}
+const audienceUI=mountAudiences({onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onTab:tab=>{if(tab==='audience')clock.pause();},onExperimentSaved:refreshExperiments});
+function changeExtra(){
+ const experimentId=canvasPicker.getValue();
+ extraConfig=$('canvas-experiment-enabled').checked&&experimentId?{experimentId,branch:$('canvas-experiment-branch').value}:null;
+ if($('canvas-experiment-enabled').checked&&!experimentId)$('status-message').textContent='请先新建一个可引用实验。';
+ applyAudience(currentAudience,true);
+}
+canvasPicker=mountExperimentPicker({rootId:'canvas-experiment-picker',store:audienceUI.store,onChange:changeExtra,onSaved:refreshExperiments});
+refreshAudienceOptions(audienceUI.list());applyAudience(audienceUI.list()[0]||null);
+$('flow-audience').addEventListener('change',e=>applyAudience(audienceUI.list().find(a=>a.id===e.target.value)||null));
+$('canvas-experiment-enabled').addEventListener('change',changeExtra);
+$('canvas-experiment-branch').addEventListener('change',changeExtra);
+$('edit-flow-audience').addEventListener('click',()=>{if(currentAudience)audienceUI.edit(currentAudience.id);});
+updateMotion();

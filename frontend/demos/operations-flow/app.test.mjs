@@ -24,13 +24,13 @@ const fire = (id,event,data={}) => element(id).listeners[event](data);
 const pointer = (id, extra={}) => ({pointerType:'mouse',button:0,clientX:100,clientY:100,pointerId:1,target:{closest:()=>id?{dataset:{node:id}}:null},...extra});
 
 test('paused initial frame and exact-end seeking keep displayed counters consistent', () => {
- assert.equal(element('queued').textContent,240);assert.equal(element('active').textContent,0);
+ assert.equal(element('queued').textContent,192);assert.equal(element('active').textContent,0);
  for (const scenario of ['baseline','pressure','recovery']) {
   fire('scenario','change',{target:{value:scenario}});
-  assert.equal(element('queued').textContent,240);
+  assert.equal(element('queued').textContent,192);
   fire('timeline','input',{target:{value:element('timeline').max}});
   assert.equal(element('active').textContent,0);
-  assert.equal(Number(element('success').textContent)+Number(element('failed').textContent),240);
+  assert.equal(Number(element('success').textContent)+Number(element('failed').textContent),192);
  }
  fire('reset','click');assert.equal(element('time').textContent,'00:00.0');
 });
@@ -67,5 +67,82 @@ test('reduced motion cancels playback and removes moving people while keeping so
  assert.ok(element('objects').innerHTML.includes('polygon'));
  fire('play','click');assert.equal(pending.size,1);
  fire('reset','click');assert.equal(pending.size,0);
- assert.equal(element('queued').textContent,240);
+ assert.equal(element('queued').textContent,192);
+});
+
+test('audience create, cancel, save and reuse reset only when the referenced definition changes', () => {
+ fire('new-audience','click');
+ assert.equal(element('audience-editor').hidden,false);
+ element('audience-name').value='Temporary draft';element('rule-country').value='MX';
+ fire('audience-form','input');assert.ok(Number(element('preview-count').textContent)<192);
+ fire('cancel-audience','click');assert.equal(element('total').textContent,192);
+ fire('new-audience','click');assert.equal(element('audience-name').value,'');
+ element('audience-name').value='Saved test';element('rule-country').value='MX';fire('audience-form','input');
+ const count=Number(element('preview-count').textContent);
+ fire('audience-form','submit',{preventDefault(){}});
+ assert.equal(element('audience-editor').hidden,true);
+ fire('flow-audience','change',{target:{value:'aud-custom-1'}});
+ assert.equal(element('total').textContent,count);
+ fire('play','click');assert.equal(pending.size,1);
+ fire('edit-flow-audience','click');assert.equal(pending.size,0);
+ element('rule-min').value=300; element('rule-max').value=365;fire('audience-form','input');
+ assert.equal(element('preview-count').textContent,0);
+ fire('audience-form','submit',{preventDefault(){}});
+ assert.equal(element('total').textContent,0);assert.equal(element('play').disabled,true);
+ fire('play','click');assert.equal(pending.size,0);
+ fire('edit-flow-audience','click');element('rule-min').value='';fire('audience-form','input');
+ assert.equal(element('save-audience').disabled,true);assert.equal(element('preview-count').textContent,'—');
+ fire('cancel-audience','click');assert.equal(element('total').textContent,0);
+});
+
+test('audience experiment is inherited read-only and extra canvas experiment cannot change it',()=>{
+ fire('flow-audience','change',{target:{value:'aud-app'}});
+ fire('edit-flow-audience','click');
+ element('audience-experiment-enabled').checked=true;
+ element('audience-experiment-picker-select').value='exp-recall';fire('audience-form','change');
+ assert.ok(element('preview-assignment').textContent.includes('对照'));
+ fire('audience-form','submit',{preventDefault(){}});
+ assert.equal(element('total').textContent,192);
+ assert.ok(element('inherited-experiment-note').textContent.includes('不可在画布取消'));
+ assert.ok(!element('node-list').innerHTML.includes('策略闸机'));
+ assert.ok(element('node-list').innerHTML.includes('对照组'));
+ const inherited=element('inherited-experiment-note').textContent;
+ element('canvas-experiment-enabled').checked=true;
+ element('canvas-experiment-picker-select').value='exp-onboarding';
+ fire('canvas-experiment-enabled','change');
+ assert.equal(element('inherited-experiment-note').textContent,inherited);
+ assert.ok(element('split-summary').textContent.includes('A 分支'));
+ fire('timeline','input',{target:{value:element('timeline').max}});
+ assert.equal(Number(element('success').textContent)+Number(element('failed').textContent)+Number(element('control').textContent),192);
+ assert.equal(element('active').textContent,0);
+ fire('play','click');assert.equal(pending.size,1);
+ element('canvas-experiment-enabled').checked=false;fire('canvas-experiment-enabled','change');assert.equal(pending.size,0);
+ assert.equal(element('inherited-experiment-note').textContent,inherited);
+ assert.ok(element('node-list').innerHTML.includes('对照组'));
+ assert.ok(!element('node-list').innerHTML.includes('副对照'));
+ element('canvas-experiment-enabled').checked=true;element('canvas-experiment-picker-select').value='exp-recall';fire('canvas-experiment-enabled','change');
+ assert.ok(element('split-summary').textContent.includes('同一实验，复用原分配'));
+ fire('flow-audience','change',{target:{value:'aud-whitelist-new'}});
+ assert.equal(element('canvas-experiment-enabled').checked,false);
+ assert.ok(element('inherited-experiment-name').textContent.includes('未引用'));
+ element('canvas-experiment-enabled').checked=true;fire('canvas-experiment-enabled','change');
+ assert.ok(element('split-summary').textContent.includes('整个人群'));
+});
+
+test('shared experiment picker creates, renames and cancels independently while keeping identity',()=>{
+ fire('edit-flow-audience','click');element('audience-experiment-enabled').checked=true;
+ fire('audience-experiment-picker-new','click');element('audience-experiment-picker-name').value='Reusable demo';
+ fire('audience-experiment-picker-save','click');
+ const experimentId=element('audience-experiment-picker-select').value;
+ assert.ok(experimentId.startsWith('exp-custom-'));
+ fire('audience-form','submit',{preventDefault(){}});
+ const before=element('inherited-experiment-note').textContent;
+ fire('edit-flow-audience','click');fire('audience-experiment-picker-edit','click');
+ element('audience-experiment-picker-name').value='Canceled rename';fire('audience-experiment-picker-cancel','click');
+ assert.ok(!element('audience-experiment-picker-select').innerHTML.includes('Canceled rename'));
+ fire('audience-experiment-picker-edit','click');element('audience-experiment-picker-name').value='Renamed shared';fire('audience-experiment-picker-save','click');
+ assert.equal(element('audience-experiment-picker-select').value,experimentId);
+ assert.ok(element('inherited-experiment-name').textContent.includes('Renamed shared'));
+ assert.equal(element('inherited-experiment-note').textContent,before);
+ fire('cancel-audience','click');
 });
