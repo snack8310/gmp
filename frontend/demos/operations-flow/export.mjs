@@ -1,6 +1,6 @@
 // Build a file://-friendly, self-contained presentation without dependencies.
 import { readFile, writeFile } from 'node:fs/promises';
-const root = new URL('./web/', import.meta.url);
+const root = new URL('./', import.meta.url);
 const [html, css, model, app] = await Promise.all(['index.html','style.css','model.mjs','app.mjs'].map(name=>readFile(new URL(name,root),'utf8')));
 const inlineModel = model.replace(/^export /gm, '');
 const inlineApp = app.replace(/^import .* from '\.\/model\.mjs';\n/, '');
