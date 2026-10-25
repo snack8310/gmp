@@ -25,3 +25,14 @@ test('standalone export embeds the actual modules, has no external assets, and b
   assert.ok(element('storage-warning').textContent.includes('存储不可用'));
  } finally {await rm(dir,{recursive:true,force:true});}
 });
+
+test('entry configuration controls are confined to audience management, canvas only selects an audience', async()=>{
+ const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
+ const start=html.indexOf('<section id="flow-section"');
+ const audience=html.slice(0,start),canvas=html.slice(start);
+ for(const id of ['entry-mode','batch-schedule','batch-time','event-type','rule-source']){
+  assert.ok(audience.includes(`id="${id}"`));assert.ok(!canvas.includes(`id="${id}"`));
+ }
+ assert.ok(canvas.includes('id="flow-audience"'));
+ for(const id of ['flow-entry-title','flow-entry-summary','flow-entry-boundary'])assert.ok(canvas.includes(`id="${id}"`));
+});

@@ -1,4 +1,4 @@
-import { filterAudience, summarizeRules } from './audience.mjs';
+import { filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
 import { mountAudiences, mountExperimentPicker, escapeHTML } from './audience-ui.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
@@ -184,7 +184,7 @@ function applyAudience(item,preserveExtra=false){
  selected='audience';
  const experiments=audienceUI.store.experiments();
  const inherited=experiments.find(e=>e.id===experimentId),additional=experiments.find(e=>e.id===extraConfig?.experimentId);
- byId.audience.rules=[['来源',item?item.name:'尚未选择'],['匹配人数',`${users.length} 位模拟用户`],['继承实验',inherited?.name||'无 · 单一出口']];
+ byId.audience.rules=[['引用人群',item?item.name:'尚未选择'],['入口配置',item?summarizeEntry(item):'无'],['匹配人数',`${users.length} 位模拟用户`],['继承实验',inherited?.name||'无 · 单一出口']];
  const branchPrefix=extraConfig?.branch==='b'?'B':extraConfig?.branch==='a'?'A':'分支';
  byId.a2.name=`${branchPrefix}1 组`;byId.b2.name=`${branchPrefix}2 组`;
  // Main exits move left only when an additional stage needs canvas space.
@@ -193,6 +193,9 @@ function applyAudience(item,preserveExtra=false){
  const branchCount=scenario.people.filter(p=>p.group===extraConfig?.branch).length;
  for(const id of ['a2','b2','control2'])byId[id].rules=[['画布额外实验',additional?.name||'无'],['ID',additional?.id||'无'],['分支分母',`${branchCount} 位`],['分配',extraConfig?.experimentId===experimentId?'复用同一结果 · 不重新随机':'独立展示实验']];
  rebuildNodeList();
+ $('flow-entry-title').textContent=item?(item.entry.mode==='event'?'事件人群 · 已保存触发配置':'批量人群 · 已保存来源与排期'):'请先创建人群';
+ $('flow-entry-summary').textContent=item?summarizeEntry(item):'画布入口只引用人群管理中的已保存定义。';
+ $('flow-entry-boundary').textContent=item?.entry.mode==='event'?'仅模拟符合条件样本依次进入；不是收到的事件数。不订阅真实事件，多画布事件分发与运行时投递尚未定义。':'仅模拟符合条件样本进入；不会执行已配置的排期。修改模式、来源或排期，请回到「编辑此人群」。';
  $('flow-reference').textContent=item?`引用：${item.name} · ${summarizeRules(item.rules)}`:'暂无人群定义，请先到人群管理新建。';
  const count=g=>scenario.people.filter(p=>p.group===g).length,count2=g=>scenario.people.filter(p=>p.extraGroup===g).length;
  $('inherited-experiment-name').textContent=inherited?`${inherited.name} · ${inherited.id}`:'此人群未引用实验 · 单一出口';

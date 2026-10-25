@@ -15,10 +15,10 @@ export const DEFAULT_EXPERIMENTS = Object.freeze([
 ]);
 const defaultRules = { country: 'all', source: 'app', lifecycle: 'all', minInactive: 0, maxInactive: 365 };
 export const DEFAULT_AUDIENCES = Object.freeze([
-  { id: 'aud-app', name: 'App 全体模拟人群', rules: { ...defaultRules } },
-  { id: 'aud-mx-dormant', name: '墨西哥 · 沉睡召回', rules: { ...defaultRules, country: 'MX', lifecycle: 'dormant', minInactive: 30 } },
-  { id: 'aud-whitelist-new', name: '白名单 · 新客体验', rules: { ...defaultRules, source: 'whitelist', lifecycle: 'new' } },
-].map(value => Object.freeze({ ...value, experimentId: null, rules: Object.freeze(value.rules) })));
+  { entry: { mode: 'batch', schedule: { type: 'manual' } }, id: 'aud-app', name: 'App 全体模拟人群', rules: { ...defaultRules } },
+  { entry: { mode: 'batch', schedule: { type: 'daily', time: '09:00', timezone: 'UTC' } }, id: 'aud-mx-dormant', name: '墨西哥 · 沉睡召回', rules: { ...defaultRules, country: 'MX', lifecycle: 'dormant', minInactive: 30 } },
+  { entry: { mode: 'event', eventType: 'app_opened' }, id: 'aud-whitelist-new', name: '白名单 · 新客体验', rules: { ...defaultRules, source: 'whitelist', lifecycle: 'new' } },
+].map(value => Object.freeze({ ...value, experimentId: null, entry: Object.freeze(value.entry.mode === 'batch' ? { ...value.entry, schedule: Object.freeze(value.entry.schedule) } : value.entry), rules: Object.freeze(value.rules) })));
 const clone = value => JSON.parse(JSON.stringify(value));
 const owns = (object, key) => typeof key === 'string' && Object.hasOwn(object, key);
 function validateRules(rules) {
@@ -33,6 +33,33 @@ function validateRules(rules) {
   if (Number.isInteger(rules.minInactive) && Number.isInteger(rules.maxInactive) && rules.minInactive > rules.maxInactive) errors.push('最少天数不能大于最多天数。');
   return [...new Set(errors)];
 }
+const EVENT_TYPES = { app_opened: 'App 打开', order_paid: '订单支付', coupon_claimed: '领取优惠券' };
+export function validateEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return ['请选择人群进入方式。'];
+  if (entry.mode === 'event') return owns(EVENT_TYPES, entry.eventType) ? [] : ['请选择有效的模拟事件。'];
+  if (entry.mode !== 'batch') return ['请选择批量进入或事件触发。'];
+  const schedule = entry.schedule;
+  if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) return ['请选择批量排期方式。'];
+  if (schedule.type === 'manual') return [];
+  if (schedule.type !== 'daily') return ['请选择手动或每日排期。'];
+  const errors = [];
+  if (typeof schedule.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule.time)) errors.push('每日时间须为有效的 HH:mm 格式。');
+  if (schedule.timezone !== 'UTC') errors.push('演示排期仅支持 UTC 时区。');
+  return errors;
+}
+export function summarizeEntry(definition) {
+  if (!definition || !owns(SOURCES, definition.rules?.source) || validateEntry(definition.entry).length) return '入口配置无效';
+  const entry = definition.entry;
+  const mode = entry.mode === 'event' ? `事件触发 · ${EVENT_TYPES[entry.eventType]} (${entry.eventType})`
+    : entry.schedule.type === 'manual' ? '批量进入 · 手动模拟'
+    : `批量进入 · 每日 ${entry.schedule.time} UTC（仅配置）`;
+  return `${SOURCES[definition.rules.source]} · ${mode}`;
+}
+function normalizeEntry(entry) {
+  if (entry.mode === 'event') return { mode: 'event', eventType: entry.eventType };
+  return { mode: 'batch', schedule: entry.schedule.type === 'manual' ? { type: 'manual' }
+    : { type: 'daily', time: entry.schedule.time, timezone: 'UTC' } };
+}
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 export function validateExperiment(experiment) {
   if (!experiment || typeof experiment !== 'object' || Array.isArray(experiment)) return ['请填写实验定义。'];
@@ -43,7 +70,7 @@ export function validateExperiment(experiment) {
 }
 export function validateAudience(definition, experiments) {
   if (!definition || typeof definition !== 'object' || Array.isArray(definition)) return ['请填写人群定义。'];
-  const errors = validateRules(definition.rules);
+  const errors = [...validateRules(definition.rules), ...validateEntry(definition.entry)];
   if (typeof definition.name !== 'string' || !definition.name.trim() || definition.name.trim().length > 48) errors.unshift('名称须为 1 至 48 个字符。');
   if (definition.id !== undefined && definition.id !== '' && (typeof definition.id !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(definition.id))) errors.push('人群标识无效。');
   if (definition.experimentId !== undefined && definition.experimentId !== null) {
@@ -75,7 +102,7 @@ export function assignGroup(uid, experimentId = null) {
 }
 function normalize(definition, id) {
   const { country, source, lifecycle, minInactive, maxInactive } = definition.rules;
-  return { id, name: definition.name.trim(), experimentId: definition.experimentId ?? null, rules: { country, source, lifecycle, minInactive, maxInactive } };
+  return { id, name: definition.name.trim(), entry: normalizeEntry(definition.entry), experimentId: definition.experimentId ?? null, rules: { country, source, lifecycle, minInactive, maxInactive } };
 }
 function validCollection(values, validate) {
   return Array.isArray(values) && values.length <= 100
@@ -95,14 +122,19 @@ export function createAudienceStore(storage) {
     const raw = storage.getItem(STORAGE_KEY);
     if (raw !== null) {
       const value = JSON.parse(raw);
-      if (!value || ![1, 2].includes(value.version)) throw new SyntaxError('Unknown stored version');
+      if (!value || ![1, 2, 3].includes(value.version)) throw new SyntaxError('Unknown stored version');
+      // Legacy schemas had no entry field. Explicit malformed fields are never defaulted.
+      const loadedAudiences = value.version < 3 && Array.isArray(value.audiences)
+        ? value.audiences.map(def => def && typeof def === 'object' && !Array.isArray(def) && !Object.hasOwn(def, 'entry')
+          ? { ...def, entry: { mode: 'batch', schedule: { type: 'manual' } } } : def) : value.audiences;
       const loadedExperiments = value.version === 1 ? clone(DEFAULT_EXPERIMENTS) : value.experiments;
       if (!validCollection(loadedExperiments, validateExperiment)
-        || !validCollection(value.audiences, def => validateAudience(def, loadedExperiments))
+        || !validCollection(loadedAudiences, def => validateAudience(def, loadedExperiments))
         || (value.version === 1 && value.audiences.some(def => def.experimentId != null))) throw new SyntaxError('Invalid stored definitions');
       // Commit both collections only after all references have been validated.
-      definitions = value.audiences.map(def => normalize(def, def.id));
+      definitions = loadedAudiences.map(def => normalize(def, def.id));
       experiments = loadedExperiments.map(experiment => ({ id: experiment.id, name: experiment.name.trim() }));
+      if (value.version < 3) warning = '旧版配置已兼容载入；缺少入口配置的人群按批量 / 手动模拟解释。尚未改写本地缓存，下次保存将使用新版格式。';
     }
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -112,7 +144,7 @@ export function createAudienceStore(storage) {
   }
   function persist() {
     if (!usable) return;
-    try { storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, audiences: definitions, experiments })); }
+    try { storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, audiences: definitions, experiments })); warning = ''; }
     catch { unavailable(); }
   }
   return {

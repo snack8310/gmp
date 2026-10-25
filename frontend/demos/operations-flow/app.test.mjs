@@ -146,3 +146,33 @@ test('shared experiment picker creates, renames and cancels independently while 
  assert.equal(element('inherited-experiment-note').textContent,before);
  fire('cancel-audience','click');
 });
+
+test('entry mode, batch schedule and event trigger are authored in audience management only',()=>{
+ fire('flow-audience','change',{target:{value:'aud-app'}});
+ fire('edit-flow-audience','click');
+ assert.equal(element('entry-mode').value,'batch');
+ element('batch-schedule').value='daily';element('batch-time').value='18:30';fire('audience-form','change');
+ assert.equal(element('batch-time-fields').hidden,false);
+ fire('audience-form','submit',{preventDefault(){}});
+ assert.ok(element('flow-entry-summary').textContent.includes('18:30'));
+ assert.ok(element('flow-entry-boundary').textContent.includes('不会执行'));
+ fire('edit-flow-audience','click');element('batch-time').value='';fire('audience-form','input');
+ assert.equal(element('save-audience').disabled,true);
+ element('entry-mode').value='event';element('event-type').value='order_paid';fire('audience-form','change');
+ assert.equal(element('batch-entry-fields').hidden,true);assert.equal(element('event-entry-fields').hidden,false);
+ assert.equal(element('save-audience').disabled,false);
+ assert.ok(element('preview-message').textContent.includes('不是已收到'));
+ fire('audience-form','submit',{preventDefault(){}});
+ assert.ok(element('flow-entry-title').textContent.includes('事件人群'));
+ assert.ok(element('flow-entry-summary').textContent.includes('order_paid'));
+ assert.ok(!element('flow-entry-summary').textContent.includes('18:30'));
+ assert.ok(element('flow-entry-boundary').textContent.includes('多画布'));
+ fire('edit-flow-audience','click');assert.equal(element('entry-mode').value,'event');assert.equal(element('event-type').value,'order_paid');
+ element('entry-mode').value='batch';element('batch-schedule').value='manual';fire('audience-form','change');
+ fire('cancel-audience','click');assert.ok(element('flow-entry-title').textContent.includes('事件人群'));
+ fire('edit-flow-audience','click');assert.equal(element('entry-mode').value,'event');
+ element('entry-mode').value='batch';element('batch-schedule').value='manual';element('event-type').value='invalid-hidden';fire('audience-form','change');
+ assert.equal(element('save-audience').disabled,false);fire('audience-form','submit',{preventDefault(){}});
+ assert.ok(element('flow-entry-title').textContent.includes('批量人群'));
+ assert.ok(!element('flow-entry-summary').textContent.includes('order_paid'));
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MOCK_USERS, DEFAULT_AUDIENCES, DEFAULT_EXPERIMENTS, validateExperiment, STORAGE_KEY, validateAudience, filterAudience, summarizeRules, assignGroup, createAudienceStore } from './audience.mjs';
+import { MOCK_USERS, DEFAULT_AUDIENCES, DEFAULT_EXPERIMENTS, validateExperiment, validateEntry, summarizeEntry, STORAGE_KEY, validateAudience, filterAudience, summarizeRules, assignGroup, createAudienceStore } from './audience.mjs';
 const base = () => structuredClone(DEFAULT_AUDIENCES[0]);
 const memory = () => { const data = new Map(); return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) }; };
 
@@ -126,9 +126,9 @@ test('experiment validation and orphan references fail before any mutation', () 
   assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
 });
 
-test('v1 caches migrate without writes and default to no experiment; explicit save writes v2', () => {
+test('v1 caches migrate without writes and default to no experiment; explicit save writes v3', () => {
   const storage = memory();
-  const oldAudience = base(); delete oldAudience.experimentId;
+  const oldAudience = base(); delete oldAudience.experimentId; delete oldAudience.entry;
   const raw = JSON.stringify({ version: 1, audiences: [oldAudience] });
   storage.setItem(STORAGE_KEY, raw);
   const store = createAudienceStore(storage);
@@ -136,7 +136,7 @@ test('v1 caches migrate without writes and default to no experiment; explicit sa
   assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
   assert.equal(storage.getItem(STORAGE_KEY), raw);
   store.save(store.list()[0]);
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 2);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
   assert.deepEqual(createAudienceStore(storage).list(), store.list());
 });
 
@@ -149,11 +149,77 @@ test('corrupt v2 experiments or orphan references fall back atomically without o
   ]) {
     const storage = memory(); const raw = JSON.stringify(payload); storage.setItem(STORAGE_KEY, raw);
     const store = createAudienceStore(storage);
-    if (payload.experiments.length === 0) { assert.equal(store.warning, ''); assert.deepEqual(store.experiments(), []); continue; }
+    if (payload.experiments.length === 0) { assert.match(store.warning, /旧版配置/); assert.deepEqual(store.experiments(), []); continue; }
     assert.match(store.warning, /当前会话/);
     assert.deepEqual(store.list(), DEFAULT_AUDIENCES);
     assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
     store.saveExperiment({ name: '仅本会话' });
     assert.equal(storage.getItem(STORAGE_KEY), raw);
   }
+});
+
+
+test('entry validates tagged mode, daily UTC time and event whitelist', () => {
+  const valid = [{ mode: 'batch', schedule: { type: 'manual' } },
+    { mode: 'batch', schedule: { type: 'daily', time: '00:00', timezone: 'UTC' } },
+    { mode: 'batch', schedule: { type: 'daily', time: '23:59', timezone: 'UTC' } },
+    ...['app_opened', 'order_paid', 'coupon_claimed'].map(eventType => ({ mode: 'event', eventType }))];
+  for (const entry of valid) { assert.deepEqual(validateEntry(entry), []); assert.deepEqual(validateAudience({ ...base(), entry }), []); }
+  const invalid = [undefined, null, [], {}, { mode: 'unknown' }, { mode: 'event', eventType: 'refund' },
+    { mode: 'event', eventType: '__proto__' }, { mode: 'batch' }, { mode: 'batch', schedule: {} },
+    { mode: 'batch', schedule: { type: 'weekly' } },
+    ...['24:00', '12:60', '9:00', '', 900].map(time => ({ mode: 'batch', schedule: { type: 'daily', time, timezone: 'UTC' } })),
+    { mode: 'batch', schedule: { type: 'daily', time: '09:00', timezone: 'Asia/Shanghai' } }];
+  for (const entry of invalid) { assert.ok(validateEntry(entry).length); assert.ok(validateAudience({ ...base(), entry }).length); }
+  assert.match(summarizeEntry(DEFAULT_AUDIENCES[0]), /App 模拟来源.*批量进入.*手动/);
+  assert.match(summarizeEntry(DEFAULT_AUDIENCES[1]), /每日 09:00 UTC/);
+  assert.match(summarizeEntry(DEFAULT_AUDIENCES[2]), /白名单模拟来源.*事件触发.*App 打开/);
+});
+
+test('entry normalization keeps only chosen branch and returns deep isolated values', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const event = store.save({ ...base(), entry: { mode: 'event', eventType: 'order_paid', source: 'whitelist', schedule: { type: 'daily', time: '09:00', timezone: 'UTC' } } });
+  assert.deepEqual(event.entry, { mode: 'event', eventType: 'order_paid' });
+  assert.equal(event.rules.source, 'app');
+  event.entry.eventType = 'coupon_claimed';
+  assert.equal(store.list()[0].entry.eventType, 'order_paid');
+  const batch = store.save({ ...store.list()[0], entry: { mode: 'batch', eventType: 'order_paid', schedule: { type: 'manual', time: '09:00', timezone: 'UTC' } } });
+  assert.deepEqual(batch.entry, { mode: 'batch', schedule: { type: 'manual' } });
+  batch.entry.schedule.type = 'daily';
+  assert.deepEqual(createAudienceStore(storage).list()[0].entry, { mode: 'batch', schedule: { type: 'manual' } });
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
+  assert.throws(() => { DEFAULT_AUDIENCES[1].entry.schedule.time = '00:00'; }, TypeError);
+});
+
+test('v2 migration preserves experiment identity, warns clearly and leaves original cache untouched', () => {
+  const storage = memory(), old = { ...base(), experimentId: 'exp-recall' }; delete old.entry;
+  const raw = JSON.stringify({ version: 2, audiences: [old], experiments: DEFAULT_EXPERIMENTS });
+  storage.setItem(STORAGE_KEY, raw);
+  const store = createAudienceStore(storage);
+  assert.deepEqual(store.list()[0].entry, { mode: 'batch', schedule: { type: 'manual' } });
+  assert.equal(store.list()[0].experimentId, 'exp-recall');
+  assert.match(store.warning, /旧版配置/);
+  assert.doesNotMatch(store.warning, /丢失/);
+  assert.equal(storage.getItem(STORAGE_KEY), raw);
+  store.save(store.list()[0]);
+  assert.equal(store.warning, '');
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
+  assert.deepEqual(createAudienceStore(storage).list(), store.list());
+});
+
+test('v3 missing or malformed entry fails closed without replacing original cache', () => {
+  for (const version of [2, 3]) {
+    for (const entry of [null, { mode: 'unknown' }, { mode: 'event', eventType: 'unknown' }, { mode: 'batch', schedule: { type: 'daily', time: '99:00', timezone: 'UTC' } }]) {
+      const storage = memory(), raw = JSON.stringify({ version, audiences: [{ ...base(), entry }], experiments: DEFAULT_EXPERIMENTS });
+      storage.setItem(STORAGE_KEY, raw);
+      const store = createAudienceStore(storage);
+      assert.match(store.warning, /损坏/);
+      assert.deepEqual(store.list(), DEFAULT_AUDIENCES);
+      store.save({ ...base(), name: '仅内存' });
+      assert.equal(storage.getItem(STORAGE_KEY), raw);
+    }
+  }
+  const storage = memory(), missing = base(); delete missing.entry;
+  storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, audiences: [missing], experiments: DEFAULT_EXPERIMENTS }));
+  assert.match(createAudienceStore(storage).warning, /损坏/);
 });
