@@ -262,6 +262,52 @@
   }
   .tag.pending { background: var(--pending-bg); color: #4b5563; }
   .tag.ok { background: #d1fae5; color: #065f46; }
+
+  /* 完整流程示意 */
+  .flow-demo {
+    margin: 14px 0 8px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fafbfe;
+    padding: 14px 12px 10px;
+    overflow-x: auto;
+  }
+  .flow-demo svg {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    height: auto;
+  }
+  .flow-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 10px 0 4px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .flow-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .flow-legend i {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+  }
+  .flow-legend .lg-camp { background: #dbeafe; border-color: #93c5fd; }
+  .flow-legend .lg-aud { background: #ecfdf5; border-color: #6ee7b7; }
+  .flow-legend .lg-treat { background: #fef3c7; border-color: #fcd34d; }
+  .flow-legend .lg-act { background: #ede9fe; border-color: #c4b5fd; }
+  .flow-legend .lg-note { background: #f3f4f6; border-color: #d1d5db; }
+  .flow-caption {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 8px 0 0;
+  }
 </style>
 </head>
 <body>
@@ -272,7 +318,7 @@
   <p>基于仓库 <code style="background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:4px;">docs/domain</code> 与 2026-10-27 决策记录整理的可读单页。只收录已确认事实与已写约定；未拍板处标明「文档未定 / 待后续」。</p>
   <div class="meta">
     <span class="chip">日期 2026-10-27</span>
-    <span class="chip">来源：领域 docs（未 commit / 未 push）</span>
+    <span class="chip">来源：领域 docs · 本页含完整流程示意</span>
     <span class="chip">无外链依赖 · file:// 可开</span>
   </div>
 </header>
@@ -283,6 +329,7 @@
     <li><a href="#action">Action 一等公民</a></li>
     <li><a href="#model">业务模型与分层</a></li>
     <li><a href="#multi-action">多动作三种表达</a></li>
+    <li><a href="#full-flow">完整流程示意（新客召回）</a></li>
     <li><a href="#audience-names">人群配置 / 人群组 / 实验人群包</a></li>
     <li><a href="#source">Source（来源）边界</a></li>
     <li><a href="#split-runtime">分流组件运行时规则</a></li>
@@ -421,6 +468,137 @@
   </div>
 
   <p class="src">出处：<code>campaign-user-stories.md</code>「多动作的三种表达」；事实 67；<code>docs/history/changes/2026-10-28-multi-action-expression.md</code>。</p>
+</section>
+
+
+<!-- ========== Full flow demo ========== -->
+<section class="block" id="full-flow">
+  <h2>完整流程示意 · 新客召回</h2>
+  <p class="lede">把「活动 → 人群 → 并行投放 → 回执回流 → 按结果分支」串成一条可读故事。图中每一个投放项仍只挂<strong>一个动作</strong>；先后与分支靠回流来源接上，<strong>没有编排器</strong>。</p>
+
+  <div class="flow-legend" aria-hidden="true">
+    <span><i class="lg-camp"></i>活动 / 放量</span>
+    <span><i class="lg-aud"></i>人群配置 / 人群组</span>
+    <span><i class="lg-treat"></i>投放项</span>
+    <span><i class="lg-act"></i>动作 / 回执</span>
+    <span><i class="lg-note"></i>约束标注</span>
+  </div>
+
+  <div class="flow-demo" role="img" aria-label="新客召回完整流程：活动与放量、人群组、并行投放项、回执回流、按成功失败分支">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 720" width="860" height="720" font-family="Segoe UI, PingFang SC, Microsoft YaHei, system-ui, sans-serif">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+        </marker>
+        <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#0f766e"/>
+        </marker>
+        <marker id="arrow-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#9a3412"/>
+        </marker>
+      </defs>
+
+      <!-- Stage 1: Campaign -->
+      <rect x="230" y="16" width="400" height="64" rx="12" fill="#dbeafe" stroke="#60a5fa" stroke-width="1.5"/>
+      <text x="430" y="42" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">① 活动「新客召回」</text>
+      <text x="430" y="62" text-anchor="middle" font-size="12.5" fill="#1e40af">放量旋钮挂在活动上 · 当前 20%（不可挂投放项）</text>
+
+      <line x1="430" y1="80" x2="430" y2="108" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- Stage 2: Audience -->
+      <rect x="160" y="108" width="540" height="88" rx="12" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+      <text x="430" y="132" text-anchor="middle" font-size="14.5" font-weight="700" fill="#065f46">② 人群配置 → 人群组「新客目标」</text>
+      <text x="430" y="152" text-anchor="middle" font-size="12" fill="#047857">来源「新客注册」+ 筛选条件 → 产出可挂接的人群组</text>
+      <text x="430" y="172" text-anchor="middle" font-size="11.5" fill="#059669">（可选）实验人群包：同一来源分流 → 臂 A / 臂 B 各成一组，多活动可复用</text>
+
+      <line x1="430" y1="196" x2="430" y2="224" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- Stage 3: Parallel treatments -->
+      <text x="430" y="242" text-anchor="middle" font-size="13" font-weight="700" fill="#92400e">③ 并行：同一人群组挂多个投放项</text>
+
+      <!-- fork lines -->
+      <line x1="430" y1="248" x2="430" y2="262" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="220" y1="262" x2="640" y2="262" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="220" y1="262" x2="220" y2="278" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="640" y1="262" x2="640" y2="278" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- T1 -->
+      <rect x="110" y="278" width="220" height="70" rx="10" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="220" y="304" text-anchor="middle" font-size="13" font-weight="700" fill="#78350f">投放项 T1</text>
+      <text x="220" y="324" text-anchor="middle" font-size="12" fill="#92400e">人群组「新客目标」</text>
+      <text x="220" y="342" text-anchor="middle" font-size="12" fill="#5b21b6">动作：发权益</text>
+
+      <!-- T2 -->
+      <rect x="530" y="278" width="220" height="70" rx="10" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="640" y="304" text-anchor="middle" font-size="13" font-weight="700" fill="#78350f">投放项 T2</text>
+      <text x="640" y="324" text-anchor="middle" font-size="12" fill="#92400e">人群组「新客目标」</text>
+      <text x="640" y="342" text-anchor="middle" font-size="12" fill="#5b21b6">动作：发 RCS</text>
+
+      <!-- annotation one treatment one action -->
+      <rect x="300" y="292" width="260" height="42" rx="8" fill="#f3f4f6" stroke="#d1d5db" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="430" y="310" text-anchor="middle" font-size="11.5" font-weight="600" fill="#374151">标注：一个投放项 = 一个动作</text>
+      <text x="430" y="326" text-anchor="middle" font-size="11" fill="#6b7280">多动作 = 多个投放项 · 无编排器</text>
+
+      <!-- arrows down from T1/T2 to execution -->
+      <line x1="220" y1="348" x2="220" y2="390" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="640" y1="348" x2="640" y2="390" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="220" y1="390" x2="640" y2="390" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="430" y1="390" x2="430" y2="408" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- Stage 4: Receipt / reflux -->
+      <rect x="200" y="408" width="460" height="70" rx="12" fill="#ede9fe" stroke="#a78bfa" stroke-width="1.5"/>
+      <text x="430" y="434" text-anchor="middle" font-size="14" font-weight="700" fill="#5b21b6">④ 动作执行 → 回执 → 回流成来源</text>
+      <text x="430" y="456" text-anchor="middle" font-size="12" fill="#6d28d9">成功 / 失败语义由动作契约定义；回流后当普通来源，再建人群配置</text>
+
+      <line x1="430" y1="478" x2="430" y2="506" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <!-- Stage 5: Branch -->
+      <text x="430" y="524" text-anchor="middle" font-size="13" font-weight="700" fill="#9a3412">⑤ 按回执分支（串行接在回流之后）</text>
+
+      <line x1="430" y1="530" x2="430" y2="544" stroke="#64748b" stroke-width="1.5"/>
+      <line x1="220" y1="544" x2="640" y2="544" stroke="#64748b" stroke-width="1.5"/>
+
+      <!-- success path -->
+      <line x1="220" y1="544" x2="220" y2="560" stroke="#0f766e" stroke-width="1.8" marker-end="url(#arrow-ok)"/>
+      <rect x="100" y="560" width="240" height="58" rx="10" fill="#ecfdf5" stroke="#34d399" stroke-width="1.5"/>
+      <text x="220" y="582" text-anchor="middle" font-size="12.5" font-weight="700" fill="#065f46">人群组「RCS 成功」</text>
+      <text x="220" y="602" text-anchor="middle" font-size="12" fill="#047857">← 回执成功回流来源</text>
+
+      <line x1="220" y1="618" x2="220" y2="640" stroke="#0f766e" stroke-width="1.8" marker-end="url(#arrow-ok)"/>
+      <rect x="100" y="640" width="240" height="52" rx="10" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="220" y="662" text-anchor="middle" font-size="13" font-weight="700" fill="#78350f">投放项 T3 · 动作：发邮件</text>
+      <text x="220" y="680" text-anchor="middle" font-size="11.5" fill="#92400e">成功路径</text>
+
+      <!-- fail path -->
+      <line x1="640" y1="544" x2="640" y2="560" stroke="#9a3412" stroke-width="1.8" marker-end="url(#arrow-fail)"/>
+      <rect x="520" y="560" width="240" height="58" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+      <text x="640" y="582" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9a3412">人群组「RCS 失败」</text>
+      <text x="640" y="602" text-anchor="middle" font-size="12" fill="#c2410c">← 回执失败回流来源</text>
+
+      <line x1="640" y1="618" x2="640" y2="640" stroke="#9a3412" stroke-width="1.8" marker-end="url(#arrow-fail)"/>
+      <rect x="520" y="640" width="240" height="52" rx="10" fill="#fef3c7" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="640" y="662" text-anchor="middle" font-size="13" font-weight="700" fill="#78350f">投放项 T4 · 动作：发短信</text>
+      <text x="640" y="680" text-anchor="middle" font-size="11.5" fill="#92400e">失败路径</text>
+
+      <!-- bottom note -->
+      <text x="430" y="710" text-anchor="middle" font-size="11.5" fill="#6b7280">条件分流 = 人群组 + 投放项 · 「事件串」只是白话，不是平台对象</text>
+    </svg>
+  </div>
+
+  <ol class="compact">
+    <li><strong>建活动</strong>并调活动级放量旋钮（灰度先小后大）。</li>
+    <li><strong>人群配置</strong>选出人 → 挂出<strong>人群组</strong>；需要 AB 时用实验人群包出多臂。</li>
+    <li><strong>并行</strong>：同一人群组挂 T1 发权益、T2 发 RCS（各一个动作）。</li>
+    <li>执行产生<strong>回执</strong>，回流成来源，再配下游人群。</li>
+    <li><strong>按回执分支</strong>：成功人群 → T3 发邮件；失败人群 → T4 发短信。</li>
+  </ol>
+
+  <div class="callout note">
+    <strong>读图要点：</strong>
+    图里没有「流程编排」节点——先后与分支全是「回流来源 → 新人群组 → 新投放项」。并行与分支可同活动共存。
+  </div>
+
+  <p class="src">出处：事实 11 / 17 / 18 / 52 / 64 / 65 / 67；对应上一节「多动作三种表达」与 <code>business-scenarios.md</code> 新客 / 跨境场景。</p>
 </section>
 
 <!-- ========== 3 Audience names ========== -->
@@ -580,7 +758,7 @@
     <li>素材非一等公民；跨投放项按素材归因<strong>已知做不了</strong>。</li>
     <li>退订与免打扰时段归属——频次已外置，这两项<strong>未表态</strong>。</li>
     <li>受众侧故事 4/5/6/14/19–22 等多条仍为 <code>待确认</code>。</li>
-    <li>本轮<strong>不改</strong> <code>gmp-core</code>；本 HTML 与同日 docs 变更<strong>未 commit / 未 push</strong>（除非用户另说）。</li>
+    <li>本轮<strong>不改</strong> <code>gmp-core</code>；领域 docs 已有本地 commit；本 HTML 流程示意随后续 commit 入库（不擅自 push）。</li>
   </ul>
 </section>
 
@@ -599,11 +777,12 @@
     <li><code>docs/history/changes/2026-10-27-split-component-runtime-rules.md</code></li>
     <li><code>docs/history/changes/2026-10-27-action-first-class.md</code></li>
     <li><code>docs/history/changes/2026-10-28-multi-action-expression.md</code></li>
+    <li><code>docs/history/changes/2026-10-28-design-overview-flow.md</code></li>
     <li><code>frontend/demos/operations-flow/README.md</code>（及同目录 demo；仅作流程示意）</li>
   </ul>
   <div class="callout ok">
     <strong>进展一句：</strong>
-    docs 侧已写入「多动作三种表达」（事实 67：并行 / 串行 / 按回执分支），并保留 Action 一等公民与分流组件运行时规则；consistency_check 本轮须全绿；工作区改动与本 HTML <strong>尚未 commit / push</strong>。
+    docs 侧已写入「多动作三种表达」（事实 67）与 Action 一等公民、分流组件运行时规则；本页补「新客召回」完整流程示意（并行 + 回执分支）；consistency_check 须全绿。推送以仓库状态为准。
   </div>
 </section>
 
