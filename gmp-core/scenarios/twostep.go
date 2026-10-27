@@ -8,12 +8,15 @@ import (
 	"github.com/snack8310/gmp/gmp-core/campaign"
 )
 
-// TwoStep is a scenario where one treatment's result is what lets the next one
-// find anybody.
+// TwoStep is two campaigns joined by the backflow.
 //
-// The two treatments do not know about each other. The second is configured
-// against an audience built over what flowed back, and would work just as well
-// if something else entirely had produced those events.
+// The second campaign's audience is built over what the first one published,
+// and would match the same people if something else had published those
+// events. That is how a wait, or a channel fact such as "unread", selects
+// people when an edge cannot: edge conditions are receipt outcomes, and a
+// time condition on an edge has not been settled. In-campaign serial steps
+// and receipt branches are edges on one campaign's flow; these scenarios are
+// not that.
 type TwoStep struct {
 	Backflow  *Backflow
 	Runner    *campaign.Runner
@@ -94,9 +97,10 @@ func (s *Stack) CrossBorderWinBack() (*TwoStep, error) {
 		return nil, fmt.Errorf("scenarios: building the first campaign: %w", err)
 	}
 
-	// The second step's audience: we sent it, at least four hours ago, and the
-	// channel came back saying it was not read. Nothing here names the first
-	// treatment.
+	// The second campaign's audience: we sent it, at least four hours ago, and
+	// the channel came back saying it was not read. This audience does not
+	// name the first treatment. A receipt edge would, and would not express
+	// the four-hour wait.
 	sent, err := audience.ElapsedSince(mustBackflowSource(), string(campaign.ArrivedEvent("send-whatsapp")), 4*time.Hour)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the elapsed condition: %w", err)
@@ -221,8 +225,9 @@ func (s *Stack) FirstOrderConversion() (*TwoStep, error) {
 // runnerOver builds a runner whose events flow into the backflow, with a
 // deliverer wired up for each action the scenario uses.
 //
-// One runner serves both steps: the second step's deliveries are ordinary
-// deliveries, and nothing about being second is special.
+// One runner serves both campaigns. The second campaign's deliveries are
+// ordinary deliveries; nothing about being second is special, because this
+// path is not a flow edge.
 func (s *Stack) runnerOver(backflow *Backflow, actions ...campaign.ActionID) (*campaign.Runner, *campaign.MemoryLog, map[campaign.ActionID]*campaign.MemoryDeliverer, error) {
 	log := campaign.NewMemoryLog()
 	runner, err := campaign.NewRunner(campaign.RunnerSpec{

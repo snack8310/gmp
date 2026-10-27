@@ -128,7 +128,7 @@ func TestOneKeyRunsThroughDeliveryRecordAndReceipt(t *testing.T) {
 			t.Fatalf("the log filed %q under %q", execution.Key, stored.Key)
 		}
 		// The third segment: a receipt arriving with that same key closes it.
-		if err := w.runner.RecordReceipt(campaign.Receipt{Key: execution.Key, Arrived: true, ExternalRef: "carrier-ref"}); err != nil {
+		if err := w.runner.RecordReceipt(built, campaign.Receipt{Key: execution.Key, Arrived: true, ExternalRef: "carrier-ref"}); err != nil {
 			t.Fatalf("recording a receipt for %q: %v", execution.Key, err)
 		}
 		closed, _, err := w.log.Lookup(execution.Key)
@@ -146,7 +146,7 @@ func TestOneKeyRunsThroughDeliveryRecordAndReceipt(t *testing.T) {
 // became of it.
 func TestAReceiptThatMatchesNothingIsRefused(t *testing.T) {
 	w := newPushWorld(t, 20)
-	if err := w.runner.RecordReceipt(campaign.Receipt{Key: "a-key-nothing-was-sent-under", Arrived: true}); !errors.Is(err, campaign.ErrNoSuchExecution) {
+	if err := w.runner.RecordReceipt(campaign.Campaign{}, campaign.Receipt{Key: "a-key-nothing-was-sent-under", Arrived: true}); !errors.Is(err, campaign.ErrNoSuchExecution) {
 		t.Fatalf("an unmatched receipt should be refused, got %v", err)
 	}
 }

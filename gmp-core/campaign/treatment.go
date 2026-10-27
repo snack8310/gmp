@@ -21,11 +21,15 @@ var (
 // TreatmentID identifies one treatment.
 type TreatmentID string
 
-// Treatment is one thing done to one person, in one step.
+// Treatment is one thing done to one person, in one step: one action.
 //
-// Multi-step sequences are not built here: a second step is a second treatment,
-// triggered by what the first one produced. Treatments do not know about each
-// other.
+// A later step is another treatment. Inside one campaign the flow connects
+// them with edges, and a receipt edge says which outcome of this treatment's
+// action runs which later treatment. Several treatments with no receipt edge
+// between them are entries and can run in parallel. A different campaign can
+// still be aimed at an audience built over what flowed back; that path is for
+// cross-campaign reuse and for conditions an edge does not express, not the
+// only way to take a second step inside one campaign.
 type Treatment struct {
 	id   TreatmentID
 	slot SlotID

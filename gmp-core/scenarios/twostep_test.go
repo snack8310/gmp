@@ -13,9 +13,10 @@ import (
 // Scenario 5 end to end: reach the long-inactive on one channel, and four hours
 // later send a message to whoever did not read it.
 //
-// The two steps never name each other. What connects them is that the first
-// one's results flowed back and became something the second one's audience can
-// be built over.
+// The wait and the channel's "unread" are not receipt outcomes, and edges do
+// not carry a time condition, so these two steps are two campaigns joined by
+// the backflow. They do not name each other. An in-campaign receipt branch is
+// an edge on one campaign's flow, which this scenario is not exercising.
 func TestScenarioFiveTwoStepsConnectedOnlyByBackflow(t *testing.T) {
 	stack := newStack(t, 300)
 	chain, err := stack.CrossBorderWinBack()
@@ -40,7 +41,7 @@ func TestScenarioFiveTwoStepsConnectedOnlyByBackflow(t *testing.T) {
 		if wasRead {
 			status = "yes"
 		}
-		if err := chain.Runner.RecordReceipt(campaign.Receipt{
+		if err := chain.Runner.RecordReceipt(chain.First, campaign.Receipt{
 			Key: execution.Key, Arrived: true, Attributes: map[string]string{"read": status},
 		}); err != nil {
 			t.Fatalf("recording a receipt: %v", err)
@@ -132,9 +133,10 @@ func TestScenarioOneChasesThreeDaysLater(t *testing.T) {
 	}
 }
 
-// The second step reacts to what flowed back, not to the treatment that
-// produced it. An event from somewhere else entirely reaches it just the same,
-// which is what "treatments do not know about each other" means in practice.
+// The second campaign reacts to what flowed back, not to a flow edge. An event
+// from somewhere else entirely reaches it just the same: the audience names an
+// event, not the treatment that published it. An in-campaign receipt branch is
+// the opposite shape, an edge that names the next treatment.
 func TestTheSecondStepReactsToTheEventNotTheTreatment(t *testing.T) {
 	stack := newStack(t, 60)
 	chain, err := stack.CrossBorderWinBack()

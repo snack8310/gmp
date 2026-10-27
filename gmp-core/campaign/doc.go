@@ -11,4 +11,8 @@
 // expressed as an audience definition -- the shares taken in so far -- because
 // a share is an ordinary condition about a person, and asking that way keeps
 // this package from reaching past the layer below it.
+//
+// A campaign may carry a flow. Edges in that flow say which treatment runs
+// after another's receipt, and which receipt outcome takes the edge. Treatments
+// with no receipt edge between them are entries and are started on their own.
 package campaign

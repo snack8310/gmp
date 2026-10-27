@@ -206,8 +206,8 @@ func showRehearsal(out *os.File) error {
 // why renders a loss reason for a human reading the demo. The reasons
 // themselves stay in the domain's own vocabulary; this is presentation.
 func showTwoStep(out *os.File) error {
-	section(out, "场景 ⑤ · 两级触达，只靠事件相连",
-		"第一步发 WhatsApp，四小时后对未读的人发短信。两个投放项互不相识——第二步的人群定义建在回流来源上。")
+	section(out, "场景 ⑤ · 两级触达，靠回流时间窗",
+		"第一步发 WhatsApp，四小时后对未读的人发短信。边的条件是动作回执，不含「等四小时、且未读」，所以这两步仍是两个活动，第二步的人群定义建在回流来源上。同一活动里按回执走下一步则用活动流程的边。")
 
 	// A fresh stack: this chain registers its own backflow source.
 	stack, err := scenarios.NewStack(population)
@@ -232,7 +232,7 @@ func showTwoStep(out *os.File) error {
 			status = "no"
 			unread++
 		}
-		if err := chain.Runner.RecordReceipt(campaign.Receipt{
+		if err := chain.Runner.RecordReceipt(chain.First, campaign.Receipt{
 			Key: execution.Key, Arrived: true, Attributes: map[string]string{"read": status},
 		}); err != nil {
 			return err
@@ -254,7 +254,7 @@ func showTwoStep(out *os.File) error {
 		return err
 	}
 	fmt.Fprintf(out, "  第二步：对 %d 人发短信 —— 正是未读的那批\n", len(second.Executions))
-	fmt.Fprintln(out, "  第二步的配置里没有任何指向第一步的引用，只有一个建在回流来源上的人群定义。")
+	fmt.Fprintln(out, "  第二步不引用第一步的投放项：它是另一个活动，人群建在回流来源上。活动内按回执走下一步才用边。")
 	return nil
 }
 
@@ -322,7 +322,7 @@ func showDelivery(out *os.File, stack *scenarios.Stack) error {
 	fmt.Fprintf(out, "  取一条被接收的看三段：\n")
 	fmt.Fprintf(out, "    决策产出 → 投放项 %s，落点 %s\n", sample.Treatment, sample.Placements[0])
 	fmt.Fprintf(out, "    投递携带 → 幂等键 %q，尝试 %d 次\n", sample.Key, sample.Attempts)
-	if err := delivery.Runner.RecordReceipt(campaign.Receipt{Key: sample.Key, Arrived: true, ExternalRef: "carrier-8891"}); err != nil {
+	if err := delivery.Runner.RecordReceipt(delivery.Campaign, campaign.Receipt{Key: sample.Key, Arrived: true, ExternalRef: "carrier-8891"}); err != nil {
 		return err
 	}
 	closed, _, err := delivery.Log.Lookup(sample.Key)
@@ -331,7 +331,7 @@ func showDelivery(out *os.File, stack *scenarios.Stack) error {
 	}
 	fmt.Fprintf(out, "    回执带同一个键回来 → 状态 %s，外部标识 %s\n", closed.State, closed.ExternalRef)
 
-	if err := delivery.Runner.RecordReceipt(campaign.Receipt{Key: "一个从没投递过的键", Arrived: true}); err != nil {
+	if err := delivery.Runner.RecordReceipt(campaign.Campaign{}, campaign.Receipt{Key: "一个从没投递过的键", Arrived: true}); err != nil {
 		fmt.Fprintf(out, "  对不上的回执被拒绝：%v\n", err)
 	} else {
 		fmt.Fprintln(out, "  对不上的回执被接受了 —— 这是个缺陷")

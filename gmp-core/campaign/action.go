@@ -20,6 +20,30 @@ var (
 	// ErrUnknownDirection is returned when an action does not say which way it
 	// talks to the outside world.
 	ErrUnknownDirection = errors.New("campaign: action direction is not one of the known ways")
+	// ErrEmptyOutcome is returned when a contract lists a receipt result with
+	// no name.
+	ErrEmptyOutcome = errors.New("campaign: outcome is empty")
+	// ErrDuplicateOutcome is returned when a contract names one receipt result
+	// twice.
+	ErrDuplicateOutcome = errors.New("campaign: action contract names one outcome twice")
+	// ErrIncompleteReceiptContract is returned when a contract names some
+	// receipt results but not both success and failure.
+	//
+	// An edge can only branch on what the contract admits. A contract that
+	// names success and never mentions failure makes the failure branch
+	// impossible to write, and the missing side then looks like a branch
+	// nobody took.
+	ErrIncompleteReceiptContract = errors.New("campaign: an action that names receipt outcomes must name both success and failure")
+)
+
+// Outcome is one result an action's contract says a receipt may report.
+type Outcome string
+
+const (
+	// OutcomeSuccess is the contract's success result.
+	OutcomeSuccess Outcome = "success"
+	// OutcomeFailure is the contract's failure result.
+	OutcomeFailure Outcome = "failure"
 )
 
 // Direction says who calls whom.
@@ -58,10 +82,17 @@ type ActionID string
 // of "content" above them: a coupon id belongs to the coupon system and is only
 // referenced here, and wrapping it in a platform-side concept would mean this
 // platform hurts whenever that system changes.
+//
+// Each action also states which receipt results its contract admits. Success
+// and failure are named by the contract, not inferred from whether a delivery
+// was accepted. Further results are whatever that contract adds. An empty list
+// means this action declares no receipt vocabulary, and a receipt edge may not
+// leave a treatment that runs it.
 type Action struct {
 	id        ActionID
 	direction Direction
 	required  []string
+	outcomes  []Outcome
 }
 
 // ActionSpec is the input to registering an action.
@@ -74,6 +105,10 @@ type ActionSpec struct {
 	Direction Direction
 	// Required lists the parameters this action needs.
 	Required []string
+	// Outcomes lists the receipt results this contract defines. Empty means
+	// the action declares none. When any are listed, success and failure must
+	// both be among them; other names are results this contract adds.
+	Outcomes []Outcome
 }
 
 // RegisterAction declares an action, which way it talks, and what it needs.
@@ -84,6 +119,10 @@ func RegisterAction(spec ActionSpec) (Action, error) {
 	if err := spec.Direction.validate(); err != nil {
 		return Action{}, fmt.Errorf("%w (action %q)", err, spec.ID)
 	}
+	outcomes, err := normalizeOutcomes(spec.ID, spec.Outcomes)
+	if err != nil {
+		return Action{}, err
+	}
 	owned := make([]string, len(spec.Required))
 	copy(owned, spec.Required)
 	sort.Strings(owned)
@@ -92,7 +131,36 @@ func RegisterAction(spec ActionSpec) (Action, error) {
 			return Action{}, fmt.Errorf("campaign: action %q declares an unnamed parameter at position %d", spec.ID, i+1)
 		}
 	}
-	return Action{id: spec.ID, direction: spec.Direction, required: owned}, nil
+	return Action{id: spec.ID, direction: spec.Direction, required: owned, outcomes: outcomes}, nil
+}
+
+func normalizeOutcomes(id ActionID, outcomes []Outcome) ([]Outcome, error) {
+	if len(outcomes) == 0 {
+		return nil, nil
+	}
+	owned := make([]Outcome, len(outcomes))
+	copy(owned, outcomes)
+	seen := make(map[Outcome]bool, len(owned))
+	var success, failure bool
+	for _, outcome := range owned {
+		if outcome == "" {
+			return nil, fmt.Errorf("%w: action %q", ErrEmptyOutcome, id)
+		}
+		if seen[outcome] {
+			return nil, fmt.Errorf("%w: %q on action %q", ErrDuplicateOutcome, outcome, id)
+		}
+		seen[outcome] = true
+		switch outcome {
+		case OutcomeSuccess:
+			success = true
+		case OutcomeFailure:
+			failure = true
+		}
+	}
+	if !success || !failure {
+		return nil, fmt.Errorf("%w: action %q", ErrIncompleteReceiptContract, id)
+	}
+	return owned, nil
 }
 
 // Direction reports which way this action talks to the outside world.
@@ -108,6 +176,13 @@ func (a Action) Required() []string {
 	return out
 }
 
+// Outcomes lists the receipt results this contract defines.
+func (a Action) Outcomes() []Outcome {
+	out := make([]Outcome, len(a.outcomes))
+	copy(out, a.outcomes)
+	return out
+}
+
 func (a Action) isZero() bool { return a.id == "" }
 
 // Call is one action with its parameters filled in: what a treatment produces
@@ -116,6 +191,7 @@ type Call struct {
 	action    ActionID
 	direction Direction
 	params    map[string]string
+	outcomes  []Outcome
 }
 
 // Call fills this action's parameters in. Anything missing or unasked-for is
@@ -140,7 +216,26 @@ func (a Action) Call(params map[string]string) (Call, error) {
 		}
 		owned[name] = value
 	}
-	return Call{action: a.id, direction: a.direction, params: owned}, nil
+	outcomes := make([]Outcome, len(a.outcomes))
+	copy(outcomes, a.outcomes)
+	return Call{action: a.id, direction: a.direction, params: owned, outcomes: outcomes}, nil
+}
+
+// Outcomes lists the receipt results the action behind this call declares.
+func (c Call) Outcomes() []Outcome {
+	out := make([]Outcome, len(c.outcomes))
+	copy(out, c.outcomes)
+	return out
+}
+
+// Declares reports whether this call's action contract names the outcome.
+func (c Call) Declares(outcome Outcome) bool {
+	for _, named := range c.outcomes {
+		if named == outcome {
+			return true
+		}
+	}
+	return false
 }
 
 // Action reports which action this call runs.

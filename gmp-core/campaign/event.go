@@ -19,8 +19,9 @@ var ErrNoEventSink = errors.New("campaign: runner was not told where events go")
 //
 // The platform names its own events from the action and what became of it, so
 // that a subscriber can ask for "the coupon went out" without knowing which
-// campaign sent it. Treatments do not know about each other; an event name is
-// the whole of what passes between them.
+// campaign sent it. Inside one campaign the next treatment is chosen by an
+// edge. An event name is what still crosses campaigns, experiments, and
+// audience definitions built on what flowed back.
 type EventName string
 
 const (
@@ -45,9 +46,10 @@ func NotArrivedEvent(action ActionID) EventName { return EventName(string(action
 // Event is something this platform did, published so that anything else can
 // react to it.
 //
-// This is the only thing that passes between treatments. They do not reference
-// one another: a second step is configured against an audience built over what
-// flowed back, not against the step that produced it.
+// Inside one campaign, a receipt edge names the next treatment. An event is
+// how a result leaves the campaign: another campaign, an experiment, or an
+// audience built over the backflow can subscribe without being a step on
+// this flow.
 type Event struct {
 	Name EventName
 	UID  audience.UID
@@ -63,6 +65,9 @@ type Event struct {
 	// there is deliberately no shared model for it, the same way there is none
 	// for what an action takes as parameters.
 	Attributes map[string]string
+	// Outcome is the receipt result in the action's vocabulary, empty on a
+	// delivery event and on a receipt whose action declared no contract.
+	Outcome Outcome
 }
 
 // EventSink is where this platform's events go.
@@ -93,6 +98,13 @@ type Receipt struct {
 	// Attributes is what this channel reports beyond arrival -- whether it was
 	// read, why it bounced. One channel, one vocabulary.
 	Attributes map[string]string
+	// Outcome is the result in the action's vocabulary. It is not derived from
+	// Arrived: the action's contract says what success and failure are, and a
+	// message can arrive while the contract still calls the result a failure,
+	// or name some further result entirely. Leave it empty when the action
+	// declared no receipt contract. When a receipt edge leaves the treatment,
+	// it has to be set.
+	Outcome Outcome
 }
 
 func (r Receipt) validate() error {
