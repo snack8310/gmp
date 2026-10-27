@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GMP 设计速览 · 2026-10-27</title>
+<style>
+  :root {
+    --bg: #f7f8fb;
+    --card: #ffffff;
+    --ink: #1a1d26;
+    --muted: #5c6578;
+    --line: #e4e7ef;
+    --accent: #2563eb;
+    --accent-soft: #eff4ff;
+    --ok: #0f766e;
+    --ok-bg: #ecfdf8;
+    --warn: #9a3412;
+    --warn-bg: #fff7ed;
+    --pending: #6b7280;
+    --pending-bg: #f3f4f6;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 8px 24px rgba(16,24,40,.04);
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.65;
+    font-size: 15.5px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+  header.hero {
+    background: linear-gradient(145deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 28px 28px 24px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  header.hero h1 {
+    margin: 0 0 8px;
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+  }
+  header.hero p {
+    margin: 0;
+    opacity: .92;
+    max-width: 62ch;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.22);
+  }
+  nav.toc {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    margin-bottom: 28px;
+  }
+  nav.toc h2 {
+    margin: 0 0 10px;
+    font-size: 0.95rem;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.25rem;
+    columns: 1;
+  }
+  @media (min-width: 640px) {
+    nav.toc ol { columns: 2; }
+  }
+  nav.toc li { margin: 4px 0; break-inside: avoid; }
+  section.block {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  section.block > h2 {
+    margin: 0 0 6px;
+    font-size: 1.28rem;
+    letter-spacing: -.01em;
+  }
+  .lede {
+    color: var(--muted);
+    margin: 0 0 16px;
+  }
+  h3 {
+    margin: 20px 0 8px;
+    font-size: 1.05rem;
+  }
+  h3:first-of-type { margin-top: 8px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 10px 0 14px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    vertical-align: top;
+    text-align: left;
+  }
+  th {
+    background: #f3f5fa;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  code, .mono {
+    font-family: var(--mono);
+    font-size: 0.9em;
+  }
+  code {
+    background: #f1f3f8;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .callout {
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin: 12px 0;
+    border: 1px solid transparent;
+  }
+  .callout.ok { background: var(--ok-bg); border-color: #99f6e4; color: #134e4a; }
+  .callout.warn { background: var(--warn-bg); border-color: #fed7aa; color: #7c2d12; }
+  .callout.note { background: var(--accent-soft); border-color: #bfdbfe; color: #1e3a8a; }
+  .callout.pending { background: var(--pending-bg); border-color: #e5e7eb; color: #374151; }
+  .callout strong { display: inline-block; margin-right: 4px; }
+  ul.compact, ol.compact { margin: 8px 0 12px; padding-left: 1.3rem; }
+  ul.compact li, ol.compact li { margin: 4px 0; }
+  .layers {
+    display: grid;
+    gap: 8px;
+    margin: 12px 0 16px;
+  }
+  .layer {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: #fafbfe;
+  }
+  .layer .title {
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .layer .arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin: -2px 0;
+  }
+  .flow {
+    display: grid;
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .step .n {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    border: 1px solid #bfdbfe;
+  }
+  .step .body {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #fff;
+  }
+  .step .body strong { display: block; margin-bottom: 2px; }
+  .swim {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 12px 0 16px;
+    font-size: 14px;
+  }
+  .swim .lane-label {
+    background: #f3f5fa;
+    padding: 10px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+  }
+  .swim .lane-body {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .swim > *:nth-last-child(-n+2) { border-bottom: none; }
+  footer {
+    margin-top: 28px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+  .src {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+  .src code { font-size: 11.5px; }
+  .tag {
+    display: inline-block;
+    font-size: 11.5px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .tag.pending { background: var(--pending-bg); color: #4b5563; }
+  .tag.ok { background: #d1fae5; color: #065f46; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>GMP 设计速览</h1>
+  <p>基于仓库 <code style="background:rgba(255,255,255,.2);color:#fff;padding:1px 6px;border-radius:4px;">docs/domain</code> 与 2026-10-27 决策记录整理的可读单页。只收录已确认事实与已写约定；未拍板处标明「文档未定 / 待后续」。</p>
+  <div class="meta">
+    <span class="chip">日期 2026-10-27</span>
+    <span class="chip">来源：领域 docs（未 commit / 未 push）</span>
+    <span class="chip">无外链依赖 · file:// 可开</span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="目录">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#action">Action 一等公民</a></li>
+    <li><a href="#model">业务模型与分层</a></li>
+    <li><a href="#multi-action">多动作三种表达</a></li>
+    <li><a href="#audience-names">人群配置 / 人群组 / 实验人群包</a></li>
+    <li><a href="#source">Source（来源）边界</a></li>
+    <li><a href="#split-runtime">分流组件运行时规则</a></li>
+    <li><a href="#ops-flow">使用 / 运营流程（Demo 口径）</a></li>
+    <li><a href="#open">明确未定 / 不做</a></li>
+    <li><a href="#sources">文档出处</a></li>
+  </ol>
+</nav>
+
+<!-- ========== 1 Action ========== -->
+<section class="block" id="action">
+  <h2>1. Action 一等公民 <span class="tag ok">事实 63–66</span></h2>
+  <p class="lede">动作（<code>Action</code>）与来源、实验人群包同级，是研发接入的能力清单；不是投放项上的附属字段。</p>
+
+  <h3>边界表（已确认）</h3>
+  <table>
+    <thead><tr><th>边界</th><th>含义</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>投放项 ≠ 动作类型</strong></td>
+        <td>投放项（<code>Treatment</code>）是活动下的可执行单元；动作类型（展示 / 短信 / 权益）是动作目录里的分类，不是投放项本身。<em>（事实 64）</em></td>
+      </tr>
+      <tr>
+        <td><strong>投放项引用动作</strong></td>
+        <td>投放项挂<strong>一个</strong>动作并填该动作要的参数；一个投放项只能是一类动作（事实 52、64）。</td>
+      </tr>
+      <tr>
+        <td><strong>动作定义成功 / 失败 / 异步回执</strong></td>
+        <td>何种结果算成功、失败、是否有异步回执，由<strong>该动作契约</strong>写清；平台按此做回执关联（事实 65；关联事实 41、48）。</td>
+      </tr>
+      <tr>
+        <td><strong>展示位 ↔ 展示类动作</strong></td>
+        <td>展示位对应展示类动作；通常一次判定产出<strong>一个</strong>展示结果（一个素材 id）。同展示位多活动抢位仍按事实 5–7、23。<em>（事实 66）</em></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>与「来源」对称</h3>
+  <table>
+    <thead><tr><th>进来</th><th>出去</th></tr></thead>
+    <tbody>
+      <tr><td><strong>来源</strong> —— 人从哪来</td><td><strong>动作</strong> —— 东西怎么出去</td></tr>
+      <tr><td>研发预先接好，运营从列表里挑</td><td>同样：研发接好、运营挑</td></tr>
+      <tr><td>拉 / 推整批 / 推逐条</td><td>展示 / 发短信 / 发权益</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>事实 40（不推翻）：</strong>
+    三类动作都跟外部系统打交道，但方向不同——短信 / 发券是我们调对方；资源位是对方调我们、我们返回 id。<strong>资源位没有「发放成功」</strong>；返回 id ≠ 被看见（曝光回传不强制，见事实 50、51）。
+  </div>
+
+  <div class="callout pending">
+    <strong>已知代价 / 未定：</strong>
+    素材<strong>不是</strong>一等公民（事实 39）——跨投放项按素材归因做不了。内容不做统一模型，是动作参数（事实 37）。「展示素材归谁持有」文档仍写<strong>未定</strong>。各动作字段级成功/失败枚举本轮只定「由动作定义」，细则<strong>待后续</strong>。
+  </div>
+
+  <p class="src">出处：<code>docs/domain/campaign-user-stories.md</code>（动作一节；事实 36、40、63–66）；<code>docs/history/changes/2026-10-27-action-first-class.md</code>；归属见 <code>system-boundaries.md</code>。</p>
+</section>
+
+<!-- ========== 2 Model ========== -->
+<section class="block" id="model">
+  <h2>2. 业务模型与分层</h2>
+  <p class="lede">依赖单向、无环：运营平台引用受众与实验；受众引用实验；实验服务零依赖另外两层。</p>
+
+  <div class="layers">
+    <div class="layer">
+      <div class="title">运营平台（campaign）</div>
+      活动、投放项、决策表、优先级、放量旋钮、<strong>动作 Action</strong>。<br />
+      回答：「要对这些人做什么」
+    </div>
+    <div class="arrow">引用 ↓</div>
+    <div class="layer">
+      <div class="title">受众服务（audience）</div>
+      来源、人群配置、人群组、实验人群包（发布单元）。枚举 / 判定。<br />
+      回答：「这个人是谁 / 这批人是谁」
+    </div>
+    <div class="arrow">引用 ↓（「第 N 份」只是普通人群条件）</div>
+    <div class="layer">
+      <div class="title">实验服务（experimentation）</div>
+      一次分流：份数、比例、盐、对齐；稳定分配；实验指标。<br />
+      回答：「这个 id 落在第几份」· <strong>不得依赖另外两层</strong>
+    </div>
+  </div>
+
+  <div class="callout note">
+    <strong>产品偏好（已确认，不改接缝）：</strong>
+    大部分分组实验落在<strong>人群侧</strong>（实验人群包跨活动复用）；活动内再建分流是<strong>例外</strong>。分桶本体仍归实验服务；受众服务自己不分桶。
+  </div>
+
+  <h3>投放项与人群怎么挂</h3>
+  <table>
+    <thead><tr><th>投放项类型</th><th>挂什么</th><th>问受众要什么</th></tr></thead>
+    <tbody>
+      <tr><td>我们找人 · 批量</td><td>一个<strong>人群组</strong></td><td>枚举：这批人是谁</td></tr>
+      <tr><td>我们找人 · 事件</td><td>触发器 + 人群配置判定</td><td>判定：他算不算</td></tr>
+      <tr><td>人找我们 · 资源位</td><td>准入条件</td><td>判定：他算不算（须快）</td></tr>
+    </tbody>
+  </table>
+  <p>一个投放项 = 对一个人做一件事（一步）。多步靠<strong>事件串</strong>，投放项互不相识。——「事件串」只是白话，不是平台对象。</p>
+
+  <p class="src">出处：<code>docs/domain/system-boundaries.md</code> 拆法与归属表；<code>campaign-user-stories.md</code> 投放项与受众关系。</p>
+</section>
+
+<!-- ========== Multi-action ========== -->
+<section class="block" id="multi-action">
+  <h2>多动作三种表达 <span class="tag ok">事实 67</span></h2>
+  <p class="lede">「权益 + WhatsApp + 短信」等诉求用<strong>现有模型</strong>表达：仍保持一个投放项一个动作；不引入编排器 / 「串」对象。成功 / 失败语义由动作契约定义。</p>
+
+  <table>
+    <thead><tr><th>表达</th><th>怎么配</th><th>短例</th><th>对应事实</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>并行</strong></td>
+        <td>同一人群组挂多个投放项</td>
+        <td>新客同时发权益、WhatsApp、短信</td>
+        <td>事实 52</td>
+      </tr>
+      <tr>
+        <td><strong>串行</strong></td>
+        <td>后一步人群建在前一步执行回流来源上</td>
+        <td>发权益 →「已发权益」→ WhatsApp → 短信</td>
+        <td>事实 17、18</td>
+      </tr>
+      <tr>
+        <td><strong>按回执分支</strong></td>
+        <td>成功 / 失败（及契约其他结果）回流后各建人群组 + 投放项</td>
+        <td>RCS 成功→邮件；失败→短信</td>
+        <td>事实 18、65</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout note">
+    <strong>不推翻：</strong>事实 11 / 52 / 64——一个投放项仍只挂一个动作；多动作 = 多个投放项。条件分流仍 = 人群组 + 投放项。
+  </div>
+
+  <p class="src">出处：<code>campaign-user-stories.md</code>「多动作的三种表达」；事实 67；<code>docs/history/changes/2026-10-28-multi-action-expression.md</code>。</p>
+</section>
+
+<!-- ========== 3 Audience names ========== -->
+<section class="block" id="audience-names">
+  <h2>3. 人群配置 · 人群组 · 实验人群包</h2>
+  <p class="lede">关闭「人群定义 / 来源」命名歧义后的主名（事实 26；AQ1–AQ3）。</p>
+
+  <table>
+    <thead><tr><th>主名</th><th>建议英文</th><th>一句话</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>人群配置</strong></td>
+        <td><code>AudienceConfig</code>（建议；代码暂仍 <code>audience.Definition</code>）</td>
+        <td><strong>来源 + 筛选</strong>。筛人是配置的一部分。有枚举与判定两种求值用法。勿再以「人群定义」当主名。</td>
+      </tr>
+      <tr>
+        <td><strong>人群组</strong></td>
+        <td><code>AudienceGroup</code>（建议）</td>
+        <td><strong>受众对外挂接</strong>。无实验 → 组数 = 1；有实验 → 实验人群包下多臂多组。活动 / 投放项挂的是人群组，不是来源本身。</td>
+      </tr>
+      <tr>
+        <td><strong>实验人群包</strong></td>
+        <td><code>ExperimentAudienceBundle</code>（建议；拼写待命名确认 D9）</td>
+        <td><strong>一等公民发布单元</strong>：同一来源上的一次分流 + 各臂人群组，打包发布后可被多活动引用。不是新的分桶机制（每臂内部仍是带「第 N 份」的人群配置）。</td>
+      </tr>
+      <tr>
+        <td><strong>来源</strong></td>
+        <td><code>AudienceSource</code></td>
+        <td>能吐 uid 的供给方；<strong>不含</strong>筛选。研发预先接好，运营只能从列表挑。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>AQ 结论（已关闭）</h3>
+  <ul class="compact">
+    <li><strong>AQ1</strong>：实验人群包另立一等公民，分流与各臂打包发布（事实 23）。</li>
+    <li><strong>AQ2</strong>：分流修订 / 停用 → <strong>强制停用</strong>相关臂及包可用状态（事实 24；不变量 20）。</li>
+    <li><strong>AQ3</strong>：同一臂被多活动引用时，按臂跨活动聚合 <strong>与</strong> 按活动切开两种视图都要（事实 25、61；不变量 21）。</li>
+  </ul>
+
+  <p class="src">出处：<code>audience-user-stories.md</code> 名词表 / 事实 23–26；<code>2026-10-27-audience-naming-rewrite.md</code>；<code>2026-10-27-experiment-audience-bundle-aq.md</code>。</p>
+</section>
+
+<!-- ========== 4 Source ========== -->
+<section class="block" id="source">
+  <h2>4. Source（来源）边界</h2>
+  <ul class="compact">
+    <li>来源与「运营配的那次筛选」<strong>拆成两个东西</strong>（事实 8）——生命周期不同；筛选在人群配置里只有一处（Q8）。</li>
+    <li>来源分两类：外部系统，与<strong>平台自身执行结果回流</strong>（事实 11）——条件分流的前提。</li>
+    <li>三种供给方式共同点是「能吐 uid」，区别在谁主动（拉 / 推整批 / 推逐条）。</li>
+    <li>语义上多个活动共用同一来源<strong>互不影响</strong>；唯一例外是对方配额 / 限流（Q10）。</li>
+    <li>执行结果回流不成环：运营平台只往外发事件，受众服务当普通来源消费，从不反向调用运营平台（边界文档）。</li>
+  </ul>
+  <div class="callout pending">
+    <strong>文档未定：</strong>「一份人群配置能否跨多个来源」见受众侧故事 6（仍待确认）。
+  </div>
+</section>
+
+<!-- ========== 5 Split runtime ========== -->
+<section class="block" id="split-runtime">
+  <h2>5. 分流组件运行时规则 <span class="tag ok">事实 27–28 · 62</span></h2>
+  <p class="lede">分流组件 = 产品说法；本体是实验服务的一次分流定义。经实验人群包发布后，各臂对外为人群组。</p>
+
+  <table>
+    <thead><tr><th>状态</th><th>允许</th><th>禁止</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>运行中</strong><br /><span style="color:var(--muted);font-size:13px;">无论是否已被活动引用</span></td>
+        <td>调整<strong>比例</strong>、<strong>白名单</strong>等运行参数。<br />运行参数调整 <strong>≠</strong> AQ2「分流修订」，不因此强制停用臂。</td>
+        <td>改「<strong>加载组件逻辑</strong>」（换算法 / 切法结构 / 组件实现等使历史分配与染色语义不可比的变更）。</td>
+      </tr>
+      <tr>
+        <td><strong>非运行中</strong></td>
+        <td>—</td>
+        <td><strong>不可被其他活动引用</strong>（不得新挂为有效人群；已挂须随停用路径失效）。进入非运行 / 分流被修订停用时仍适用 AQ2。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout pending">
+    <strong>文档未定：</strong>「加载组件逻辑」英文名未定；切法份数增减是否一律算加载逻辑、白名单数据结构未细拆；运行中调比例后未染色键是否立即按新比例重算——机制仍见染色表，本轮不新开算法事实。<code>gmp-core</code> 代码仍可能按旧「定义不可就地修改」实现，对齐另开任务。
+  </div>
+
+  <p class="src">出处：受众侧事实 27–28、能力 A11；活动侧事实 62；<code>2026-10-27-split-component-runtime-rules.md</code>；不变量 22–23。</p>
+</section>
+
+<!-- ========== 6 Ops flow ========== -->
+<section class="block" id="ops-flow">
+  <h2>6. 使用 / 运营流程</h2>
+  <p class="lede">下列步骤综合领域文档能力顺序，以及 <code>frontend/demos/operations-flow</code> 演示沙盘的操作路径。<strong>Demo 是展示沙盘，不是生产平台</strong>；领域里尚待确认的功能不因 Demo 变成业务决策。</p>
+
+  <h3>领域口径下的配置顺序</h3>
+  <div class="flow">
+    <div class="step">
+      <div class="n">1</div>
+      <div class="body">
+        <strong>研发接入来源与动作</strong>
+        运营只能从已接好的列表里挑（来源 A1；动作事实 36 / 63）。
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div class="body">
+        <strong>配置人群</strong>
+        选来源 + 加筛选 → <strong>人群配置</strong>；需要 AB 时引用分流「第 N 份」条件，或发布<strong>实验人群包</strong>（各臂 = 人群组）。
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div class="body">
+        <strong>建活动与投放项</strong>
+        活动下挂投放项：每个投放项引用<strong>一个动作</strong> + <strong>一个人群组</strong>；需要时配决策表 / 优先级 / 放量旋钮。
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">4</div>
+      <div class="body">
+        <strong>多步靠事件串</strong>
+        例如「发券 → 3 天未用再短信」= 两个投放项；第二步触发条件来自平台执行结果回流成来源。
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">5</div>
+      <div class="body">
+        <strong>止血 vs 修复</strong>
+        止血：停活动 / 停投放项；修复：改人群配置（会波及其他引用方）。分流组件非运行中不可被新活动挂上。
+      </div>
+    </div>
+  </div>
+
+  <h3>Demo 泳道（operations-flow，仅演示）</h3>
+  <div class="swim">
+    <div class="lane-label">人群管理</div>
+    <div class="lane-body">预置 / 新建人群；选进入方式（批量排期或事件触发）；配来源 + 圈选条件；可选绑定 A/B 实验；保存的是入口配置与规则引用，不是名单。</div>
+    <div class="lane-label">沙盘引用</div>
+    <div class="lane-body">「引用到沙盘」或选已保存人群；画布只读显示入口配置；切换 / 改人群会重置并暂停，并清空流程实验节点以免隐式套用。</div>
+    <div class="lane-label">流程节点</div>
+    <div class="lane-body">可选在路径上加<strong>一个</strong>流程实验节点（进入后分流，非入口配置）；对照路径不触达；模拟播放看统计。同实验 ID 同用户分组稳定。</div>
+    <div class="lane-label">明确不做</div>
+    <div class="lane-body">不接生产服务、不上传名单、不真发消息、不建设通用图引擎或生产实验配置平台。</div>
+  </div>
+
+  <div class="callout note">
+    <strong>五个已确认业务场景</strong>（压模型用，见 <code>business-scenarios.md</code>）：① 新客首单转化（事件串）② 双十一分组实验 ③ APP banner 抢位 + 决策表 ④ 灰度放量 ⑤ 跨境两级触达（回流 + 幂等）。
+  </div>
+
+  <p class="src">出处：<code>frontend/demos/operations-flow/README.md</code>；<code>business-scenarios.md</code>；受众 / 活动能力表。</p>
+</section>
+
+<!-- ========== 7 Open ========== -->
+<section class="block" id="open">
+  <h2>7. 明确未定 / 不做（摘录）</h2>
+  <ul class="compact">
+    <li>英文名 <code>AudienceConfig</code> / <code>AudienceGroup</code> / <code>ExperimentAudienceBundle</code> 为<strong>建议</strong>；代码标识改名另开任务。</li>
+    <li>实验人群包完整字段 / 发布 API、双视图查询入口落在哪一侧——<strong>文档未定</strong>。</li>
+    <li>「加载组件逻辑」英文名与细规则——<strong>文档未定</strong>。</li>
+    <li>素材非一等公民；跨投放项按素材归因<strong>已知做不了</strong>。</li>
+    <li>退订与免打扰时段归属——频次已外置，这两项<strong>未表态</strong>。</li>
+    <li>受众侧故事 4/5/6/14/19–22 等多条仍为 <code>待确认</code>。</li>
+    <li>本轮<strong>不改</strong> <code>gmp-core</code>；本 HTML 与同日 docs 变更<strong>未 commit / 未 push</strong>（除非用户另说）。</li>
+  </ul>
+</section>
+
+<!-- ========== 8 Sources ========== -->
+<section class="block" id="sources">
+  <h2>8. 文档出处</h2>
+  <ul class="compact">
+    <li><code>docs/domain/audience-user-stories.md</code></li>
+    <li><code>docs/domain/campaign-user-stories.md</code></li>
+    <li><code>docs/domain/system-boundaries.md</code></li>
+    <li><code>docs/domain/interaction-invariants.md</code></li>
+    <li><code>docs/domain/business-scenarios.md</code></li>
+    <li><code>docs/history/changes/2026-10-27-reusable-experimental-audience.md</code></li>
+    <li><code>docs/history/changes/2026-10-27-experiment-audience-bundle-aq.md</code></li>
+    <li><code>docs/history/changes/2026-10-27-audience-naming-rewrite.md</code></li>
+    <li><code>docs/history/changes/2026-10-27-split-component-runtime-rules.md</code></li>
+    <li><code>docs/history/changes/2026-10-27-action-first-class.md</code></li>
+    <li><code>docs/history/changes/2026-10-28-multi-action-expression.md</code></li>
+    <li><code>frontend/demos/operations-flow/README.md</code>（及同目录 demo；仅作流程示意）</li>
+  </ul>
+  <div class="callout ok">
+    <strong>进展一句：</strong>
+    docs 侧已写入「多动作三种表达」（事实 67：并行 / 串行 / 按回执分支），并保留 Action 一等公民与分流组件运行时规则；consistency_check 本轮须全绿；工作区改动与本 HTML <strong>尚未 commit / push</strong>。
+  </div>
+</section>
+
+<footer>
+  本地单页 · 内联 CSS · 无 CDN / 无构建 · 可用浏览器直接打开本文件<br />
+  路径：docs/design-overview-2026-10-27.html
+</footer>
+
+</div>
+</body>
+</html>
