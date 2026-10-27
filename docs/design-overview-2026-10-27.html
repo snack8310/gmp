@@ -342,7 +342,7 @@
 <!-- ========== 1 Action ========== -->
 <section class="block" id="action">
   <h2>1. Action 一等公民 <span class="tag ok">事实 63–66</span></h2>
-  <p class="lede">动作（<code>Action</code>）与来源、实验人群包同级，是研发接入的能力清单；不是投放项上的附属字段。</p>
+  <p class="lede">动作（<code>Action</code>）与来源、实验人群包、<strong>活动流程</strong>同级，是研发接入的能力清单；不是投放项上的附属字段。</p>
 
   <h3>边界表（已确认）</h3>
   <table>
@@ -395,10 +395,17 @@
   <h2>2. 业务模型与分层</h2>
   <p class="lede">依赖单向、无环：运营平台引用受众与实验；受众引用实验；实验服务零依赖另外两层。</p>
 
+
+  <div class="callout note">
+    <strong>一等公民清单（已确认）：</strong>
+    动作（<code>Action</code>）、来源、实验人群包、<strong>活动流程</strong>。正式中文名用「活动流程」，不要只叫「流程」。素材仍非一等公民（事实 39、70）。
+  </div>
+
+
   <div class="layers">
     <div class="layer">
       <div class="title">运营平台（campaign）</div>
-      活动、投放项、决策表、优先级、放量旋钮、<strong>动作 Action</strong>。<br />
+      活动、投放项、<strong>活动流程</strong>（一等公民）、决策表、优先级、放量旋钮、<strong>动作 Action</strong>（一等公民）。<br />
       回答：「要对这些人做什么」
     </div>
     <div class="arrow">引用 ↓</div>
@@ -474,7 +481,7 @@
 <!-- ========== Full flow demo ========== -->
 <section class="block" id="full-flow">
   <h2>完整流程示意 · 新客召回（活动级编排器）</h2>
-  <p class="lede">活动下挂<strong>活动流程</strong>：节点是投放项，连线是<strong>边</strong>（条件来自动作回执）。每一个投放项仍只挂<strong>一个动作</strong>；并行 = 无边分叉；串行 / 分支 = 带条件的边。</p>
+  <p class="lede">活动下挂一等公民<strong>活动流程</strong>（正式中文名「活动流程」，勿只称「流程」）：节点是投放项，连线是<strong>边</strong>（条件来自动作回执）。每一个投放项仍只挂<strong>一个动作</strong>；并行 = 无边分叉；串行 / 分支 = 带条件的边。与动作、来源、实验人群包同级（事实 68、70）。</p>
 
   <div class="flow-legend" aria-hidden="true">
     <span><i class="lg-camp"></i>活动 / 放量 / 活动流程</span>
@@ -504,7 +511,7 @@
       <!-- Stage 1: Campaign + flow -->
       <rect x="180" y="16" width="500" height="72" rx="12" fill="#dbeafe" stroke="#60a5fa" stroke-width="1.5"/>
       <text x="430" y="42" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">① 活动「新客召回」· 放量 20%</text>
-      <text x="430" y="64" text-anchor="middle" font-size="12.5" fill="#1e40af">下挂活动流程（编排器）：投放项 + 边 · 归属运营平台</text>
+      <text x="430" y="64" text-anchor="middle" font-size="12.5" fill="#1e40af">下挂活动流程（一等公民 / 编排器）：投放项 + 边 · 归属运营平台</text>
 
       <line x1="430" y1="88" x2="430" y2="116" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)"/>
 
@@ -765,6 +772,7 @@
     <li><code>docs/history/changes/2026-10-27-audience-naming-rewrite.md</code></li>
     <li><code>docs/history/changes/2026-10-27-split-component-runtime-rules.md</code></li>
     <li><code>docs/history/changes/2026-10-27-action-first-class.md</code></li>
+    <li><code>docs/history/changes/2026-10-28-campaign-flow-first-class.md</code></li>
     <li><code>docs/history/changes/2026-10-28-multi-action-expression.md</code></li>
     <li><code>docs/history/changes/2026-10-28-design-overview-flow.md</code></li>
     <li><code>frontend/demos/operations-flow/README.md</code>（及同目录 demo；仅作流程示意）</li>
