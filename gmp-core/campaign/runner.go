@@ -140,7 +140,7 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 		return report, fmt.Errorf("%w: %q", ErrNoDeliverer, treatment.call.Action())
 	}
 
-	people, err := r.audiences.Enumerate(treatment.who, mode)
+	people, err := r.audiences.EnumerateGroup(treatment.who, mode)
 	if err != nil {
 		return report, fmt.Errorf("campaign %q, treatment %q: %w", c.ID(), id, err)
 	}
@@ -148,7 +148,7 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 
 	for _, uid := range people {
 		if limited {
-			in, err := r.audiences.Decide(rollout, mode, uid)
+			in, err := r.audiences.DecideGroup(rollout, mode, uid)
 			if err != nil {
 				return report, fmt.Errorf("campaign %q: checking the rollout for %q: %w", c.ID(), uid, err)
 			}
@@ -158,9 +158,16 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 		}
 		// Where the person landed, recorded whether or not the delivery works
 		// out: someone the send failed for is still in their arm.
-		placements, err := r.audiences.Placements(treatment.who, mode, uid)
+		placements, err := r.audiences.GroupPlacements(treatment.who, mode, uid)
 		if err != nil {
 			return report, fmt.Errorf("campaign %q, treatment %q: %w", c.ID(), id, err)
+		}
+		if limited {
+			admitted, err := r.audiences.GroupPlacements(rollout, mode, uid)
+			if err != nil {
+				return report, fmt.Errorf("campaign %q: recording rollout for %q: %w", c.ID(), uid, err)
+			}
+			placements = mergePlacements(placements, admitted)
 		}
 		// Derived once, before any attempt. Retrying reuses this value rather
 		// than asking for another, which is what makes the key survive retries
@@ -276,6 +283,11 @@ func (r *Runner) follow(c Campaign, upstream Execution, outcome Outcome) error {
 	if c.flow.id == "" || outcome == "" {
 		return nil
 	}
+	if source, ok := c.treatment(upstream.Treatment); ok {
+		if err := r.audiences.ValidateGroup(source.who); err != nil {
+			return err
+		}
+	}
 	for _, edge := range c.flow.edges {
 		if edge.kind != EdgeOnReceipt || edge.from != upstream.Treatment || edge.when != outcome {
 			continue
@@ -298,6 +310,9 @@ func (r *Runner) follow(c Campaign, upstream Execution, outcome Outcome) error {
 // downstream delivery. An execution already recorded as anything but a total
 // failure is left alone. A failure is tried again under that same key.
 func (r *Runner) deliverFromEdge(c Campaign, target Treatment, upstream Execution) error {
+	if err := r.audiences.ValidateGroup(target.who); err != nil {
+		return err
+	}
 	if target.call.Direction() == DirectionPull {
 		return fmt.Errorf("%w: treatment %q runs action %q",
 			ErrPullCannotBeDeliveredInBatch, target.id, target.call.Action())

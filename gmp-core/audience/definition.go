@@ -22,9 +22,8 @@ type DefinitionID string
 
 // Definition is a source plus a set of conditions, all of which must hold.
 //
-// It is the only thing this layer offers. Values are immutable: a definition
-// may be referenced by several treatments at once, so editing one in place
-// would change what those other callers are asking for without them knowing.
+// Values are immutable: a configuration may be referenced by several groups,
+// so editing one in place would change what those callers ask for silently.
 // Changing a definition means building another one.
 type Definition struct {
 	id         DefinitionID

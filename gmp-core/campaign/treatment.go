@@ -12,7 +12,7 @@ var (
 	ErrMissingTreatmentID = errors.New("campaign: treatment id is empty")
 	// ErrMissingTreatmentAudience is returned when a treatment does not say who
 	// it is for.
-	ErrMissingTreatmentAudience = errors.New("campaign: treatment has no audience definition")
+	ErrMissingTreatmentAudience = errors.New("campaign: treatment has no audience group")
 	// ErrMissingTreatmentCall is returned when a treatment does not say what it
 	// does.
 	ErrMissingTreatmentCall = errors.New("campaign: treatment has no action call")
@@ -35,7 +35,7 @@ type TreatmentID string
 type Treatment struct {
 	id   TreatmentID
 	slot SlotID
-	who  audience.Definition
+	who  audience.Group
 	call Call
 }
 
@@ -46,7 +46,7 @@ type TreatmentSpec struct {
 	// Slot is the display position for an action that requires one.
 	Slot SlotID
 	// Who it is for.
-	Who audience.Definition
+	Who audience.Group
 	// Call is what it does: a registered action with its parameters.
 	Call Call
 }
@@ -78,7 +78,7 @@ func (t Treatment) ID() TreatmentID { return t.id }
 func (t Treatment) Slot() SlotID { return t.slot }
 
 // Audience reports who it is for.
-func (t Treatment) Audience() audience.Definition { return t.who }
+func (t Treatment) Audience() audience.Group { return t.who }
 
 // Call reports what it does.
 func (t Treatment) Call() Call { return t.call }

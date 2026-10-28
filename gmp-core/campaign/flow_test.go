@@ -664,7 +664,7 @@ func treatmentOn(t *testing.T, action campaign.Action, id string, who audience.D
 		t.Fatalf("filling in %s: %v", id, err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: campaign.TreatmentID(id), Who: who, Call: call,
+		ID: campaign.TreatmentID(id), Who: audience.Single(who), Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building treatment %s: %v", id, err)

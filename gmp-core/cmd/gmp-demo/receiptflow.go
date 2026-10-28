@@ -176,8 +176,8 @@ func treatmentByID(built campaign.Campaign, id campaign.TreatmentID) (campaign.T
 	return campaign.Treatment{}, false
 }
 
-func memberCount(stack *scenarios.Stack, definition audience.Definition) (int, error) {
-	members, err := stack.Audiences.Enumerate(definition, audience.Live())
+func memberCount(stack *scenarios.Stack, group audience.Group) (int, error) {
+	members, err := stack.Audiences.EnumerateGroup(group, audience.Live())
 	if err != nil {
 		return 0, err
 	}

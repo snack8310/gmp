@@ -1,10 +1,12 @@
 package scenarios
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
 	"github.com/snack8310/gmp/gmp-core/campaign"
+	"github.com/snack8310/gmp/gmp-core/experimentation"
 )
 
 // BannerContest is scenario 3 set up and ready to be asked: a promotion and a
@@ -42,8 +44,8 @@ func (s *Stack) BannerContest() (*BannerContest, error) {
 	table, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: BannerSlot,
 		Rows: []campaign.Row{
-			{When: newcomers, Then: promoA.ID()},
-			{When: returning, Then: promoB.ID()},
+			{When: audience.Single(newcomers), Then: promoA.ID()},
+			{When: audience.Single(returning), Then: promoB.ID()},
 		},
 		// Whoever is neither is left alone by this campaign, which is a
 		// decision rather than an omission -- and it lets the lower-ranked
@@ -99,6 +101,9 @@ func (s *Stack) RolloutAdmitting(upTo int) (*campaign.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.activate(assignment); err != nil {
+		return nil, err
+	}
 	share, err := Share(upTo)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: rollout step %d: %w", upTo, err)
@@ -122,7 +127,7 @@ func (s *Stack) RolloutAdmitting(upTo int) (*campaign.Service, error) {
 	gradual, err := campaign.NewCampaign(campaign.CampaignSpec{
 		ID:         "gradual-launch",
 		Priority:   campaign.NewPriority(10),
-		Rollout:    inRollout,
+		Rollout:    audience.Single(inRollout),
 		Treatments: []campaign.Treatment{banner},
 	})
 	if err != nil {
@@ -162,6 +167,9 @@ func (s *Stack) ExperimentArms() (*ExperimentArms, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.activate(assignment); err != nil {
+		return nil, err
+	}
 	order := []string{"A-control", "B-sms", "C-sms-and-coupon", "D-coupon"}
 	arms := make(map[string]audience.Definition, len(order))
 	for i, name := range order {
@@ -180,6 +188,18 @@ func (s *Stack) ExperimentArms() (*ExperimentArms, error) {
 		arms[name] = definition
 	}
 	return &ExperimentArms{Base: base, Order: order, Arms: arms, Control: order[0]}, nil
+}
+
+func (s *Stack) activate(assignment experimentation.Definition) error {
+	_, err := s.Experiments.ComponentGeneration(assignment)
+	if errors.Is(err, experimentation.ErrComponentUnknown) {
+		if err := s.Experiments.RegisterComponent(assignment); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	return s.Experiments.StartComponent(assignment.ID())
 }
 
 // mustAttribute builds an attribute condition whose inputs are fixed here, so
@@ -206,7 +226,7 @@ func treatment(id string, who audience.Definition, image string) (campaign.Treat
 	return campaign.NewTreatment(campaign.TreatmentSpec{
 		ID:   campaign.TreatmentID(id),
 		Slot: BannerSlot,
-		Who:  who,
+		Who:  audience.Single(who),
 		Call: call,
 	})
 }
@@ -245,7 +265,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 		return nil, fmt.Errorf("scenarios: filling in the action: %w", err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms", Who: who, Call: call,
+		ID: "warmup-sms", Who: audience.Single(who), Call: call,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the treatment: %w", err)
@@ -317,7 +337,7 @@ const (
 // that gets both a message and a coupon, and an arm that gets only a coupon.
 // That is taken arm by arm: the control arm hangs nothing, and the arm that
 // gets two things gets two treatments. Nothing new is introduced to express
-// it -- the arms are ordinary audience definitions, and push treatments do
+// it -- the arms use ordinary audience configurations, and push treatments do
 // not occupy display slots.
 func (s *Stack) ArmCampaign() (*ArmCampaign, error) {
 	arms, err := s.ExperimentArms()
@@ -397,7 +417,7 @@ func buildArmTreatments(arms *ExperimentArms, smsCall, couponCall campaign.Call)
 			return nil, nil, fmt.Errorf("scenarios: treatment %q names arm %q, which is not in the experiment", p.id, p.arm)
 		}
 		built, err := campaign.NewTreatment(campaign.TreatmentSpec{
-			ID: p.id, Who: who, Call: p.call,
+			ID: p.id, Who: audience.Single(who), Call: p.call,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("scenarios: building treatment %q: %w", p.id, err)

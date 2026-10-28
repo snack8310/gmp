@@ -43,10 +43,10 @@ func TestReceiptSerialReachesOnlyThePeopleOnTheReceipt(t *testing.T) {
 	if len(overlap(entryWho, nextWho)) != 0 {
 		t.Fatal("the stated audiences overlap, so a delivery could belong to either")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-entry").Audience()), entryWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-entry").Audience().Definition()), entryWho) {
 		t.Fatal("the entry treatment is not aimed at the new-tier audience")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-next").Audience()), nextWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-next").Audience().Definition()), nextWho) {
 		t.Fatal("the later treatment is not aimed at the returning audience, so rebuilding that audience could coincide with the receipt")
 	}
 
@@ -135,10 +135,10 @@ func TestReceiptBranchSendsEachOutcomeDownItsOwnEdge(t *testing.T) {
 	if len(overlap(entered, mailWho)) != 0 || len(overlap(entered, smsWho)) != 0 || len(overlap(mailWho, smsWho)) != 0 {
 		t.Fatal("the branch audiences are not three disjoint partitions")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-success").Audience()), mailWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-success").Audience().Definition()), mailWho) {
 		t.Fatal("the success treatment is not aimed at the new-tier audience")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-failure").Audience()), smsWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-failure").Audience().Definition()), smsWho) {
 		t.Fatal("the failure treatment is not aimed at the returning audience")
 	}
 
@@ -207,10 +207,10 @@ func TestParallelEntriesRunTheirOwnAudiences(t *testing.T) {
 	if len(overlap(leftWho, rightWho)) == 0 {
 		t.Fatal("the two entry audiences do not overlap, so skipping people already touched would still match each count")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-left").Audience()), leftWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-left").Audience().Definition()), leftWho) {
 		t.Fatal("the left entry is not the new-tier audience")
 	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-right").Audience()), rightWho) {
+	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-right").Audience().Definition()), rightWho) {
 		t.Fatal("the right entry is not the added-to-cart audience")
 	}
 
@@ -267,7 +267,7 @@ func TestReceiptFlowTreatmentsEachCarryOneAction(t *testing.T) {
 		t.Fatalf("building an audience: %v", err)
 	}
 	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "packed", Who: who,
+		ID: "packed", Who: audience.Single(who),
 	}); !errors.Is(err, campaign.ErrMissingTreatmentCall) {
 		t.Fatalf("a treatment with no action: %v", err)
 	}
