@@ -45,6 +45,7 @@ type Campaign struct {
 	hasRollout bool
 	treatments []Treatment
 	tables     map[SlotID]DecisionTable
+	flow       Flow
 }
 
 // CampaignSpec is the input to building a campaign.
@@ -60,6 +61,9 @@ type CampaignSpec struct {
 	Treatments []Treatment
 	// Tables order the treatments that share a slot.
 	Tables []DecisionTable
+	// Flow, when set, is this campaign's flow: the edges between its
+	// treatments. Leave it unset when every treatment is an entry.
+	Flow Flow
 }
 
 // NewCampaign builds a campaign, refusing the arrangements that fail silently.
@@ -122,6 +126,15 @@ func NewCampaign(spec CampaignSpec) (Campaign, error) {
 		}
 	}
 
+	var flow Flow
+	if spec.Flow.id != "" {
+		if err := validateFlow(spec.ID, spec.Flow, byID); err != nil {
+			return Campaign{}, err
+		}
+		flow = spec.Flow
+		flow.edges = append([]Edge(nil), spec.Flow.edges...)
+	}
+
 	return Campaign{
 		id:         spec.ID,
 		priority:   spec.Priority,
@@ -129,6 +142,7 @@ func NewCampaign(spec CampaignSpec) (Campaign, error) {
 		hasRollout: spec.Rollout.ID() != "",
 		treatments: treatments,
 		tables:     tables,
+		flow:       flow,
 	}, nil
 }
 

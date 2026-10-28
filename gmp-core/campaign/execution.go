@@ -62,6 +62,9 @@ type Execution struct {
 	State       State
 	Attempts    int
 	ExternalRef string
+	// Outcome is the receipt result in the action's vocabulary, empty until a
+	// receipt classifies one.
+	Outcome Outcome
 }
 
 // Log keeps executions. Records are filed under the idempotency key, which is
