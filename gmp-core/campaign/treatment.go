@@ -16,6 +16,8 @@ var (
 	// ErrMissingTreatmentCall is returned when a treatment does not say what it
 	// does.
 	ErrMissingTreatmentCall = errors.New("campaign: treatment has no action call")
+	// ErrUnexpectedSlotID is returned when a treatment without a display action names a slot.
+	ErrUnexpectedSlotID = errors.New("campaign: non-display treatment cannot use a slot")
 )
 
 // TreatmentID identifies one treatment.
@@ -41,7 +43,7 @@ type Treatment struct {
 type TreatmentSpec struct {
 	// ID identifies the treatment.
 	ID TreatmentID
-	// Slot is where it wants to be shown.
+	// Slot is the display position for an action that requires one.
 	Slot SlotID
 	// Who it is for.
 	Who audience.Definition
@@ -54,14 +56,17 @@ func NewTreatment(spec TreatmentSpec) (Treatment, error) {
 	if spec.ID == "" {
 		return Treatment{}, ErrMissingTreatmentID
 	}
-	if spec.Slot == "" {
-		return Treatment{}, fmt.Errorf("%w: treatment %q", ErrMissingSlotID, spec.ID)
-	}
 	if spec.Who.ID() == "" {
 		return Treatment{}, fmt.Errorf("%w: treatment %q", ErrMissingTreatmentAudience, spec.ID)
 	}
 	if spec.Call.isZero() {
 		return Treatment{}, fmt.Errorf("%w: treatment %q", ErrMissingTreatmentCall, spec.ID)
+	}
+	if spec.Call.requiresSlot && spec.Slot == "" {
+		return Treatment{}, fmt.Errorf("%w: treatment %q", ErrMissingSlotID, spec.ID)
+	}
+	if !spec.Call.requiresSlot && spec.Slot != "" {
+		return Treatment{}, fmt.Errorf("%w: treatment %q, slot %q", ErrUnexpectedSlotID, spec.ID, spec.Slot)
 	}
 	return Treatment{id: spec.ID, slot: spec.Slot, who: spec.Who, call: spec.Call}, nil
 }
@@ -69,7 +74,7 @@ func NewTreatment(spec TreatmentSpec) (Treatment, error) {
 // ID reports which treatment this is.
 func (t Treatment) ID() TreatmentID { return t.id }
 
-// Slot reports where it wants to be shown.
+// Slot reports the display position, if the treatment has one.
 func (t Treatment) Slot() SlotID { return t.slot }
 
 // Audience reports who it is for.

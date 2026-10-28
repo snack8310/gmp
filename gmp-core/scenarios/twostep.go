@@ -84,7 +84,7 @@ func (s *Stack) CrossBorderWinBack() (*TwoStep, error) {
 		return nil, err
 	}
 	firstStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "whatsapp-first", Slot: BannerSlot, Who: inactive, Call: whatsapp,
+		ID: "whatsapp-first", Who: inactive, Call: whatsapp,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first step: %w", err)
@@ -119,7 +119,7 @@ func (s *Stack) CrossBorderWinBack() (*TwoStep, error) {
 		return nil, err
 	}
 	secondStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "sms-follow-up", Slot: BannerSlot, Who: unreadForHours, Call: sms,
+		ID: "sms-follow-up", Who: unreadForHours, Call: sms,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second step: %w", err)
@@ -166,7 +166,7 @@ func (s *Stack) FirstOrderConversion() (*TwoStep, error) {
 		return nil, err
 	}
 	firstStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coupon-first", Slot: BannerSlot, Who: noOrderYet, Call: coupon,
+		ID: "coupon-first", Who: noOrderYet, Call: coupon,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first step: %w", err)
@@ -196,7 +196,7 @@ func (s *Stack) FirstOrderConversion() (*TwoStep, error) {
 		return nil, err
 	}
 	secondStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coupon-reminder", Slot: BannerSlot, Who: threeDaysOn, Call: sms,
+		ID: "coupon-reminder", Who: threeDaysOn, Call: sms,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second step: %w", err)
