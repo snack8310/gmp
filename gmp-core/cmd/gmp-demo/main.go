@@ -52,6 +52,9 @@ func run(out *os.File) error {
 	if err := showTwoStep(out); err != nil {
 		return err
 	}
+	if err := showReceiptFlow(out, stack); err != nil {
+		return err
+	}
 	// A fresh stack: the sections above have already coloured this
 	// population, and a store that is already full would make the real run
 	// look as though it colours nobody either.
