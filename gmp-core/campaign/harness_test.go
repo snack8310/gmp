@@ -15,13 +15,14 @@ const (
 )
 
 type world struct {
-	t         *testing.T
-	audiences *audience.Service
-	campaigns *campaign.Service
-	colouring *experimentation.MemoryColoringStore
-	source    audience.Source
-	people    []audience.Record
-	show      campaign.Action
+	t           *testing.T
+	audiences   *audience.Service
+	experiments *experimentation.Service
+	campaigns   *campaign.Service
+	colouring   *experimentation.MemoryColoringStore
+	source      audience.Source
+	people      []audience.Record
+	show        campaign.Action
 }
 
 // newWorld wires the three layers together the way a real caller would: an
@@ -92,7 +93,7 @@ func newWorld(t *testing.T, population int) *world {
 	}
 
 	return &world{
-		t: t, audiences: audiences, campaigns: campaigns,
+		t: t, audiences: audiences, experiments: experiments, campaigns: campaigns,
 		colouring: store, source: source, people: people, show: show,
 	}
 }
@@ -132,7 +133,7 @@ func (w *world) treatment(id string, who audience.Definition, image string) camp
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
 		ID:   campaign.TreatmentID(id),
 		Slot: bannerID,
-		Who:  who,
+		Who:  audience.Single(who),
 		Call: w.call(image),
 	})
 	if err != nil {
@@ -156,6 +157,12 @@ func (w *world) assignment(id string, shares int, coloured bool) experimentation
 	})
 	if err != nil {
 		w.t.Fatalf("building assignment %q: %v", id, err)
+	}
+	if err := w.experiments.RegisterComponent(definition); err != nil {
+		w.t.Fatalf("registering assignment %q: %v", id, err)
+	}
+	if err := w.experiments.StartComponent(definition.ID()); err != nil {
+		w.t.Fatalf("starting assignment %q: %v", id, err)
 	}
 	return definition
 }

@@ -29,7 +29,7 @@ var (
 // Row is one line of a decision table: who it catches, and where they go.
 type Row struct {
 	// When is who this row catches.
-	When audience.Definition
+	When audience.Group
 	// Then is where they go. The empty id means they go nowhere, which is a
 	// decision like any other.
 	Then TreatmentID
@@ -52,7 +52,7 @@ func RouteNowhere() Fallback { return Fallback{set: true} }
 // DecisionTable routes people to treatments. It does not run anything itself.
 //
 // It earns its place by guaranteeing three things a handful of separate
-// audience definitions cannot: order (top down, first match wins), a fallback
+// separate audience groups cannot: order (top down, first match wins), a fallback
 // (nobody is silently dropped), and exclusivity (only one row is ever taken).
 type DecisionTable struct {
 	slot     SlotID
@@ -91,7 +91,7 @@ func NewDecisionTable(spec TableSpec) (DecisionTable, error) {
 	// show are not caught here -- see the change record.
 	for i := range owned {
 		for j := 0; j < i; j++ {
-			if audience.Subsumes(owned[j].When, owned[i].When) {
+			if audience.Subsumes(owned[j].When.Definition(), owned[i].When.Definition()) {
 				return DecisionTable{}, fmt.Errorf("%w: slot %q, row %d is taken by row %d first",
 					ErrRowNeverReached, spec.Slot, i+1, j+1)
 			}

@@ -3,6 +3,7 @@ package experimentation
 import (
 	"errors"
 	"fmt"
+	"sync"
 )
 
 var (
@@ -23,6 +24,8 @@ var (
 type Service struct {
 	algorithms *AlgorithmRegistry
 	coloring   ColoringStore
+	mu         sync.RWMutex
+	components map[AssignmentID]component
 }
 
 // NewService builds a service over the given algorithm registry and coloring
@@ -31,7 +34,7 @@ func NewService(algorithms *AlgorithmRegistry, coloring ColoringStore) (*Service
 	if algorithms == nil {
 		return nil, errors.New("experimentation: algorithm registry is nil")
 	}
-	return &Service{algorithms: algorithms, coloring: coloring}, nil
+	return &Service{algorithms: algorithms, coloring: coloring, components: make(map[AssignmentID]component)}, nil
 }
 
 // Assign returns the share this key falls into, recording the result when the
@@ -60,6 +63,15 @@ func (s *Service) evaluate(definition Definition, key AssignmentKey, mayRecord b
 	if err := key.validate(); err != nil {
 		return BucketNumber{}, err
 	}
+	component, registered := s.component(definition.id)
+	if registered {
+		if !component.definition.SameRevisionAs(definition) {
+			return BucketNumber{}, ErrComponentRevision
+		}
+		if !component.running {
+			return BucketNumber{}, ErrComponentNotRunning
+		}
+	}
 
 	if definition.colored {
 		if s.coloring == nil {
@@ -74,14 +86,9 @@ func (s *Service) evaluate(definition Definition, key AssignmentKey, mayRecord b
 		}
 	}
 
-	algorithm, err := s.algorithms.resolve(definition.algorithm)
+	bucket, err := s.freshBucket(definition, component, registered, key)
 	if err != nil {
-		return BucketNumber{}, fmt.Errorf("%w (assignment %q)", err, definition.id)
-	}
-	position := algorithm.Position(key, definition.salt, definition.split.Total())
-	bucket, err := definition.split.bucketFor(position)
-	if err != nil {
-		return BucketNumber{}, fmt.Errorf("experimentation: assignment %q: %w", definition.id, err)
+		return BucketNumber{}, err
 	}
 
 	if !definition.colored || !mayRecord {
@@ -95,4 +102,26 @@ func (s *Service) evaluate(definition Definition, key AssignmentKey, mayRecord b
 		return BucketNumber{}, fmt.Errorf("experimentation: recording coloring for %q: %w", definition.id, err)
 	}
 	return inForce.Bucket, nil
+}
+
+func (s *Service) freshBucket(definition Definition, component component, registered bool, key AssignmentKey) (BucketNumber, error) {
+	if registered {
+		if chosen, ok := component.whitelist[key]; ok {
+			return chosen, nil
+		}
+	}
+	algorithm, err := s.algorithms.resolve(definition.algorithm)
+	if err != nil {
+		return BucketNumber{}, fmt.Errorf("%w (assignment %q)", err, definition.id)
+	}
+	split := definition.split
+	if registered {
+		split = component.split
+	}
+	position := algorithm.Position(key, definition.salt, split.Total())
+	bucket, err := split.bucketFor(position)
+	if err != nil {
+		return BucketNumber{}, fmt.Errorf("experimentation: assignment %q: %w", definition.id, err)
+	}
+	return bucket, nil
 }

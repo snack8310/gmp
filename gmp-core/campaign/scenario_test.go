@@ -23,8 +23,8 @@ func TestScenarioThreeBannerContest(t *testing.T) {
 	table, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
 		Rows: []campaign.Row{
-			{When: newcomers, Then: promoA.ID()},
-			{When: returning, Then: promoB.ID()},
+			{When: audience.Single(newcomers), Then: promoA.ID()},
+			{When: audience.Single(returning), Then: promoB.ID()},
 		},
 		Fallback: campaign.RouteNowhere(),
 	})
@@ -118,8 +118,8 @@ func TestDecisionTableTakesTheFirstMatchingRow(t *testing.T) {
 	table, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
 		Rows: []campaign.Row{
-			{When: newcomers, Then: first.ID()},
-			{When: flagged, Then: second.ID()},
+			{When: audience.Single(newcomers), Then: first.ID()},
+			{When: audience.Single(flagged), Then: second.ID()},
 		},
 		Fallback: campaign.RouteNowhere(),
 	})
@@ -170,14 +170,14 @@ func TestDecisionTableNeedsAFallback(t *testing.T) {
 	only := w.treatment("only", newcomers, "only.png")
 	_, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
-		Rows: []campaign.Row{{When: newcomers, Then: only.ID()}},
+		Rows: []campaign.Row{{When: audience.Single(newcomers), Then: only.ID()}},
 	})
 	if !errors.Is(err, campaign.ErrFallbackNotSet) {
 		t.Fatalf("a table without a fallback should be refused, got %v", err)
 	}
 	if _, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot:     bannerID,
-		Rows:     []campaign.Row{{When: newcomers, Then: only.ID()}},
+		Rows:     []campaign.Row{{When: audience.Single(newcomers), Then: only.ID()}},
 		Fallback: campaign.RouteNowhere(),
 	}); err != nil {
 		t.Fatalf("an explicit fallback of nothing should be accepted, got %v", err)
@@ -200,8 +200,8 @@ func TestDecisionTableRefusesARowNothingCanReach(t *testing.T) {
 	_, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
 		Rows: []campaign.Row{
-			{When: newcomers, Then: broad.ID()},
-			{When: newAndSomething, Then: narrow.ID()},
+			{When: audience.Single(newcomers), Then: broad.ID()},
+			{When: audience.Single(newAndSomething), Then: narrow.ID()},
 		},
 		Fallback: campaign.RouteNowhere(),
 	})
@@ -213,8 +213,8 @@ func TestDecisionTableRefusesARowNothingCanReach(t *testing.T) {
 	if _, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
 		Rows: []campaign.Row{
-			{When: newAndSomething, Then: narrow.ID()},
-			{When: newcomers, Then: broad.ID()},
+			{When: audience.Single(newAndSomething), Then: narrow.ID()},
+			{When: audience.Single(newcomers), Then: broad.ID()},
 		},
 		Fallback: campaign.RouteNowhere(),
 	}); err != nil {

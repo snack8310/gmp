@@ -72,7 +72,7 @@ func (p *pushWorld) smsTreatment(t *testing.T, id string, who audience.Definitio
 		t.Fatalf("filling in the action: %v", err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: campaign.TreatmentID(id), Who: who, Call: call,
+		ID: campaign.TreatmentID(id), Who: audience.Single(who), Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building treatment %q: %v", id, err)

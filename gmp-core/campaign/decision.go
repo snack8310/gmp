@@ -37,9 +37,10 @@ type Loss struct {
 
 // Award is the treatment that got the slot, and what it produced.
 type Award struct {
-	Campaign  CampaignID
-	Treatment TreatmentID
-	Call      Call
+	Campaign   CampaignID
+	Treatment  TreatmentID
+	Call       Call
+	Placements []audience.Placement
 }
 
 // Decision is the whole outcome of one contest for one slot: what to show, and

@@ -213,6 +213,12 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the assignment: %v", err)
 	}
+	if err := stack.Experiments.RegisterComponent(assignment); err != nil {
+		t.Fatalf("registering the assignment: %v", err)
+	}
+	if err := stack.Experiments.StartComponent(assignment.ID()); err != nil {
+		t.Fatalf("starting the assignment: %v", err)
+	}
 	share, err := scenarios.Share(1)
 	if err != nil {
 		t.Fatalf("building the share: %v", err)
@@ -236,7 +242,7 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 		t.Fatalf("filling in the action: %v", err)
 	}
 	banner, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coloured-arm-banner", Slot: scenarios.BannerSlot, Who: armOne, Call: call,
+		ID: "coloured-arm-banner", Slot: scenarios.BannerSlot, Who: audience.Single(armOne), Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building the treatment: %v", err)

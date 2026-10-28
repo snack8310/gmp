@@ -287,7 +287,7 @@ func receiptCall(id campaign.ActionID, text string) (campaign.Call, error) {
 
 func newPushTreatment(id campaign.TreatmentID, who audience.Definition, call campaign.Call) (campaign.Treatment, error) {
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: id, Who: who, Call: call,
+		ID: id, Who: audience.Single(who), Call: call,
 	})
 	if err != nil {
 		return campaign.Treatment{}, fmt.Errorf("scenarios: building treatment %q: %w", id, err)

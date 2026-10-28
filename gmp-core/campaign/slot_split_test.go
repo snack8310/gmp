@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/snack8310/gmp/gmp-core/audience"
 	"github.com/snack8310/gmp/gmp-core/campaign"
 )
 
@@ -18,11 +19,11 @@ func TestPushTreatmentsHaveNoDisplaySlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "first", Who: who, Call: call})
+	first, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "first", Who: audience.Single(who), Call: call})
 	if err != nil {
 		t.Fatalf("push without a slot: %v", err)
 	}
-	second, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "second", Who: who, Call: call})
+	second, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "second", Who: audience.Single(who), Call: call})
 	if err != nil {
 		t.Fatalf("second push without a slot: %v", err)
 	}
@@ -39,7 +40,7 @@ func TestPushTreatmentsHaveNoDisplaySlot(t *testing.T) {
 		t.Fatalf("push-only campaign needs no registered slot: %v", err)
 	}
 	for _, slot := range []campaign.SlotID{bannerID, "sms", "coupon"} {
-		if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "invalid-push", Slot: slot, Who: who, Call: call}); !errors.Is(err, campaign.ErrUnexpectedSlotID) {
+		if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "invalid-push", Slot: slot, Who: audience.Single(who), Call: call}); !errors.Is(err, campaign.ErrUnexpectedSlotID) {
 			t.Fatalf("push with display slot %q returned %v, want ErrUnexpectedSlotID", slot, err)
 		}
 	}
@@ -49,10 +50,10 @@ func TestMarkedDisplayActionRequiresSlot(t *testing.T) {
 	w := newWorld(t, 3)
 	who := w.definition("everyone")
 	call := w.call("image.png")
-	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "missing", Who: who, Call: call}); !errors.Is(err, campaign.ErrMissingSlotID) {
+	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "missing", Who: audience.Single(who), Call: call}); !errors.Is(err, campaign.ErrMissingSlotID) {
 		t.Fatalf("display action without a slot returned %v, want ErrMissingSlotID", err)
 	}
-	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "banner", Slot: bannerID, Who: who, Call: call}); err != nil {
+	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "banner", Slot: bannerID, Who: audience.Single(who), Call: call}); err != nil {
 		t.Fatalf("display action with banner slot: %v", err)
 	}
 }
@@ -67,10 +68,10 @@ func TestUnmarkedPullActionDoesNotRequireDisplaySlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "lookup", Who: w.definition("everyone"), Call: call}); err != nil {
+	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "lookup", Who: audience.Single(w.definition("everyone")), Call: call}); err != nil {
 		t.Fatalf("unmarked pull action was forced into a display slot: %v", err)
 	}
-	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "lookup-on-banner", Slot: bannerID, Who: w.definition("everyone"), Call: call}); !errors.Is(err, campaign.ErrUnexpectedSlotID) {
+	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "lookup-on-banner", Slot: bannerID, Who: audience.Single(w.definition("everyone")), Call: call}); !errors.Is(err, campaign.ErrUnexpectedSlotID) {
 		t.Fatalf("unmarked pull action with a display slot returned %v, want ErrUnexpectedSlotID", err)
 	}
 }
@@ -94,7 +95,7 @@ func TestDecisionTableCannotRoutePushIntoDisplaySlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	push, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "push", Who: who, Call: call})
+	push, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "push", Who: audience.Single(who), Call: call})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestDecisionTableCannotRoutePushIntoDisplaySlot(t *testing.T) {
 		rows     []campaign.Row
 		fallback campaign.Fallback
 	}{
-		{"row", []campaign.Row{{When: who, Then: push.ID()}}, campaign.RouteNowhere()},
+		{"row", []campaign.Row{{When: audience.Single(who), Then: push.ID()}}, campaign.RouteNowhere()},
 		{"fallback", nil, campaign.RouteTo(push.ID())},
 	} {
 		t.Run(spec.name, func(t *testing.T) {

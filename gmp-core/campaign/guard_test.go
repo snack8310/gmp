@@ -88,8 +88,8 @@ func TestTwoTreatmentsOnOneSlotNeedSeparating(t *testing.T) {
 	table, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot: bannerID,
 		Rows: []campaign.Row{
-			{When: newcomers, Then: forNew.ID()},
-			{When: returning, Then: forReturning.ID()},
+			{When: audience.Single(newcomers), Then: forNew.ID()},
+			{When: audience.Single(returning), Then: forReturning.ID()},
 		},
 		Fallback: campaign.RouteNowhere(),
 	})
@@ -151,7 +151,7 @@ func TestRolloutGatesTheWholeCampaign(t *testing.T) {
 	w.add(campaign.CampaignSpec{
 		ID:       "gradual",
 		Priority: campaign.NewPriority(10),
-		Rollout:  admitted,
+		Rollout:  audience.Single(admitted),
 		Treatments: []campaign.Treatment{
 			w.treatment("arm-one-banner", armOne, "a.png"),
 			w.treatment("arm-two-banner", armTwo, "b.png"),
@@ -243,7 +243,7 @@ func TestCampaignNeedsItsSlotsRegistered(t *testing.T) {
 	w := newWorld(t, 10)
 	everyone := w.definition("anyone")
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "elsewhere", Slot: "unregistered-slot", Who: everyone, Call: w.call("x.png"),
+		ID: "elsewhere", Slot: "unregistered-slot", Who: audience.Single(everyone), Call: w.call("x.png"),
 	})
 	if err != nil {
 		t.Fatalf("building the treatment: %v", err)
@@ -279,7 +279,7 @@ func TestTableMustRouteWithinItsCampaign(t *testing.T) {
 	held := w.treatment("held", newcomers, "a.png")
 	table, err := campaign.NewDecisionTable(campaign.TableSpec{
 		Slot:     bannerID,
-		Rows:     []campaign.Row{{When: newcomers, Then: "not-held"}},
+		Rows:     []campaign.Row{{When: audience.Single(newcomers), Then: "not-held"}},
 		Fallback: campaign.RouteNowhere(),
 	})
 	if err != nil {

@@ -43,7 +43,7 @@ type CampaignID string
 type Campaign struct {
 	id         CampaignID
 	priority   Priority
-	rollout    audience.Definition
+	rollout    audience.Group
 	hasRollout bool
 	treatments []Treatment
 	tables     map[SlotID]DecisionTable
@@ -56,9 +56,9 @@ type CampaignSpec struct {
 	ID CampaignID
 	// Priority ranks it against other campaigns at every slot.
 	Priority Priority
-	// Rollout, when set, is who is currently taken in: an audience definition
+	// Rollout, when set, is the group currently taken in, with a configuration
 	// over the shares admitted so far. Leave it unset to admit everyone.
-	Rollout audience.Definition
+	Rollout audience.Group
 	// Treatments are what this campaign does.
 	Treatments []Treatment
 	// Tables order the treatments that share a slot.
@@ -163,7 +163,7 @@ func checkDisplayContention(id CampaignID, treatments []Treatment, tables map[Sl
 		}
 		for i := range sharing {
 			for j := i + 1; j < len(sharing); j++ {
-				if !audience.ProvablyExclusive(sharing[i].who, sharing[j].who) {
+				if !audience.ProvablyExclusive(sharing[i].who.Definition(), sharing[j].who.Definition()) {
 					return fmt.Errorf("%w: %q and %q on slot %q in campaign %q; order them with a decision table, or give them shares of one assignment",
 						ErrSlotContestedWithinCampaign, sharing[i].id, sharing[j].id, slot, id)
 				}
@@ -181,7 +181,7 @@ func (c Campaign) Priority() Priority { return c.priority }
 
 // Rollout reports who is currently taken in, and whether the campaign limits
 // that at all.
-func (c Campaign) Rollout() (audience.Definition, bool) { return c.rollout, c.hasRollout }
+func (c Campaign) Rollout() (audience.Group, bool) { return c.rollout, c.hasRollout }
 
 // Treatments reports what this campaign does.
 func (c Campaign) Treatments() []Treatment {

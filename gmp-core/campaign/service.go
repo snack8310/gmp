@@ -57,8 +57,28 @@ func (s *Service) Add(c Campaign) error {
 	if c.isZero() {
 		return ErrUnbuiltCampaign
 	}
+	if s.audiences == nil {
+		return errors.New("campaign: no audience service to validate groups")
+	}
 	if s.byID[c.id] {
 		return fmt.Errorf("%w: %q", ErrDuplicateCampaign, c.id)
+	}
+	if c.hasRollout {
+		if err := s.audiences.ValidateGroup(c.rollout); err != nil {
+			return err
+		}
+	}
+	for _, treatment := range c.treatments {
+		if err := s.audiences.ValidateGroup(treatment.who); err != nil {
+			return err
+		}
+	}
+	for _, table := range c.tables {
+		for _, row := range table.rows {
+			if err := s.audiences.ValidateGroup(row.When); err != nil {
+				return err
+			}
+		}
 	}
 	for _, slot := range c.slots() {
 		if _, known := s.slots[slot]; !known {
@@ -75,6 +95,8 @@ type applicant struct {
 	campaign  CampaignID
 	priority  int
 	treatment Treatment
+	routeWhen audience.Group
+	rollout   audience.Group
 }
 
 // Decide settles who gets the slot for this person, and produces what they
@@ -100,16 +122,22 @@ func (s *Service) Decide(slot SlotID, uid audience.UID, mode audience.Mode) (Dec
 
 	var applicants []applicant
 	for _, c := range s.campaigns {
-		candidate, losses, err := s.consider(c, slot, uid, mode)
+		candidate, routeWhen, losses, err := s.consider(c, slot, uid, mode)
 		if err != nil {
 			return decision, err
 		}
 		decision.Losses = append(decision.Losses, losses...)
 		if candidate != nil {
+			var rollout audience.Group
+			if c.hasRollout {
+				rollout = c.rollout
+			}
 			applicants = append(applicants, applicant{
 				campaign:  c.id,
 				priority:  c.priority.Value(),
 				treatment: *candidate,
+				routeWhen: routeWhen,
+				rollout:   rollout,
 			})
 		}
 	}
@@ -124,8 +152,26 @@ func (s *Service) Decide(slot SlotID, uid audience.UID, mode audience.Mode) (Dec
 			ErrContentionUndecidable, slot, top.campaign, applicants[1].campaign, top.priority)
 	}
 
+	placements, err := s.audiences.GroupPlacements(top.treatment.who, mode, uid)
+	if err != nil {
+		return decision, err
+	}
+	if top.routeWhen.ID() != "" {
+		routed, err := s.audiences.GroupPlacements(top.routeWhen, mode, uid)
+		if err != nil {
+			return decision, err
+		}
+		placements = mergePlacements(placements, routed)
+	}
+	if top.rollout.ID() != "" {
+		admitted, err := s.audiences.GroupPlacements(top.rollout, mode, uid)
+		if err != nil {
+			return decision, err
+		}
+		placements = mergePlacements(placements, admitted)
+	}
 	decision.Won = true
-	decision.Award = Award{Campaign: top.campaign, Treatment: top.treatment.id, Call: top.treatment.call}
+	decision.Award = Award{Campaign: top.campaign, Treatment: top.treatment.id, Call: top.treatment.call, Placements: placements}
 	for _, loser := range applicants[1:] {
 		decision.Losses = append(decision.Losses, Loss{
 			Campaign:  loser.campaign,
@@ -136,9 +182,25 @@ func (s *Service) Decide(slot SlotID, uid audience.UID, mode audience.Mode) (Dec
 	return decision, nil
 }
 
+func mergePlacements(placements, routed []audience.Placement) []audience.Placement {
+	for _, placement := range routed {
+		found := false
+		for _, existing := range placements {
+			if existing.Assignment == placement.Assignment {
+				found = true
+				break
+			}
+		}
+		if !found {
+			placements = append(placements, placement)
+		}
+	}
+	return placements
+}
+
 // consider works out this campaign's single answer for the slot, and records
 // why anything else it holds did not get there.
-func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audience.Mode) (*Treatment, []Loss, error) {
+func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audience.Mode) (*Treatment, audience.Group, []Loss, error) {
 	wants := false
 	for _, want := range c.slots() {
 		if want == slot {
@@ -147,15 +209,15 @@ func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audie
 		}
 	}
 	if !wants {
-		return nil, nil, nil
+		return nil, audience.Group{}, nil, nil
 	}
 
 	// The rollout gates the whole campaign at once. Applying it per treatment
 	// would let arms of one experiment open up at different rates.
 	if rollout, limited := c.Rollout(); limited {
-		in, err := s.audiences.Decide(rollout, mode, uid)
+		in, err := s.audiences.DecideGroup(rollout, mode, uid)
 		if err != nil {
-			return nil, nil, fmt.Errorf("campaign %q: checking the rollout: %w", c.id, err)
+			return nil, audience.Group{}, nil, fmt.Errorf("campaign %q: checking the rollout: %w", c.id, err)
 		}
 		if !in {
 			var losses []Loss
@@ -164,7 +226,7 @@ func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audie
 					losses = append(losses, Loss{Campaign: c.id, Treatment: treatment.id, Reason: LossOutsideRollout})
 				}
 			}
-			return nil, losses, nil
+			return nil, audience.Group{}, losses, nil
 		}
 	}
 
@@ -181,9 +243,9 @@ func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audie
 		if treatment.slot != slot {
 			continue
 		}
-		in, err := s.audiences.Decide(treatment.who, mode, uid)
+		in, err := s.audiences.DecideGroup(treatment.who, mode, uid)
 		if err != nil {
-			return nil, nil, fmt.Errorf("campaign %q, treatment %q: %w", c.id, treatment.id, err)
+			return nil, audience.Group{}, nil, fmt.Errorf("campaign %q, treatment %q: %w", c.id, treatment.id, err)
 		}
 		if !in {
 			losses = append(losses, Loss{Campaign: c.id, Treatment: treatment.id, Reason: LossAudienceDidNotMatch})
@@ -193,16 +255,16 @@ func (s *Service) consider(c Campaign, slot SlotID, uid audience.UID, mode audie
 		// slot can apply, so a second match here would mean that check no
 		// longer holds.
 		if chosen != nil {
-			return nil, nil, fmt.Errorf("%w: %q and %q both apply on slot %q in campaign %q",
+			return nil, audience.Group{}, nil, fmt.Errorf("%w: %q and %q both apply on slot %q in campaign %q",
 				ErrSlotContestedWithinCampaign, chosen.id, treatment.id, slot, c.id)
 		}
 		chosen = &treatment
 	}
-	return chosen, losses, nil
+	return chosen, audience.Group{}, losses, nil
 }
 
 // route walks a decision table top down and takes the first row that matches.
-func (s *Service) route(c Campaign, table DecisionTable, uid audience.UID, mode audience.Mode) (*Treatment, []Loss, error) {
+func (s *Service) route(c Campaign, table DecisionTable, uid audience.UID, mode audience.Mode) (*Treatment, audience.Group, []Loss, error) {
 	held := make(map[TreatmentID]Treatment, len(c.treatments))
 	for _, treatment := range c.treatments {
 		held[treatment.id] = treatment
@@ -210,9 +272,9 @@ func (s *Service) route(c Campaign, table DecisionTable, uid audience.UID, mode 
 
 	var losses []Loss
 	for _, row := range table.rows {
-		in, err := s.audiences.Decide(row.When, mode, uid)
+		in, err := s.audiences.DecideGroup(row.When, mode, uid)
 		if err != nil {
-			return nil, nil, fmt.Errorf("campaign %q, table for slot %q: %w", c.id, table.slot, err)
+			return nil, audience.Group{}, nil, fmt.Errorf("campaign %q, table for slot %q: %w", c.id, table.slot, err)
 		}
 		if !in {
 			if row.Then != "" {
@@ -221,15 +283,21 @@ func (s *Service) route(c Campaign, table DecisionTable, uid audience.UID, mode 
 			continue
 		}
 		if row.Then == "" {
-			return nil, losses, nil
+			return nil, audience.Group{}, losses, nil
 		}
 		treatment := held[row.Then]
-		return &treatment, losses, nil
+		if err := s.audiences.ValidateGroup(treatment.who); err != nil {
+			return nil, audience.Group{}, nil, err
+		}
+		return &treatment, row.When, losses, nil
 	}
 
 	if table.fallback.then == "" {
-		return nil, losses, nil
+		return nil, audience.Group{}, losses, nil
 	}
 	treatment := held[table.fallback.then]
-	return &treatment, losses, nil
+	if err := s.audiences.ValidateGroup(treatment.who); err != nil {
+		return nil, audience.Group{}, nil, err
+	}
+	return &treatment, audience.Group{}, losses, nil
 }
