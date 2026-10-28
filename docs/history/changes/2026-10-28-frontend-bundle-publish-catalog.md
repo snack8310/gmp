@@ -1,6 +1,6 @@
 # 变更证据：前端实验人群包发布与统一引用目录
 
-关联：issue #66；实施前人工确认见[任务卡](../../ai-loop/task-cards/66-frontend-bundle-publish-catalog.md)。分支已 commit 并推送；PR 待开/已开后送审；**尚未 merge**，合入前仍须产品/用户放行。
+关联：issue #66；实施前人工确认见[任务卡](../../ai-loop/task-cards/66-frontend-bundle-publish-catalog.md)。分支已 commit 并推送；PR [#67](https://github.com/snack8310/gmp/pull/67) 已开，送审 head `8d45c85`；**尚未 merge**，合入前仍须产品/用户放行。
 
 ## 背景与实现
 
