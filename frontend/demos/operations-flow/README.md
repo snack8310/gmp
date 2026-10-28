@@ -36,7 +36,9 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 
 ### 运营
 
-- 三张概念卡分别说明活动、多臂与 #44 的关系；投放项只引用一个动作；活动流程边表达串行、按回执分支和无边并行（#55）。本页不装配和播放；跨层证据留在 `gmp-core/scenarios/`。
+- `#campaign` 保留活动、投放项、活动流程边三张概念卡，点击「查看活动列表」进入 `#campaign/activities`；列表按活动名称、投放项数量展示，点击「查看详情」进入 `#campaign/activities/<活动ID>`。详情可返回列表，支持刷新深链及浏览器前进、后退；未知 ID 会显示未找到。
+- 详情只读展示投放项清单及活动流程边关系表。每个投放项引用一个动作与一个人群；实验人群包臂显示包名和臂名。RCS 成功到邮件、失败到短信的结果含义来自演示动作说明，关系表不求值或播放。无投放项、无流程对象、无边及不可用引用均有单独提示；不可用引用保留原值。
+- 活动种子及动作、人群引用目录在 `campaign-activities.mjs`，均为虚构构造数据，独立于受众和实验页的编辑数据。正常种子加载时校验 ID、引用和边端点；失效引用是单独构造的展示样例。运营不新增持久化，不修改 `gmp-audience-demo-v1` 的格式，也不接 `gmp-core`。本页不提供搜索、筛选、CRUD、装配和播放；跨层执行证据留在 `gmp-core/scenarios/`。
 
 ### 组合
 
@@ -63,10 +65,12 @@ node --check frontend/demos/operations-flow/audience.mjs
 node --check frontend/demos/operations-flow/audience-ui.mjs
 node --check frontend/demos/operations-flow/experiment-ui.mjs
 node --check frontend/demos/operations-flow/model.mjs
+node --check frontend/demos/operations-flow/campaign-activities.mjs
+node --check frontend/demos/operations-flow/campaign-ui.mjs
 node --check frontend/demos/operations-flow/app.mjs
 node --check frontend/demos/operations-flow/export.mjs
 ```
 
-测试覆盖四域导航、深链、隐藏组合暂停、受众与实验增删改、被引用实验的删除保护、旧缓存兼容、导出启动，以及原有筛选、分组、流程节点、人数守恒、播放和低动态分支。处理器替身不代替真实浏览器排版和事件路由验收。Chrome 已走查桌面与约 500px 窄屏，精确 390px 视口和键盘焦点尚未验证。JavaScript 检查目前手动执行，未宣称已纳入 CI。
+测试覆盖四域导航、活动列表与详情深链、未知 ID、空态、引用校验、隐藏组合暂停、受众与实验增删改、被引用实验的删除保护、旧缓存兼容、导出启动，以及原有筛选、分组、流程节点、人数守恒、播放和低动态分支。处理器替身不代替真实浏览器排版和事件路由验收；本次浏览器验证结果见 `docs/history/changes/2026-10-28-campaign-activities-browse.md`。JavaScript 检查目前手动执行，未宣称已纳入 CI。
 
 真实渠道、生产性能、跨浏览器全矩阵不在范围。回滚本次前端文件即可；遗留缓存可忽略或仅移除该命名空间，不涉及业务数据。

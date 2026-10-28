@@ -1,6 +1,7 @@
 // Browserless handler checks complement, but do not replace, native browser QA.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { BROWSE_ACTIVITIES } from './campaign-activities.mjs';
 const elements = new Map(), pending = new Map();
 let frameID = 0, captures = 0;
 function element(id) {
@@ -170,6 +171,46 @@ test('domain deep links expose only their section and pause composition on exit'
  assert.equal(pending.size,0);
  window.location.hash='#missing';window.listeners.hashchange();
  assert.equal(element('audience-section').hidden,false);
+});
+
+test('campaign list and detail deep links follow history and pause composition',()=>{
+ window.location.hash='#campaign';window.listeners.hashchange();
+ assert.equal(element('campaign-overview').hidden,false);
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
+ window.location.hash='#campaign/activities';window.listeners.hashchange();
+ assert.equal(element('campaign-activities').hidden,false);
+ assert.match(element('campaign-activities').innerHTML,/campaign-branch/);
+ window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+ assert.equal(element('campaign-detail').hidden,false);
+ assert.match(element('campaign-detail').innerHTML,/treatment-rcs/);
+ window.location.hash='#campaign/activities/unknown';window.listeners.hashchange();
+ assert.match(element('campaign-detail').innerHTML,/未找到该演示活动/);
+ window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+ assert.match(element('campaign-detail').innerHTML,/跨境召回/);
+ window.location.hash='#campaign/activities';window.listeners.hashchange();
+ assert.equal(element('campaign-activities').hidden,false);
+ window.location.hash='#compose';window.listeners.hashchange();
+ fire('play','click');assert.equal(pending.size,1);
+ window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+ assert.equal(pending.size,0);
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
+ assert.equal(element('nav-compose').attributes['aria-current'],'false');
+ window.location.hash='#campaign/other';window.listeners.hashchange();
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
+ assert.equal(element('campaign-overview').hidden,false);
+});
+
+test('encoded activity IDs round trip through list links and deep routes',()=>{
+ const activity={id:'campaign alpha/β',name:'特殊 ID 活动',treatments:[]};
+ BROWSE_ACTIVITIES.push(activity);
+ try {
+  window.location.hash='#campaign/activities';window.listeners.hashchange();
+  assert.match(element('campaign-activities').innerHTML,/href="#campaign\/activities\/campaign%20alpha%2F%CE%B2"/);
+  window.location.hash='#campaign/activities/campaign%20alpha%2F%CE%B2';window.listeners.hashchange();
+  assert.match(element('campaign-detail').innerHTML,/特殊 ID 活动/);
+  window.location.hash='#campaign/activities/%ZZ';window.listeners.hashchange();
+  assert.match(element('campaign-detail').innerHTML,/未找到该演示活动/);
+ } finally {BROWSE_ACTIVITIES.pop();}
 });
 
 test('entry mode, batch schedule and event trigger are authored in audience management only',()=>{

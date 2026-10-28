@@ -1,6 +1,7 @@
 import { filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
 import { mountAudiences } from './audience-ui.mjs';
 import { mountExperimentPicker, mountExperiments, escapeHTML } from './experiment-ui.mjs';
+import { renderActivitiesList, renderActivityDetail } from './campaign-ui.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -227,9 +228,23 @@ function applyAudience(item,preserveExtra=false){
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
 function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(extraConfig&&!audienceUI.store.experiments().some(item=>item.id===extraConfig.experimentId))extraConfig=null;if(currentAudience)applyAudience(currentAudience,true);}
 const domains={audience:'audience-section',experimentation:'experimentation-section',campaign:'campaign-section',compose:'flow-section'};
+function activityIdFromRoute(route){
+ try{return decodeURIComponent(route.slice('campaign/activities/'.length));}
+ catch{return '';}
+}
+function renderCampaignRoute(route){
+ const view=route==='campaign/activities'?'list':route.startsWith('campaign/activities/')?'detail':'overview';
+ $('campaign-overview').hidden=view!=='overview';
+ $('campaign-activities').hidden=view!=='list';
+ $('campaign-detail').hidden=view!=='detail';
+ if(view==='list')$('campaign-activities').innerHTML=renderActivitiesList();
+ if(view==='detail')$('campaign-detail').innerHTML=renderActivityDetail(activityIdFromRoute(route));
+}
 function renderDomain(){
- const domain=Object.hasOwn(domains,window.location.hash.slice(1))?window.location.hash.slice(1):'audience';
+ const route=window.location.hash.slice(1);
+ const domain=route==='campaign'||route.startsWith('campaign/')?'campaign':Object.hasOwn(domains,route)?route:'audience';
  for(const [key,section] of Object.entries(domains)){$(section).hidden=key!==domain;$(`nav-${key}`).setAttribute('aria-current',key===domain?'page':'false');}
+ if(domain==='campaign')renderCampaignRoute(route);
  if(domain!=='compose')clock.pause();
 }
 function navigate(domain){window.location.hash=`#${domain}`;renderDomain();}
