@@ -18,7 +18,7 @@ test('standalone export embeds the actual modules, has no external assets, and b
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,{value:'',checked:false,style:{},dataset:{},classList:{toggle(){},add(){},remove(){}},setAttribute(){},addEventListener(){}});return elements.get(id);};
   const document={getElementById:element,querySelector:element,querySelectorAll:()=>[],addEventListener(){}};
-  const window={addEventListener(){}};
+  const window={location:{hash:''},addEventListener(){}};
   new Script(script).runInNewContext({document,window,matchMedia:()=>({matches:false,addEventListener(){}}),requestAnimationFrame:()=>1,cancelAnimationFrame(){},fetch(){throw new Error('Network forbidden');}});
   assert.equal(element('total').textContent,192);
   assert.ok(element('audience-list').innerHTML.includes('墨西哥'));
@@ -44,4 +44,16 @@ test('flow node tools are inside canvas paths and the inspector, not audience en
  assert.ok(html.indexOf('id="flow-path-actions"')>workspace);
  assert.ok(html.indexOf('id="flow-node-picker"')>html.indexOf('<aside class="detail-panel"'));
  assert.ok(html.indexOf('id="remove-flow-node"')>workspace);
+});
+
+test('domain navigation and sections are ordered and management stays in its domain', async () => {
+ const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
+ const nav=html.match(/<nav class="domain-nav"[\s\S]*?<\/nav>/)?.[0];
+ assert.ok(nav);
+ assert.deepEqual([...nav.matchAll(/href="#(audience|experimentation|campaign|compose)"/g)].map(match=>match[1]),['audience','experimentation','campaign','compose']);
+ assert.ok(html.indexOf('id="experimentation-section"')<html.indexOf('id="campaign-section"'));
+ assert.ok(html.indexOf('id="campaign-section"')<html.indexOf('id="flow-section"'));
+ const campaign=html.slice(html.indexOf('id="campaign-section"'),html.indexOf('id="flow-section"'));
+ assert.doesNotMatch(campaign,/id="play"|开始模拟/);
+ assert.match(html,/模拟数据 · 不会真实触达/);
 });

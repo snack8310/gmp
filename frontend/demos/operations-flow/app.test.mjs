@@ -5,8 +5,8 @@ const elements = new Map(), pending = new Map();
 let frameID = 0, captures = 0;
 function element(id) {
  if (!elements.has(id)) elements.set(id, {
-  innerHTML: '', textContent: '', value: 0, style: {}, dataset: {}, listeners: {},
-  classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {},
+  innerHTML: '', textContent: '', value: 0, style: {}, dataset: {}, listeners: {}, attributes:{},
+  classList: { toggle() {}, add() {}, remove() {} }, setAttribute(name,value) {this.attributes[name]=value;},
   addEventListener(name, fn) { this.listeners[name] = fn; },
   setPointerCapture() { captures++; },
  });
@@ -14,7 +14,7 @@ function element(id) {
 }
 const media = { matches: false, addEventListener(name,fn) { this.change=fn; } };
 globalThis.document = { getElementById:element, querySelector:element, querySelectorAll:()=>[], addEventListener() {} };
-globalThis.window = { addEventListener() {} };
+globalThis.window = { location:{hash:''}, addEventListener(name,fn) {this.listeners[name]=fn;}, listeners:{} };
 globalThis.matchMedia = () => media;
 globalThis.requestAnimationFrame = fn => { pending.set(++frameID,fn); return frameID; };
 globalThis.cancelAnimationFrame = id => pending.delete(id);
@@ -130,22 +130,46 @@ test('flow experiment is a selectable path node, separate from read-only inherit
  assert.equal(element('flow-node-editor').hidden,true);assert.ok(!element('node-list').innerHTML.includes('data-node="flowExperiment"'));
 });
 
-test('shared experiment picker creates, renames and cancels independently while keeping identity',()=>{
+test('experiment page creates and renames identities reused by audience and composition',()=>{
+ window.location.hash='#experimentation';window.listeners.hashchange();
+ assert.equal(element('experimentation-section').hidden,false);
+ assert.equal(element('nav-experimentation').attributes['aria-current'],'page');
+ fire('new-experiment','click');element('experiment-name').value='Reusable demo';
+ fire('experiment-form','submit',{preventDefault(){}});
+ const experimentId=element('experiment-list').innerHTML.match(/exp-custom-\d+/)?.[0];
+ assert.ok(experimentId);
+ assert.ok(element('audience-experiment-picker-select').innerHTML.includes(experimentId));
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-edit-experiment]'?{dataset:{editExperiment:experimentId}}:null}});
+ element('experiment-name').value='Canceled rename';fire('cancel-experiment','click');
+ assert.ok(!element('experiment-list').innerHTML.includes('Canceled rename'));
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-edit-experiment]'?{dataset:{editExperiment:experimentId}}:null}});
+ element('experiment-name').value='Renamed shared';fire('experiment-form','submit',{preventDefault(){}});
+ assert.ok(element('audience-experiment-picker-select').innerHTML.includes('Renamed shared'));
+ fire('new-experiment','click');element('experiment-name').value='Disposable';fire('experiment-form','submit',{preventDefault(){}});
+ const disposable=element('experiment-list').innerHTML.match(/exp-custom-\d+/g).at(-1);
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-delete-experiment]'?{dataset:{deleteExperiment:disposable}}:null}});
+ assert.ok(!element('experiment-list').innerHTML.includes('Disposable'));
+ assert.ok(!element('audience-experiment-picker-select').innerHTML.includes(disposable));
  fire('edit-flow-audience','click');element('audience-experiment-enabled').checked=true;
- fire('audience-experiment-picker-new','click');element('audience-experiment-picker-name').value='Reusable demo';
- fire('audience-experiment-picker-save','click');
- const experimentId=element('audience-experiment-picker-select').value;
- assert.ok(experimentId.startsWith('exp-custom-'));
+ element('audience-experiment-picker-select').value=experimentId;fire('audience-form','change');
  fire('audience-form','submit',{preventDefault(){}});
- const before=element('inherited-experiment-note').textContent;
- fire('edit-flow-audience','click');fire('audience-experiment-picker-edit','click');
- element('audience-experiment-picker-name').value='Canceled rename';fire('audience-experiment-picker-cancel','click');
- assert.ok(!element('audience-experiment-picker-select').innerHTML.includes('Canceled rename'));
- fire('audience-experiment-picker-edit','click');element('audience-experiment-picker-name').value='Renamed shared';fire('audience-experiment-picker-save','click');
- assert.equal(element('audience-experiment-picker-select').value,experimentId);
  assert.ok(element('inherited-experiment-name').textContent.includes('Renamed shared'));
- assert.equal(element('inherited-experiment-note').textContent,before);
- fire('cancel-audience','click');
+ assert.equal(element('audience-section').hidden,false);
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-delete-experiment]'?{dataset:{deleteExperiment:experimentId}}:null}});
+ assert.match(element('experiment-status').textContent,/引用/);
+});
+
+test('domain deep links expose only their section and pause composition on exit',()=>{
+ window.location.hash='#compose';window.listeners.hashchange();
+ assert.equal(element('flow-section').hidden,false);
+ fire('play','click');assert.equal(pending.size,1);
+ window.location.hash='#campaign';window.listeners.hashchange();
+ assert.equal(element('campaign-section').hidden,false);
+ assert.equal(element('flow-section').hidden,true);
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
+ assert.equal(pending.size,0);
+ window.location.hash='#missing';window.listeners.hashchange();
+ assert.equal(element('audience-section').hidden,false);
 });
 
 test('entry mode, batch schedule and event trigger are authored in audience management only',()=>{
@@ -176,4 +200,19 @@ test('entry mode, batch schedule and event trigger are authored in audience mana
  assert.equal(element('save-audience').disabled,false);fire('audience-form','submit',{preventDefault(){}});
  assert.ok(element('flow-entry-title').textContent.includes('批量人群'));
  assert.ok(!element('flow-entry-summary').textContent.includes('order_paid'));
+});
+
+test('deleting the selected audience updates composition to an available definition',()=>{
+ fire('flow-audience','change',{target:{value:'aud-app'}});
+ const before=Number(element('audience-count').textContent);
+ fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-app'}}:null}});
+ assert.equal(Number(element('audience-count').textContent),before-1);
+ assert.notEqual(element('flow-audience').value,'aud-app');
+ assert.equal(element('total').textContent,Number(element('queued').textContent));
+ assert.match(element('audience-status').textContent,/已删除/);
+ const remaining=[...element('audience-list').innerHTML.matchAll(/data-delete-audience="([^"]+)"/g)].map(match=>match[1]);
+ for(const id of remaining)fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:id}}:null}});
+ assert.equal(element('audience-count').textContent,0);
+ assert.equal(element('total').textContent,0);
+ assert.equal(element('play').disabled,true);
 });
