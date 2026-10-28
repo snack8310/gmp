@@ -162,6 +162,12 @@ export function createAudienceStore(storage) {
       persist();
       return clone(normalized);
     },
+    delete(id) {
+      const index = definitions.findIndex(value => value.id === id);
+      if (index < 0) throw new RangeError('人群不存在。');
+      definitions.splice(index, 1);
+      persist();
+    },
     saveExperiment(experiment) {
       const errors = validateExperiment(experiment);
       if (errors.length) throw new RangeError(errors.join(' '));
@@ -172,6 +178,13 @@ export function createAudienceStore(storage) {
       if (index === -1) experiments.push(normalized); else experiments[index] = normalized;
       persist();
       return clone(normalized);
+    },
+    deleteExperiment(id) {
+      const index = experiments.findIndex(value => value.id === id);
+      if (index < 0) throw new RangeError('实验不存在。');
+      if (definitions.some(value => value.experimentId === id)) throw new RangeError('实验已被人群引用，请先移除引用。');
+      experiments.splice(index, 1);
+      persist();
     },
   };
 }

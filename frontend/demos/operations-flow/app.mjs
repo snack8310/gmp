@@ -1,5 +1,6 @@
 import { filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
-import { mountAudiences, mountExperimentPicker, escapeHTML } from './audience-ui.mjs';
+import { mountAudiences } from './audience-ui.mjs';
+import { mountExperimentPicker, mountExperiments, escapeHTML } from './experiment-ui.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -189,7 +190,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)clock.pause
 window.addEventListener('pagehide',()=>clock.pause(),{once:true});
 function applyAudience(item,preserveExtra=false){
  clock.pause();currentAudience=item;
- if(!preserveExtra){extraConfig=null;canvasPicker?.close();}
+ if(!preserveExtra)extraConfig=null;
  const users=item?filterAudience(item.rules):[];
  const experimentId=item?.experimentId||null;
  scenario=createScenario($('scenario').value||'baseline',users,experimentId,extraConfig);
@@ -209,12 +210,12 @@ function applyAudience(item,preserveExtra=false){
  byId.flowExperiment.rules=[['引用实验',additional?.name||'无'],['ID',additional?.id||'无'],['到达路径',extraConfig?.branch==='direct'?'普通出口':`${extraConfig?.branch?.toUpperCase()||''} 分支`],['路径分母',`${branchCount} 位`]];
  byId.flowExperiment.desc=additional?`引用「${additional.name}」。只对到达本节点的人分组，不改变入口绑定。`:'独立流程实验节点';
  $('flow-node-scope').textContent=extraConfig?`${extraConfig.branch==='direct'?'普通出口':extraConfig.branch.toUpperCase()+' 分支'} → 本节点；分母 ${branchCount} 位。`:'尚未添加流程节点';
- $('flow-path-actions').innerHTML=!item?'请先选择人群':extraConfig?'<button data-inspect-flow-node="true">编辑流程实验节点 ↗</button>':!experiments.length?'暂无可引用实验，请先在人群管理新建实验。':(experimentId?['a','b']:['direct']).map(branch=>`<button data-add-branch="${branch}">${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'} → ＋ 添加实验节点</button>`).join('');
+ $('flow-path-actions').innerHTML=!item?'请先选择人群':extraConfig?'<button data-inspect-flow-node="true">编辑流程实验节点 ↗</button>':!experiments.length?'暂无可引用实验，请先在实验域新建。':(experimentId?['a','b']:['direct']).map(branch=>`<button data-add-branch="${branch}">${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'} → ＋ 添加实验节点</button>`).join('');
  rebuildNodeList();
  $('flow-entry-title').textContent=item?(item.entry.mode==='event'?'事件人群 · 已保存触发配置':'批量人群 · 已保存来源与排期'):'请先创建人群';
- $('flow-entry-summary').textContent=item?summarizeEntry(item):'画布入口只引用人群管理中的已保存定义。';
+ $('flow-entry-summary').textContent=item?summarizeEntry(item):'画布入口只引用受众中的已保存定义。';
  $('flow-entry-boundary').textContent=item?.entry.mode==='event'?'仅模拟符合条件样本依次进入；不是收到的事件数。不订阅真实事件，多画布事件分发与运行时投递尚未定义。':'仅模拟符合条件样本进入；不会执行已配置的排期。修改模式、来源或排期，请回到「编辑此人群」。';
- $('flow-reference').textContent=item?`引用：${item.name} · ${summarizeRules(item.rules)}`:'暂无人群定义，请先到人群管理新建。';
+ $('flow-reference').textContent=item?`引用：${item.name} · ${summarizeRules(item.rules)}`:'暂无人群定义，请先到受众新建。';
  const count=g=>scenario.people.filter(p=>p.group===g).length,count2=g=>scenario.people.filter(p=>p.extraGroup===g).length;
  $('inherited-experiment-name').textContent=inherited?`${inherited.name} · ${inherited.id}`:'此人群未引用实验 · 单一出口';
  $('inherited-experiment-note').textContent=inherited?`随人群继承，不可在画布取消或替换。分母 ${users.length}：A ${count('a')} / B ${count('b')} / 对照 ${count('control')}（不触达）。请通过「编辑此人群」修改引用。`:'圈选条件决定谁符合。可以编辑人群引用实验，进入后的路径可以添加独立流程实验节点。';
@@ -224,19 +225,29 @@ function applyAudience(item,preserveExtra=false){
  clock.reset(scenario.duration);$('status-message').textContent='人群或配置已更新，沙盘重置并暂停。';
 }
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
-function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(currentAudience)applyAudience(currentAudience,true);}
-const audienceUI=mountAudiences({onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onTab:tab=>{if(tab==='audience')clock.pause();},onExperimentSaved:refreshExperiments});
+function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(extraConfig&&!audienceUI.store.experiments().some(item=>item.id===extraConfig.experimentId))extraConfig=null;if(currentAudience)applyAudience(currentAudience,true);}
+const domains={audience:'audience-section',experimentation:'experimentation-section',campaign:'campaign-section',compose:'flow-section'};
+function renderDomain(){
+ const domain=Object.hasOwn(domains,window.location.hash.slice(1))?window.location.hash.slice(1):'audience';
+ for(const [key,section] of Object.entries(domains)){$(section).hidden=key!==domain;$(`nav-${key}`).setAttribute('aria-current',key===domain?'page':'false');}
+ if(domain!=='compose')clock.pause();
+}
+function navigate(domain){window.location.hash=`#${domain}`;renderDomain();}
+window.addEventListener('hashchange',renderDomain);
+const audienceUI=mountAudiences({onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onDeleted:(id,items)=>{refreshAudienceOptions(items);if(currentAudience?.id===id)applyAudience(items[0]||null);else $('flow-audience').value=currentAudience?.id||'';},onNavigate:navigate});
+mountExperiments({store:audienceUI.store,onChanged:refreshExperiments});
 function addFlowNode(branch){
  if(!currentAudience||extraConfig||!(currentAudience.experimentId?['a','b']:['direct']).includes(branch))return;
- const experiment=audienceUI.store.experiments()[0];if(!experiment){$('status-message').textContent='请先在人群管理新建可引用实验。';return;}
+ const experiment=audienceUI.store.experiments()[0];if(!experiment){$('status-message').textContent='请先在实验域新建可引用实验。';return;}
  extraConfig={experimentId:experiment.id,branch};canvasPicker.setValue(experiment.id);applyAudience(currentAudience,true);selectNode('flowExperiment');
  $('status-message').textContent=`已在${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'}后插入流程实验节点，可在检查器更换引用；入口未改变。`;
 }
 function changeFlowNode(){if(!extraConfig)return;const experimentId=canvasPicker.getValue();if(!experimentId)return;extraConfig={...extraConfig,experimentId};applyAudience(currentAudience,true);selectNode('flowExperiment');}
-canvasPicker=mountExperimentPicker({rootId:'flow-node-picker',store:audienceUI.store,onChange:changeFlowNode,onSaved:refreshExperiments});
+canvasPicker=mountExperimentPicker({rootId:'flow-node-picker',store:audienceUI.store,onChange:changeFlowNode});
 $('flow-path-actions').addEventListener('click',event=>{const add=event.target.closest('[data-add-branch]');if(add)addFlowNode(add.dataset.addBranch);else if(event.target.closest('[data-inspect-flow-node]'))selectNode('flowExperiment');});
-$('remove-flow-node').addEventListener('click',()=>{if(!extraConfig)return;extraConfig=null;canvasPicker.close();applyAudience(currentAudience,true);$('status-message').textContent='已删除进入后的流程实验节点，入口人群和继承实验未改变。';});
+$('remove-flow-node').addEventListener('click',()=>{if(!extraConfig)return;extraConfig=null;applyAudience(currentAudience,true);$('status-message').textContent='已删除进入后的流程实验节点，入口人群和继承实验未改变。';});
 refreshAudienceOptions(audienceUI.list());applyAudience(audienceUI.list()[0]||null);
 $('flow-audience').addEventListener('change',e=>applyAudience(audienceUI.list().find(a=>a.id===e.target.value)||null));
 $('edit-flow-audience').addEventListener('click',()=>{if(currentAudience)audienceUI.edit(currentAudience.id);});
 updateMotion();
+renderDomain();

@@ -2,18 +2,18 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="GMP 运营流程沙盘：使用构造数据演示人群、可复用实验、触达与回执，不连接真实渠道。">
-<title>GMP · 人群与运营实验室</title>
+<meta name="description" content="GMP 领域演示：使用构造数据展示受众、实验、运营与组合，不连接真实渠道。">
+<title>GMP · 领域演示</title>
 <link rel="stylesheet" href="./style.css">
 <script type="module" src="./app.mjs"></script>
 </head>
 <body>
-<header class="topbar"><a class="brand" href="./" aria-label="GMP 演示首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5v10l-10 5-10-5V7zm0 0v10m10-5-10 5L2 7m10 5v10"/></svg>GMP <span>GROWTH PLATFORM</span></a><span class="topnav">运营实验室</span><span class="demo-badge"><span></span>模拟数据 · 不会真实触达</span></header>
+<header class="topbar"><a class="brand" href="./" aria-label="GMP 演示首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5v10l-10 5-10-5V7zm0 0v10m10-5-10 5L2 7m10 5v10"/></svg>GMP <span>GROWTH PLATFORM</span></a><span class="topnav">领域演示</span><span class="demo-badge"><span></span>模拟数据 · 不会真实触达</span></header>
 <main>
-<section class="intro"><div><p class="eyebrow">AUDIENCE & OPERATIONS / LAB</p><h1>先找到对的人，再看见每一步。</h1><p class="subtitle">把人群定义变成可复用的资产，再带入立体沙盘。所有数据均为虚构，所有操作都只在本浏览器演示。</p></div></section>
+<div class="lab-shell"><nav class="domain-nav" aria-label="领域导航"><a id="nav-audience" href="#audience" aria-current="page"><strong>受众</strong><span>这个人是谁</span></a><a id="nav-experimentation" href="#experimentation"><strong>实验</strong><span>落在第几份</span></a><a id="nav-campaign" href="#campaign"><strong>运营</strong><span>要对这些人做什么</span></a><a id="nav-compose" href="#compose"><strong>组合</strong><span>三域挂在一起跑</span></a></nav><div class="lab-content">
+<section class="intro"><div><p class="eyebrow">GMP / DOMAIN LAB</p><h1>从领域对象，到组合演示。</h1><p class="subtitle">分别查看受众、实验与运营的职责，再到组合页引用对象并播放。所有数据均为虚构。</p></div></section>
 
-<nav class="lab-tabs" aria-label="实验室工作区"><button id="tab-audience" class="active" aria-pressed="true">01 <span>人群管理</span></button><button id="tab-flow" aria-pressed="false">02 <span>运营沙盘</span><span class="tab-arrow">↗</span></button><span>定义人群 → 引用人群 → 模拟旅程</span></nav>
-<section id="audience-section" aria-label="人群管理">
+<section id="audience-section" aria-label="受众">
 <div id="audience-browse">
 <div class="section-heading"><div><p class="eyebrow">REUSABLE AUDIENCES</p><h2>人群资产</h2><p>在这里配置进入方式、圈选条件与可选实验。画布只引用这份完整人群，不再重复配置入口。</p></div><button id="new-audience" class="primary">＋ 新建人群</button></div>
 <div class="audience-overview"><div><span>模拟样本池</span><strong>240 <small>位</small></strong><p>完全虚构 · 固定数据集</p></div><div><span>已保存定义</span><strong id="audience-count">—</strong><p>仅本浏览器可见</p></div><div class="overview-note"><span class="tiny-heading">圈选与分流，是两件事</span><p>先按属性判断「谁符合」，再决定是否进行 A/B 分配。<br>关闭 A/B 时，全部符合条件的人直接进入触达模拟。</p></div></div>
@@ -33,29 +33,44 @@
 <div class="builder-title"><span>03</span><h3>通用圈选条件</h3><span class="and-pill">全部满足 AND</span></div><label for="rule-country">国家 / 地区</label><select id="rule-country"><option value="all">不限国家</option><option value="MX">墨西哥 MX</option><option value="BR">巴西 BR</option><option value="CO">哥伦比亚 CO</option></select>
 <div class="rule-join">AND</div><label for="rule-lifecycle">用户生命周期（模拟属性）</label><select id="rule-lifecycle"><option value="all">不限生命周期</option><option value="new">新用户</option><option value="active">活跃用户</option><option value="dormant">沉睡用户</option></select>
 <div class="rule-join">AND</div><label for="rule-min">距上次活跃的天数 <span class="field-help">包含边界</span></label><div class="range-inputs"><input id="rule-min" type="number" min="0" max="365" step="1" value="0" aria-label="最少未活跃天数"><span>至</span><input id="rule-max" type="number" min="0" max="365" step="1" value="365" aria-label="最多未活跃天数"><span>天</span></div>
-<div class="builder-title"><span>04</span><h3>A/B 实验</h3><span class="and-pill">可选 · 引用组件</span></div>
-<label class="experiment-check"><input id="audience-experiment-enabled" type="checkbox"><span>此人群引用 A/B 实验</span></label><p class="field-help">先按上方属性圈选，再引用独立实验。实验可被多个人群复用；带实验的人群也可被多个任务引用。</p><div id="audience-experiment-config" hidden><div id="audience-experiment-picker"></div><p class="inherited-note">此引用将随人群进入画布，画布不能取消或覆盖；实验身份不随名称修改。</p></div>
+<div class="builder-title"><span>04</span><h3>引用实验</h3><span class="and-pill">可选 · 仅引用</span></div>
+<label class="experiment-check"><input id="audience-experiment-enabled" type="checkbox"><span>此人群引用已有实验</span></label><p class="field-help">先按上方属性圈选，再引用实验域已保存的实验；比例由实验域展示，本页不编辑。</p><div id="audience-experiment-config" hidden><div id="audience-experiment-picker"></div><p class="inherited-note">此引用将随人群进入组合，组合页不能取消或覆盖；实验身份不随名称修改。</p></div>
 <p id="editor-error" class="inline-error" role="alert"></p><div class="editor-actions"><button id="save-audience" class="primary" type="submit">保存人群</button><span>只保存定义，不触发任何发送</span></div>
 </form>
 <aside class="audience-preview" aria-label="实时匹配预览"><div class="preview-heading"><span>实时预览</span><span class="mock-tag">SIMULATED</span></div><div class="preview-number"><strong id="preview-count">—</strong><span id="preview-count-label">位模拟用户符合条件</span></div><div class="preview-bar"><span id="preview-bar"></span></div><p id="preview-ratio"></p><p id="preview-entry" class="entry-preview-summary"></p><p id="preview-rules" class="preview-rules"></p><p id="preview-assignment" class="preview-assignment"></p><div id="preview-message" role="status" aria-live="polite"></div><h3>样本预览 <small>最多展示 6 位</small></h3><p class="field-help">仅匿名模拟 ID，没有姓名、号码或真实个人信息。</p><div class="sample-scroll"><table class="sample-table"><thead><tr><th>模拟 ID</th><th>国家</th><th>生命周期</th><th>未活跃</th></tr></thead><tbody id="preview-samples"></tbody></table></div><div class="preview-boundary">此处是固定模拟数据的精确匹配数，不是生产预估，也不代表未来可触达规模。</div></aside>
 </div></section>
 <p id="storage-warning" class="storage-warning" role="status"></p><p id="audience-status" role="status" aria-live="polite"></p>
 </section>
-<section id="flow-section" hidden aria-label="运营沙盘">
+<section id="experimentation-section" hidden aria-label="实验">
+<div class="section-heading"><div><p class="eyebrow">EXPERIMENTATION / STABLE ASSIGNMENT</p><h2>实验</h2><p>一次分流由实验域持有定义；受众只引用已有实验，并按份号形成条件。</p></div><button id="new-experiment" class="primary" type="button">＋ 新建实验</button></div>
+<div class="domain-summary"><strong>固定示意 A 45% / B 45% / 对照 10%</strong><span>已保存 <b id="experiment-count">—</b> 项 · 同一实验 ID 与模拟用户始终落在同一份，改名不改变分配。</span></div>
+<form id="experiment-form" class="experiment-form" hidden><label for="experiment-name">实验名称</label><input id="experiment-name" maxlength="48" autocomplete="off" placeholder="输入实验名称"><p class="field-help">保存后可由受众与组合引用；比例固定，仅供演示。</p><p id="experiment-error" class="inline-error" role="alert"></p><div class="card-actions"><button type="submit" class="primary">保存实验</button><button id="cancel-experiment" type="button">取消</button></div></form>
+<div id="experiment-list" class="domain-cards"></div><p id="experiment-status" role="status" aria-live="polite"></p><p id="experiment-storage-warning" class="storage-warning" role="status"></p>
+<div class="domain-cards domain-explain"><article class="domain-card"><h3>染色 · 只读说明</h3><p>真实分配结果会被持久化；这里仅对构造 ID 作稳定示意，不写生产染色记录。</p></article><article class="domain-card"><h3>放量 · 只读说明</h3><p>放量也使用稳定分份，但不等同于有指标与结论的实验。本 Demo 不提供放量配置。</p></article></div>
+<p class="domain-link"><a href="#audience">前往受众引用实验 ↗</a></p>
+</section>
+<section id="campaign-section" hidden aria-label="运营">
+<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIONS & EDGES</p><h2>运营</h2><p>运营域决定对这些人做什么。以下是领域概念说明，不在本页装配或播放。</p></div></div>
+<div class="domain-cards"><article class="domain-card"><span class="eyebrow">CAMPAIGN · #44</span><h3>活动</h3><p>一个活动可挂同一次实验的多个臂人群组；各臂可以引用不同投放项，对照组可以不触达。</p></article><article class="domain-card"><span class="eyebrow">TREATMENT</span><h3>投放项 · 一动作</h3><p>一个投放项只引用一个动作。多动作使用多个投放项，动作的结果由其契约定义。</p></article><article class="domain-card"><span class="eyebrow">CAMPAIGN FLOW · #55</span><h3>活动流程边</h3><p>活动流程用边连接投放项：可串行，可按动作回执分支；同入口多个投放项无边相连时可并行。</p></article></div>
+<p class="domain-footnote">#55 的跨层执行证据在 <code>gmp-core/scenarios/</code>；此处只展示关系，不替代核心回归用例。</p>
+</section>
+<section id="flow-section" hidden aria-label="组合">
+<div class="section-heading"><div><p class="eyebrow">COMPOSE / SIMULATION</p><h2>组合</h2><p>引用已保存受众与实验，在沙盘中查看模拟流程、统计与场景。</p></div></div>
 <div class="flow-config"><label for="flow-audience">引用已保存人群<select id="flow-audience"></select></label><label for="scenario">演示场景<select id="scenario"><option value="baseline">均衡触达</option><option value="pressure">回执延迟</option><option value="recovery">优化示意</option></select></label><button id="edit-flow-audience">编辑此人群</button></div>
-<div class="saved-entry-summary" aria-label="引用人群的入口配置"><div><span class="eyebrow">入口配置 · 来自人群管理 · 只读</span><h3 id="flow-entry-title"></h3><p id="flow-entry-summary"></p></div><p id="flow-entry-boundary"></p></div>
+<div class="saved-entry-summary" aria-label="引用人群的入口配置"><div><span class="eyebrow">入口配置 · 来自受众 · 只读</span><h3 id="flow-entry-title"></h3><p id="flow-entry-summary"></p></div><p id="flow-entry-boundary"></p></div>
 <div class="inherited-experiment entry-inheritance"><span class="eyebrow">继承自人群 · 只读</span><strong id="inherited-experiment-name">未引用实验</strong><p id="inherited-experiment-note"></p></div>
 <div class="flow-reference"><span id="flow-reference"></span><span id="split-summary"></span></div>
 <section class="metrics" aria-label="实时模拟统计"><div class="metric"><span>总人群</span><strong id="total">240</strong><small>引用人群 · 模拟匹配</small></div><div class="metric"><span>未进入</span><strong id="queued">240</strong><small>等待进入沙盘</small></div><div class="metric"><span>处理中</span><strong id="active">0</strong><small>流转中 + 等待回执</small></div><div class="metric"><span>触达成功</span><strong id="success">0</strong><small>模拟成功回执</small></div><div class="metric"><span>触达失败</span><strong id="failed">0</strong><small>模拟终态失败</small></div><div class="metric"><span>对照留存</span><strong id="control">0</strong><small>不触达 · 非失败</small></div><div class="balance"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 12 3 3 7-7M12 2l8 4v6c0 5-8 10-8 10S4 17 4 12V6z"/></svg><span>人数守恒<strong id="balance">240 / 240</strong></span></div></section>
 <section class="workspace">
 <aside class="left-panel"><div class="panel-label"><span>流程对象</span><span id="node-total">10</span></div><div id="node-list" class="node-list" aria-label="选择流程节点"></div><div class="left-note"><span class="tiny-heading">这是一段模拟旅程</span><p>每个小人代表 1 位虚拟用户。路径、分组与结果均为预设脚本，不使用生产分桶算法。</p><span class="version">SCENE MODEL / V1.0</span></div></aside>
-<div class="world-wrap"><div class="world-toolbar"><div class="world-title"><span class="live-dot"></span><span id="play-state">已暂停</span><span class="divider">/</span><span>立体运营沙盘</span></div><div class="view-controls" aria-label="视角控制"><button id="isometric" class="active" aria-pressed="true">立体</button><button id="top" aria-pressed="false">俯视</button><button id="zoom-out" aria-label="缩小">−</button><button id="zoom-in" aria-label="放大">+</button><button id="view-reset" aria-label="重置视角">复位</button></div></div>
+<div class="world-wrap"><div class="world-toolbar"><div class="world-title"><span class="live-dot"></span><span id="play-state">已暂停</span><span class="divider">/</span><span>立体组合沙盘</span></div><div class="view-controls" aria-label="视角控制"><button id="isometric" class="active" aria-pressed="true">立体</button><button id="top" aria-pressed="false">俯视</button><button id="zoom-out" aria-label="缩小">−</button><button id="zoom-in" aria-label="放大">+</button><button id="view-reset" aria-label="重置视角">复位</button></div></div>
 <div class="world" id="world"><svg id="scene" viewBox="0 0 1100 680" role="img" aria-labelledby="scene-title scene-desc"><title id="scene-title">运营流程立体沙盘</title><desc id="scene-desc">入口按保存人群展示普通或继承实验出口；在可触达路径可新增独立流程实验节点；对照不触达。节点详情可通过左侧按钮访问。</desc><defs><pattern id="floor-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#e4e0d8" stroke-width=".6"/></pattern></defs><g id="ground"></g><g id="routes"></g><g id="objects"></g><g id="labels"></g></svg></div>
 <div class="world-foot"><span><span class="legend-dot"></span>模拟人群 <span class="legend-line"></span>流转路径 <span class="legend-dash"></span>失败路径</span><span>拖动旋转 · 点选节点</span></div><div class="flow-path-tools"><span>进入后路径</span><div id="flow-path-actions"></div><small>仅演示一个流程实验节点 · 不修改入口人群</small></div><div class="scenario-note"><span>场景说明</span><p id="scenario-note">多渠道并行，观察人群如何抵达终点。</p></div></div>
 <aside class="detail-panel" aria-labelledby="detail-title"><div class="panel-label"><span>节点检查器</span><span id="detail-index">01</span></div><div id="detail-icon" class="detail-icon"></div><p class="detail-kind" id="detail-kind">AUDIENCE SOURCE</p><h2 id="detail-title">人群池</h2><p id="detail-desc" class="detail-desc"></p><div class="detail-stats"><div><span id="arrived-label">固定样本</span><strong id="detail-arrived">240</strong></div><div><span>当前占用</span><strong id="detail-active">240</strong></div></div><div class="mini-track"><span id="detail-progress"></span></div><div id="detail-rules" class="detail-rules"></div><div id="flow-node-editor" class="flow-node-editor" hidden><h3>流程实验节点</h3><p id="flow-node-scope" class="field-help"></p><div id="flow-node-picker"></div><button id="remove-flow-node" type="button">删除此流程节点</button><p class="field-help">只调整进入后的流程；不保存或更改入口人群及其继承实验。</p></div><div class="detail-bottom"><span>仅为展示模型</span><p>成功 ≠ 转化。回执成功只说明模拟触达完成，不代表阅读、下单或真实业务效果。</p></div></aside>
 </section>
 <section class="transport" aria-label="模拟播放控制"><div class="play-controls"><button id="play" class="primary">开始模拟</button><button id="reset" aria-label="重置模拟">重置</button></div><div class="timeline"><div><span>模拟时间 <strong id="time">00:00.0</strong></span><span id="duration">01:00.2</span></div><input id="timeline" type="range" min="0" max="60.24" step="any" value="0" aria-label="模拟时间位置"></div><label class="speed">速度<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><span class="motion-note" id="motion-note">SVG 立体投影<br>无需 WebGL</span></section>
-</section><footer><span>GMP / FLOW LAB</span><span>仅作方案演示 · 无生产连接 · 仅本地保存演示定义</span><span id="status-message" role="status" aria-live="polite">准备就绪，点击开始模拟。</span></footer>
+<footer><span>GMP / DOMAIN LAB</span><span>仅作方案演示 · 无生产连接 · 仅本地保存演示定义</span><span id="status-message" role="status" aria-live="polite">准备就绪，点击开始模拟。</span></footer></section>
+</div></div>
 </main>
 <noscript>此演示需要 JavaScript。它仅在浏览器内计算模拟数据，不连接任何外部渠道。</noscript>
 </body>

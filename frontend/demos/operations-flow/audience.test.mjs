@@ -110,6 +110,27 @@ test('experiments are reusable independent identities, renaming keeps assignment
   assert.equal(store.experiments().at(-1).name, '已改名');
 });
 
+test('deleting an experiment protects saved references and persists removal', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '待删除实验' });
+  const audience = store.save({ ...base(), experimentId: experiment.id });
+  assert.throws(() => store.deleteExperiment(experiment.id), /引用/);
+  assert.equal(store.experiments().at(-1).id, experiment.id);
+  store.save({ ...audience, experimentId: null });
+  store.deleteExperiment(experiment.id);
+  assert.ok(!createAudienceStore(storage).experiments().some(item => item.id === experiment.id));
+});
+
+test('deleting an audience removes only that saved definition', () => {
+  const storage=memory(),store=createAudienceStore(storage);
+  const created=store.save(base());
+  const before=store.list().length;
+  store.delete(created.id);
+  assert.equal(store.list().length,before-1);
+  assert.ok(!createAudienceStore(storage).list().some(value=>value.id===created.id));
+  assert.throws(()=>store.delete(created.id),/不存在/);
+});
+
 test('experiment validation and orphan references fail before any mutation', () => {
   const store = createAudienceStore(memory());
   const previous = store.list();
