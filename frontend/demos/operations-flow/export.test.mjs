@@ -18,11 +18,16 @@ test('standalone export embeds the actual modules, has no external assets, and b
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,{value:'',checked:false,style:{},dataset:{},classList:{toggle(){},add(){},remove(){}},setAttribute(){},addEventListener(){}});return elements.get(id);};
   const document={getElementById:element,querySelector:element,querySelectorAll:()=>[],addEventListener(){}};
-  const window={location:{hash:''},addEventListener(){}};
+  const window={location:{hash:'#campaign/activities/campaign-branch'},listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}};
   new Script(script).runInNewContext({document,window,matchMedia:()=>({matches:false,addEventListener(){}}),requestAnimationFrame:()=>1,cancelAnimationFrame(){},fetch(){throw new Error('Network forbidden');}});
   assert.equal(element('total').textContent,192);
   assert.ok(element('audience-list').innerHTML.includes('墨西哥'));
   assert.ok(element('storage-warning').textContent.includes('存储不可用'));
+  assert.ok(element('campaign-detail').innerHTML.includes('treatment-rcs'));
+  window.location.hash='#campaign/activities';window.listeners.hashchange();
+  assert.ok(element('campaign-activities').innerHTML.includes('campaign-branch'));
+  window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+  assert.ok(element('campaign-detail').innerHTML.includes('treatment-rcs'));
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
@@ -54,6 +59,9 @@ test('domain navigation and sections are ordered and management stays in its dom
  assert.ok(html.indexOf('id="experimentation-section"')<html.indexOf('id="campaign-section"'));
  assert.ok(html.indexOf('id="campaign-section"')<html.indexOf('id="flow-section"'));
  const campaign=html.slice(html.indexOf('id="campaign-section"'),html.indexOf('id="flow-section"'));
+ assert.match(campaign,/href="#campaign\/activities"/);
+ assert.match(campaign,/id="campaign-activities"/);
+ assert.match(campaign,/id="campaign-detail"/);
  assert.doesNotMatch(campaign,/id="play"|开始模拟/);
  assert.match(html,/模拟数据 · 不会真实触达/);
 });
