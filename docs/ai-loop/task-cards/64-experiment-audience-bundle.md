@@ -42,7 +42,7 @@
 | 项目 4、5、10、11、14、15、16 | 是 | 人群含义、分流染色、执行态归因、幂等回归、决策表、活动级放量、零依赖；工程集验证。 |
 | 项目其余项 | 否 | 不改事件/边/动作契约/渠道/权限等对应行为。 |
 
-- 实施前人工确认：issue #64 的 `risk/high`、`risk/breaking` 标签及产品澄清评论已确认实施方向；本会话用户明确要求实施。合入前产品放行由调用方处理，本轮不提交、不推送、不建 PR、不合并。
+- 实施前人工确认：issue #64 的 `risk/high`、`risk/breaking` 标签及产品澄清评论已确认实施方向；本会话用户明确要求实施。实现已落在分支并开 PR #65；**合入前产品/用户放行仍待确认，尚未 merge**。
 - 仍需人工最终确认：仓外调用方、无兼容期及版本安排，评估器结论和合入放行。
 
 ## 风险三档
@@ -61,7 +61,7 @@
 |---|---|---|---|
 | `memory/mechanization-claims.md` | 规则 8、9（约第 17–18 行） | 是 | 份号按不同臂具体值断言；逐个消耗成员的测试保留足够未消耗样本。 |
 | `memory/receipt-edge-audience-partition.md` | 规则（第 5–7 行） | 是 | 回执边继续沿上游人传递，但停用组仍需守卫；既有不相交人群回归保留。 |
-| `memory/review-package-consistency.md` | 规则（第 11–12 行） | 是 | 任务卡与变更证据的确认状态一致；本轮无 PR、commit，SHA/CI 规则不适用。 |
+| `memory/review-package-consistency.md` | 规则（第 11–12 行） | 是 | 任务卡与变更证据的确认状态一致；送审以 PR #65 head 为准，合入前核对载体与 SHA。 |
 | `memory/mechanization-claims.md` | 规则 1–7 | 部分 | 不新增结构性脚本或固化总声明；文档验证仍真实执行。 |
 | `memory/shell-script-portability.md` | 规则 1–5 | 否 | 不改 shell 脚本。 |
 | `memory/source-enumeration-fidelity.md` | 计数完整性 | 是 | 枚举与单人判定逐臂核对。 |

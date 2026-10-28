@@ -24,14 +24,14 @@
 | `gmp-core` | `go test ./...` | 全包通过；无测试包正常报告 `[no test files]`，退出码 0 |
 | `gmp-core` | `go test -count=1 ./...` | 全包实际重跑通过，退出码 0 |
 | `gmp-core` | `go test -race -count=1 ./experimentation ./audience ./campaign ./scenarios` | 四个业务包通过，退出码 0 |
-| 仓根 | `python3 test/docs/consistency_check.py` | `docs consistency: 全部通过（10 项检查）`，退出码 0 |
+| 仓根 | `python3 test/docs/consistency_check.py` | 退出码 0；输出以 `docs consistency:` 开头且无失败项 |
 | 仓根 | `git diff --check` | 无输出，退出码 0 |
 
 本机命令结果在最后代码/文档修订后复跑；当前文档不声称 CI、生产或浏览器验证。
 
 ## 破坏性变更（等价 CHANGELOG）
 
-**活动侧公开挂接入口从直接接收 `audience.Definition` 改为接收人群组；继续传入裸 Definition 的调用将无法编译或构造失败。** 涉及 `TreatmentSpec.Who`、`Row.When`、`CampaignSpec.Rollout` 及访问器。仓内 `campaign`、`scenarios`、演示装配与测试已迁移：普通配置用单组，发布实验臂按包份号取组。无兼容重载；当前未发布稳定版本，拟仓内一次升级。仓外调用方及无兼容期安排**待人工确认**，不能声称仓外无依赖。
+**活动侧公开挂接入口从直接接收 `audience.Definition` 改为接收人群组；继续传入裸 Definition 的调用将无法编译或构造失败。** 涉及 `TreatmentSpec.Who`、`Row.When`、`CampaignSpec.Rollout` 及访问器。仓内 `campaign`、`scenarios`、演示装配与测试已迁移：普通配置用单组，发布实验臂按包份号取组。无兼容重载；当前未发布稳定版本，拟仓内一次升级。仓外调用方及无兼容期安排**待人工确认**：已对 GitHub `snack8310` org 做 `gh search code`（查询 `github.com/snack8310/gmp/gmp-core`、`TreatmentSpec`、`audience.Single`、`CampaignSpec`）无命中；本机 `Documents/workspace` 下仅本仓 `gmp-core/go.mod` 引用该 module。检索不能证明全球无调用方，故**不声称仓外无依赖**，兼容期暂定无。
 
 ## 风险处理、未覆盖项与回滚边界
 
@@ -44,4 +44,4 @@
 
 ## 评估器与人工放行
 
-独立只读评估器第三轮结论为 `PASS`，无阻断问题；前两轮 `FAIL` 的产物侧反例已修复并固化为测试。评估器建议不新增长期抽象记忆，相关边界已有自动化回归。大任务最终人工审核、仓外调用方与兼容期确认、产品侧合入放行均由调用方处理；本轮无 commit、push、PR 或 merge。
+独立只读评估器在实现过程中曾给出第三轮产物侧 `PASS`；送审 PR #65 后，复审发现变更证据两处载体失真（一致性检查计数冻结、以及「本轮无 commit/push/PR」与已推送 head 矛盾），已在本文件与任务卡同步修正。产物侧此前两轮 `FAIL` 反例已固化为测试。评估器建议不新增长期抽象记忆。当前送审状态：分支已 commit 并推送，PR #65 已开，**尚未 merge**；大任务最终人工审核、仓外调用方与兼容期确认、产品侧合入放行仍待确认。
