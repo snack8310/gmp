@@ -160,6 +160,29 @@ test('experiment page creates and renames identities reused by audience and comp
  assert.match(element('experiment-status').textContent,/引用/);
 });
 
+test('publish control updates the shared catalog and stopping a split invalidates activity references',()=>{
+ window.location.hash='#audience';window.listeners.hashchange();
+ element('bundle-name').value='界面发布包';
+ element('bundle-audience').value='aud-mx-dormant';
+ fire('bundle-form','submit',{preventDefault(){}});
+ assert.match(element('bundle-status').textContent,/已发布/);
+ assert.match(element('bundle-list').innerHTML,/界面发布包/);
+ assert.match(element('audience-catalog').innerHTML,/对照臂/);
+ window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+ assert.doesNotMatch(element('campaign-detail').innerHTML,/引用不可用/);
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-toggle-experiment]'?{dataset:{toggleExperiment:'exp-recall'}}:null}});
+ assert.match(element('audience-catalog').innerHTML,/不可用/);
+ window.listeners.hashchange();
+ assert.match(element('campaign-detail').innerHTML,/引用不可用/);
+ fire('experiment-list','click',{target:{closest:selector=>selector==='[data-toggle-experiment]'?{dataset:{toggleExperiment:'exp-recall'}}:null}});
+ window.listeners.hashchange();
+ assert.match(element('campaign-detail').innerHTML,/引用不可用/);
+ element('bundle-name').value='重新发布包';element('bundle-audience').value='aud-mx-dormant';
+ fire('bundle-form','submit',{preventDefault(){}});
+ assert.match(element('bundle-status').textContent,/已发布/);
+ assert.match(element('bundle-list').innerHTML,/重新发布包.*可用/);
+});
+
 test('domain deep links expose only their section and pause composition on exit',()=>{
  window.location.hash='#compose';window.listeners.hashchange();
  assert.equal(element('flow-section').hidden,false);
@@ -243,7 +266,7 @@ test('entry mode, batch schedule and event trigger are authored in audience mana
  assert.ok(!element('flow-entry-summary').textContent.includes('order_paid'));
 });
 
-test('deleting the selected audience updates composition to an available definition',()=>{
+test('deleting a free audience updates composition while referenced groups stay protected',()=>{
  fire('flow-audience','change',{target:{value:'aud-app'}});
  const before=Number(element('audience-count').textContent);
  fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-app'}}:null}});
@@ -251,9 +274,10 @@ test('deleting the selected audience updates composition to an available definit
  assert.notEqual(element('flow-audience').value,'aud-app');
  assert.equal(element('total').textContent,Number(element('queued').textContent));
  assert.match(element('audience-status').textContent,/已删除/);
+ fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-mx-dormant'}}:null}});
+ assert.match(element('audience-status').textContent,/不能删除/);
  const remaining=[...element('audience-list').innerHTML.matchAll(/data-delete-audience="([^"]+)"/g)].map(match=>match[1]);
  for(const id of remaining)fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:id}}:null}});
- assert.equal(element('audience-count').textContent,0);
- assert.equal(element('total').textContent,0);
- assert.equal(element('play').disabled,true);
+ assert.equal(element('audience-count').textContent,2);
+ assert.ok(Number(element('total').textContent)>0);
 });

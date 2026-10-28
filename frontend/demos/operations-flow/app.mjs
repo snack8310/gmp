@@ -2,6 +2,7 @@ import { filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
 import { mountAudiences } from './audience-ui.mjs';
 import { mountExperimentPicker, mountExperiments, escapeHTML } from './experiment-ui.mjs';
 import { renderActivitiesList, renderActivityDetail } from './campaign-ui.mjs';
+import { BROWSE_ACTIVITIES } from './campaign-activities.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -238,7 +239,7 @@ function renderCampaignRoute(route){
  $('campaign-activities').hidden=view!=='list';
  $('campaign-detail').hidden=view!=='detail';
  if(view==='list')$('campaign-activities').innerHTML=renderActivitiesList();
- if(view==='detail')$('campaign-detail').innerHTML=renderActivityDetail(activityIdFromRoute(route));
+ if(view==='detail')$('campaign-detail').innerHTML=renderActivityDetail(activityIdFromRoute(route), BROWSE_ACTIVITIES, audienceUI.store.catalog());
 }
 function renderDomain(){
  const route=window.location.hash.slice(1);

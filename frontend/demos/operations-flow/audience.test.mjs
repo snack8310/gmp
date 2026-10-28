@@ -147,17 +147,18 @@ test('experiment validation and orphan references fail before any mutation', () 
   assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
 });
 
-test('v1 caches migrate without writes and default to no experiment; explicit save writes v3', () => {
+test('v1 caches migrate without writes and default to stopped experiments; explicit save writes v4', () => {
   const storage = memory();
   const oldAudience = base(); delete oldAudience.experimentId; delete oldAudience.entry;
   const raw = JSON.stringify({ version: 1, audiences: [oldAudience] });
   storage.setItem(STORAGE_KEY, raw);
   const store = createAudienceStore(storage);
   assert.equal(store.list()[0].experimentId, null);
-  assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
+  assert.ok(store.experiments().every(experiment => experiment.runtimeStatus === 'stopped'));
+  assert.deepEqual(store.bundles(), []);
   assert.equal(storage.getItem(STORAGE_KEY), raw);
   store.save(store.list()[0]);
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
   assert.deepEqual(createAudienceStore(storage).list(), store.list());
 });
 
@@ -208,7 +209,7 @@ test('entry normalization keeps only chosen branch and returns deep isolated val
   assert.deepEqual(batch.entry, { mode: 'batch', schedule: { type: 'manual' } });
   batch.entry.schedule.type = 'daily';
   assert.deepEqual(createAudienceStore(storage).list()[0].entry, { mode: 'batch', schedule: { type: 'manual' } });
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
   assert.throws(() => { DEFAULT_AUDIENCES[1].entry.schedule.time = '00:00'; }, TypeError);
 });
 
@@ -224,7 +225,7 @@ test('v2 migration preserves experiment identity, warns clearly and leaves origi
   assert.equal(storage.getItem(STORAGE_KEY), raw);
   store.save(store.list()[0]);
   assert.equal(store.warning, '');
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 3);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
   assert.deepEqual(createAudienceStore(storage).list(), store.list());
 });
 
@@ -243,4 +244,90 @@ test('v3 missing or malformed entry fails closed without replacing original cach
   const storage = memory(), missing = base(); delete missing.entry;
   storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, audiences: [missing], experiments: DEFAULT_EXPERIMENTS }));
   assert.match(createAudienceStore(storage).warning, /损坏/);
+});
+
+test('publishing requires a running saved split, complete unique arms and one source', () => {
+  const store = createAudienceStore(memory());
+  const audience = store.list().find(item => item.id === 'aud-mx-dormant');
+  const arms = ['a', 'b', 'control'].map(part => ({ part, name: part === 'control' ? '对照臂' : `${part.toUpperCase()} 臂`, audienceId: audience.id }));
+  const input = { name: '新包', experimentId: 'exp-recall', arms };
+  for (const bad of [
+    { ...input, experimentId: 'missing' },
+    { ...input, arms: arms.slice(0, 2) },
+    { ...input, arms: [arms[0], arms[0], arms[2]] },
+    { ...input, arms: arms.map(arm => ({ ...arm, groupId: 'same-id' })) },
+    { ...input, id: 'bundle-warmup' },
+    { ...input, arms: [null, arms[1], arms[2]] },
+  ]) assert.throws(() => store.publishBundle(bad), RangeError);
+  const otherSource = store.save({ ...store.list().find(item => item.id === 'aud-whitelist-new'), id: 'aud-other-source', experimentId: 'exp-recall' });
+  assert.throws(() => store.publishBundle({ ...input, arms: [{ ...arms[0], audienceId: otherSource.id }, ...arms.slice(1)] }), /同一来源/);
+  store.setExperimentStatus('exp-recall', 'stopped');
+  assert.throws(() => store.publishBundle(input), /运行中/);
+  store.setExperimentStatus('exp-recall', 'running');
+  const published = store.publishBundle(input);
+  assert.equal(new Set(published.arms.map(arm => arm.groupId)).size, 3);
+  assert.ok(published.arms.some(arm => arm.part === 'control'));
+  assert.ok(store.catalog().filter(item => item.bundleId === published.id).every(item => item.available));
+});
+
+test('published identity survives reload; stop invalidates old arms without revival', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const audience = store.list().find(item => item.id === 'aud-mx-dormant');
+  const arms = ['a', 'b', 'control'].map(part => ({ part, name: part, audienceId: audience.id }));
+  const bundle = store.publishBundle({ name: '持久包', experimentId: 'exp-recall', arms });
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  assert.deepEqual(createAudienceStore(storage).bundles().find(item => item.id === bundle.id), bundle);
+  store.setExperimentStatus('exp-recall', 'stopped');
+  assert.ok(store.catalog().filter(item => item.bundleId === bundle.id).every(item => !item.available));
+  store.setExperimentStatus('exp-recall', 'running');
+  assert.ok(store.catalog().filter(item => item.bundleId === bundle.id).every(item => !item.available));
+  const fresh = store.publishBundle({ name: '重发包', experimentId: 'exp-recall', arms });
+  assert.ok(store.catalog().filter(item => item.bundleId === fresh.id).every(item => item.available));
+  assert.ok(createAudienceStore(storage).catalog().filter(item => item.bundleId === bundle.id).every(item => !item.available));
+});
+
+test('saved experiment reference alone is an ordinary group; cited bundles and groups resist deletion', () => {
+  const activities = [{ treatments: [{ audienceRef: { type: 'group', groupId: 'group-custom' } }] }];
+  const store = createAudienceStore(memory(), activities);
+  const saved = store.save({ ...base(), id: 'custom', name: '普通组', experimentId: 'exp-recall' });
+  assert.equal(store.catalog().find(item => item.groupId === 'group-custom').type, 'group');
+  assert.equal(store.catalog().filter(item => item.type === 'arm').length, 3);
+  assert.throws(() => store.delete(saved.id), /不能删除/);
+  activities.push({ treatments: [{ audienceRef: { type: 'arm', bundleId: 'bundle-warmup', groupId: 'group-arm-a' } }] });
+  assert.throws(() => store.deleteBundle('bundle-warmup'), /不能删除/);
+  assert.throws(() => store.delete('aud-mx-dormant'), /不能删除/);
+});
+
+test('editing a published bundle source cannot write a cache that fails on reload', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const audience = store.list().find(item => item.id === 'aud-mx-dormant');
+  assert.throws(() => store.save({ ...audience, experimentId: null }), /不能修改实验引用/);
+  assert.throws(() => store.save({ ...audience, rules: { ...audience.rules, source: 'whitelist' } }), /不能修改来源/);
+  assert.equal(storage.getItem(STORAGE_KEY), null);
+  store.save({ ...audience, name: '允许改显示名' });
+  const loaded = createAudienceStore(storage);
+  assert.equal(loaded.warning, '');
+  assert.equal(loaded.list().find(item => item.id === audience.id).name, '允许改显示名');
+  assert.ok(loaded.catalog().find(item => item.bundleId === 'bundle-warmup').available);
+});
+
+test('v2-v4 missing runtime is stopped and damaged cache is never overwritten', () => {
+  for (const version of [2, 3, 4]) {
+    const storage = memory(), payload = { version, audiences: [base()], experiments: [{ id: 'exp-recall', name: '旧分流' }] };
+    if (version === 4) payload.bundles = [];
+    const raw = JSON.stringify(payload); storage.setItem(STORAGE_KEY, raw);
+    const store = createAudienceStore(storage);
+    assert.equal(store.experiments()[0].runtimeStatus, 'stopped');
+    assert.deepEqual(store.bundles(), []);
+    assert.equal(storage.getItem(STORAGE_KEY), raw);
+    store.save(store.list()[0]);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  }
+  for (const raw of ['{broken', JSON.stringify({ version: 99, audiences: [] }), JSON.stringify({ version: 4, audiences: [base()], experiments: [{ id: 'exp-recall', name: '旧分流' }], bundles: null })]) {
+    const storage = memory(); storage.setItem(STORAGE_KEY, raw);
+    const store = createAudienceStore(storage);
+    assert.match(store.warning, /当前会话/);
+    store.save({ ...base(), name: '会话修改' });
+    assert.equal(storage.getItem(STORAGE_KEY), raw);
+  }
 });

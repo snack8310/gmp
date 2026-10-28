@@ -1,5 +1,5 @@
 import { escapeHTML } from './experiment-ui.mjs';
-import { BROWSE_ACTIVITIES, actionAvailable, audienceAvailable } from './campaign-activities.mjs';
+import { BROWSE_ACTIVITIES, DEFAULT_AUDIENCE_CATALOG, actionAvailable, resolveAudience } from './campaign-activities.mjs';
 
 const safe = value => escapeHTML(String(value ?? ''));
 const unavailable = '<span class="campaign-unavailable">引用不可用 · 构造引用</span>';
@@ -11,17 +11,18 @@ export function renderActivitiesList(activities = BROWSE_ACTIVITIES) {
  return `${heading}<div class="campaign-table-scroll" tabindex="0" aria-label="活动列表表格，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">活动名称</th><th scope="col">投放项数量</th><th scope="col">操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-function audienceLabel(ref) {
+function audienceLabel(ref, catalog) {
  if (!ref) return unavailable;
- const label = ref.type === 'arm' ? `${safe(ref.bundleName)} / ${safe(ref.armName)}` : safe(ref.groupName);
+ const resolved = resolveAudience(ref, catalog), available = Boolean(resolved?.available);
+ const label = ref.type === 'arm' ? `${safe(available ? resolved.bundleName : ref.bundleName)} / ${safe(available ? resolved.armName : ref.armName)}` : safe(available ? resolved.groupName : ref.groupName);
  const kind = ref.type === 'arm' ? '实验人群包臂' : '普通人群组';
  const ids = ref.type === 'arm' ? `${safe(ref.bundleId)} / ${safe(ref.groupId)}` : safe(ref.groupId);
- return `<span class="campaign-ref-kind">${kind}</span> ${label} <small>· ${ids}</small>${audienceAvailable(ref) ? '' : ` ${unavailable}`}`;
+ return `<span class="campaign-ref-kind">${kind}</span> ${label} <small>· ${ids}</small>${available ? '' : ` ${unavailable}`}`;
 }
 
-function renderTreatments(treatments) {
+function renderTreatments(treatments, catalog) {
  if (!treatments.length) return '<p class="campaign-empty">暂无投放项</p>';
- const rows = treatments.map(treatment => `<tr><th scope="row">${safe(treatment.name)} <small>· ${safe(treatment.id)}</small></th><td>${safe(treatment.actionRef?.name)} <small>· ${safe(treatment.actionRef?.id)}</small>${actionAvailable(treatment.actionRef) ? '' : ` ${unavailable}`}</td><td>${audienceLabel(treatment.audienceRef)}</td></tr>`).join('');
+ const rows = treatments.map(treatment => `<tr><th scope="row">${safe(treatment.name)} <small>· ${safe(treatment.id)}</small></th><td>${safe(treatment.actionRef?.name)} <small>· ${safe(treatment.actionRef?.id)}</small>${actionAvailable(treatment.actionRef) ? '' : ` ${unavailable}`}</td><td>${audienceLabel(treatment.audienceRef, catalog)}</td></tr>`).join('');
  return `<div class="campaign-table-scroll" tabindex="0" aria-label="投放项表格，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">投放项</th><th scope="col">动作</th><th scope="col">引用人群</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -38,9 +39,9 @@ function renderFlow(activity) {
  return `<p class="campaign-note">活动流程 · ${safe(flow.id)}。结果含义来自演示动作说明；边只展示回执关系，不在此求值或播放。</p><div class="campaign-table-scroll" tabindex="0" aria-label="活动流程关系表，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">起点 → 终点</th><th scope="col">回执条件</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES) {
+export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES, catalog = DEFAULT_AUDIENCE_CATALOG) {
  const back = '<a class="campaign-back" href="#campaign/activities">← 返回活动列表</a>';
  const activity = activities.find(item => item.id === id);
  if (!activity) return `${back}<div class="section-heading"><div><h2>未找到该演示活动</h2></div></div>`;
- return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · 仅本地构造数据</p></div></div><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${renderTreatments(activity.treatments)}<p class="campaign-note">运营引用受众侧人群组或实验人群包的臂；分流定义归实验侧。引用目录为独立构造引用，不与其他页面同步。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
+ return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · 仅本地构造数据</p></div></div><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${renderTreatments(activity.treatments, catalog)}<p class="campaign-note">运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
 }

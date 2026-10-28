@@ -1,20 +1,33 @@
 import { MOCK_USERS, createAudienceStore, validateAudience, filterAudience, summarizeRules, assignGroup, summarizeEntry } from './audience.mjs';
 import { mountExperimentPicker, escapeHTML } from './experiment-ui.mjs';
+import { BROWSE_ACTIVITIES } from './campaign-activities.mjs';
 
 export function mountAudiences({ onUse, onSaved, onDeleted, onNavigate }) {
  const el = id => document.getElementById(id);
  let storage;
  try { storage = window.localStorage; } catch { storage = null; }
- const store = createAudienceStore(storage);
+ const store = createAudienceStore(storage, BROWSE_ACTIVITIES);
  let editing = null;
  const picker=mountExperimentPicker({rootId:'audience-experiment-picker',store,onChange:()=>preview()});
  const lifecycleLabel = {new:'新用户',active:'活跃用户',dormant:'沉睡用户'};
+ function renderCatalog() {
+  const rows = store.catalog().map(item => `<tr><th scope="row">${escapeHTML(item.type === 'arm' ? `${item.bundleName} / ${item.armName}` : item.groupName)}</th><td>${item.type === 'arm' ? '实验人群包臂' : '普通人群组'}</td><td>${item.type === 'arm' ? `${escapeHTML(item.bundleId)} / ` : ''}${escapeHTML(item.groupId)}</td><td>${item.available ? '可用' : '<span class="campaign-unavailable">不可用</span>'}</td></tr>`).join('');
+  el('audience-catalog').innerHTML = `<div class="campaign-table-scroll" tabindex="0" aria-label="人群引用目录，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">名称</th><th scope="col">类型</th><th scope="col">稳定 ID</th><th scope="col">可用性</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+ }
+ function renderBundles() {
+  const candidates = store.list().filter(item => item.experimentId);
+  const selected = el('bundle-audience').value;
+  el('bundle-audience').innerHTML = candidates.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.name)} · ${escapeHTML(item.id)}</option>`).join('') || '<option value="">请先保存引用实验的人群</option>';
+  if (candidates.some(item => item.id === selected)) el('bundle-audience').value = selected;
+  el('bundle-list').innerHTML = store.bundles().map(bundle => `<article class="domain-card"><span class="eyebrow">${escapeHTML(bundle.id)}</span><h3>${escapeHTML(bundle.name)}</h3><p>已发布 · ${escapeHTML(bundle.experimentId)} · ${store.catalog().some(item => item.bundleId === bundle.id && item.available) ? '可用' : '不可用'}</p><p>${bundle.arms.map(arm => `${escapeHTML(arm.name)} · ${escapeHTML(arm.groupId)}`).join('<br>')}</p><button type="button" data-delete-bundle="${escapeHTML(bundle.id)}">删除包</button></article>`).join('') || '<p class="empty-state">暂无已发布实验人群包。</p>';
+ }
  function list() {
   const items = store.list(), query = String(el('audience-search').value || '').trim().toLowerCase();
   el('audience-count').textContent = items.length;
   const filtered = items.filter(a => a.name.toLowerCase().includes(query));
   el('audience-list').innerHTML = filtered.map(a => `<article class="audience-card"><div class="audience-card-icon" aria-hidden="true">♙</div><div><h3>${escapeHTML(a.name)}</h3><small>${escapeHTML(a.id)} · 已保存定义</small></div><p>${escapeHTML(summarizeEntry(a))}<br>${escapeHTML(summarizeRules(a.rules))}<br><span class="audience-experiment-tag">${a.experimentId?`引用实验 · ${escapeHTML(store.experiments().find(e=>e.id===a.experimentId)?.name||a.experimentId)}`:'未引用实验 · 单一出口'}</span></p><div class="card-count">${filterAudience(a.rules).length}<span>模拟匹配</span></div><div class="card-actions"><button data-edit-audience="${escapeHTML(a.id)}" aria-label="编辑 ${escapeHTML(a.name)}">编辑</button><button data-delete-audience="${escapeHTML(a.id)}" aria-label="删除 ${escapeHTML(a.name)}">删除</button><button class="use-audience" data-use-audience="${escapeHTML(a.id)}" aria-label="将 ${escapeHTML(a.name)} 引用到组合">引用到组合 ↗</button></div></article>`).join('') || `<div class="empty-state">${items.length ? '没有找到匹配的人群名称。<br>试试其他关键词，或清空搜索。' : '还没有保存的人群。<br>点击「新建人群」，从一组条件开始。'}</div>`;
   el('storage-warning').textContent = store.warning;
+  renderBundles();renderCatalog();
  }
  function draft() {
   const number = id => String(el(id).value).trim() === '' ? NaN : Number(el(id).value);
@@ -63,6 +76,22 @@ export function mountAudiences({ onUse, onSaved, onDeleted, onNavigate }) {
  el('cancel-audience').addEventListener('click',()=>close('已取消，保存的定义与沙盘均未改变。'));
  el('audience-search').addEventListener('input',list);
  el('audience-list').addEventListener('click',e=>{const editButton=e.target.closest('[data-edit-audience]'),useButton=e.target.closest('[data-use-audience]'),deleteButton=e.target.closest('[data-delete-audience]');if(editButton)edit(editButton.dataset.editAudience);else if(useButton)use(useButton.dataset.useAudience);else if(deleteButton){const id=deleteButton.dataset.deleteAudience;try{store.delete(id);list();onDeleted(id,store.list());el('audience-status').textContent='人群已删除。';}catch(error){el('audience-status').textContent=error.message;}}});
+ el('bundle-form').addEventListener('submit',event=>{
+  event.preventDefault();
+  const audience = store.list().find(item => item.id === el('bundle-audience').value);
+  if (!audience) { el('bundle-status').textContent = '请先选择已保存的人群。'; return; }
+  try {
+   const bundle = store.publishBundle({ name: el('bundle-name').value, experimentId: audience.experimentId,
+    arms: ['a', 'b', 'control'].map(part => ({ part, name: part === 'control' ? '对照臂' : `${part.toUpperCase()} 臂`, audienceId: audience.id })) });
+   el('bundle-name').value = '';list();el('bundle-status').textContent = `已发布 ${bundle.name}（${bundle.id}）；对照臂不要求投放项。`;
+  } catch (error) { el('bundle-status').textContent = error.message; }
+ });
+ el('bundle-list').addEventListener('click',event=>{
+  const button = event.target.closest('[data-delete-bundle]');
+  if (!button) return;
+  try { store.deleteBundle(button.dataset.deleteBundle);list();el('bundle-status').textContent = '实验人群包已删除。'; }
+  catch (error) { el('bundle-status').textContent = error.message; }
+ });
  el('audience-form').addEventListener('input',preview);
  el('audience-form').addEventListener('change',preview);
  el('audience-form').addEventListener('submit',e=>{e.preventDefault();const value=draft();if(validateAudience(value,store.experiments()).length||(el('audience-experiment-enabled').checked&&!value.experimentId)){preview();return;}let saved;try{saved=store.save(value);}catch(error){el('editor-error').textContent=error.message;return;}close(store.warning?'人群定义已保存；请留意下方存储或兼容提示。':'人群定义已保存，可引用到组合沙盘。');onSaved(saved,store.list());});

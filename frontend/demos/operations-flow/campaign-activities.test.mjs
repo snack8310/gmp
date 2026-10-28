@@ -1,28 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTIVITIES, INVALID_ACTIVITY, REFERENCE_CATALOG, validateActivities } from './campaign-activities.mjs';
+import { ACTIVITIES, INVALID_ACTIVITY, REFERENCE_CATALOG, DEFAULT_AUDIENCE_CATALOG, validateActivities } from './campaign-activities.mjs';
 import { renderActivitiesList, renderActivityDetail } from './campaign-ui.mjs';
+import { createAudienceStore } from './audience.mjs';
 
 test('normal activities keep unique identities and same-activity flow references', () => {
- assert.doesNotThrow(() => validateActivities(ACTIVITIES, REFERENCE_CATALOG));
+ assert.deepEqual(Object.keys(REFERENCE_CATALOG), ['actions']);
+ assert.doesNotThrow(() => validateActivities(ACTIVITIES, DEFAULT_AUDIENCE_CATALOG));
  const branch = ACTIVITIES.find(activity => activity.id === 'campaign-branch');
  assert.deepEqual(branch.activityFlow.edges.map(edge => [edge.fromTreatmentId, edge.toTreatmentId, edge.conditionLabel]), [
   ['treatment-rcs', 'treatment-email', '成功'],
   ['treatment-rcs', 'treatment-sms', '失败'],
  ]);
- assert.throws(() => validateActivities([...ACTIVITIES, ACTIVITIES[0]], REFERENCE_CATALOG), /重复活动 ID/);
- assert.throws(() => validateActivities([{ ...ACTIVITIES[1], name: '' }], REFERENCE_CATALOG), /活动名称必填/);
- assert.throws(() => validateActivities([{ ...branch, treatments: [...branch.treatments, branch.treatments[0]] }], REFERENCE_CATALOG), /重复投放项 ID/);
- assert.throws(() => validateActivities([{ ...branch, activityFlow: { id: 'flow-bad', edges: [{ id: 'edge-bad', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-other', conditionLabel: '成功' }] } }], REFERENCE_CATALOG), /端点/);
- assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], audienceRef: { ...branch.treatments[0].audienceRef, bundleId: 'bundle-warmup' } }, ...branch.treatments.slice(1)] }], REFERENCE_CATALOG), /引用不可用/);
- assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], audienceRef: { ...branch.treatments[0].audienceRef, bundleName: '预热实验人群包' } }, ...branch.treatments.slice(1)] }], REFERENCE_CATALOG), /引用不可用/);
- assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], actionRef: { ...branch.treatments[0].actionRef, secondActionId: 'action-sms' } }, ...branch.treatments.slice(1)] }], REFERENCE_CATALOG), /引用不可用/);
- assert.throws(() => validateActivities([INVALID_ACTIVITY], REFERENCE_CATALOG), /引用不可用/);
- const renamedCatalog = {
-  ...REFERENCE_CATALOG,
-  actions: REFERENCE_CATALOG.actions.map(action => action.id === 'action-rcs' ? { ...action, name: 'RCS 新名称' } : action),
-  bundles: REFERENCE_CATALOG.bundles.map(bundle => bundle.bundleId === 'bundle-warmup' ? { ...bundle, bundleName: '预热包新名称' } : bundle),
- };
+ assert.throws(() => validateActivities([...ACTIVITIES, ACTIVITIES[0]]), /重复活动 ID/);
+ assert.throws(() => validateActivities([{ ...ACTIVITIES[1], name: '' }]), /活动名称必填/);
+ assert.throws(() => validateActivities([{ ...branch, treatments: [...branch.treatments, branch.treatments[0]] }]), /重复投放项 ID/);
+ assert.throws(() => validateActivities([{ ...branch, activityFlow: { id: 'flow-bad', edges: [{ id: 'edge-bad', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-other', conditionLabel: '成功' }] } }]), /端点/);
+ assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], audienceRef: { ...branch.treatments[0].audienceRef, bundleId: 'bundle-warmup' } }, ...branch.treatments.slice(1)] }]), /引用不可用/);
+ assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], audienceRef: { ...branch.treatments[0].audienceRef, bundleName: '预热实验人群包' } }, ...branch.treatments.slice(1)] }]), /引用不可用/);
+ assert.throws(() => validateActivities([{ ...branch, treatments: [{ ...branch.treatments[0], actionRef: { ...branch.treatments[0].actionRef, secondActionId: 'action-sms' } }, ...branch.treatments.slice(1)] }]), /引用不可用/);
+ assert.throws(() => validateActivities([INVALID_ACTIVITY]), /引用不可用/);
+ const renamedCatalog = DEFAULT_AUDIENCE_CATALOG.map(item => item.bundleId === 'bundle-warmup' ? { ...item, bundleName: '预热包新名称' } : item);
  assert.doesNotThrow(() => validateActivities(ACTIVITIES, renamedCatalog));
 });
 
@@ -41,7 +39,7 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /结果含义来自演示动作说明/);
  assert.match(detail, /普通人群组/);
  assert.match(detail, /实验人群包臂/);
- assert.match(detail, /运营引用受众侧人群组或实验人群包的臂；分流定义归实验侧。/);
+ assert.match(detail, /运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。/);
  assert.doesNotMatch(detail, /投放箱|<button|contenteditable|draggable/);
 });
 
@@ -79,4 +77,35 @@ test('unavailable action and bundle keep their original IDs and names', () => {
  const detail = renderActivityDetail(activity.id, [activity]);
  for (const value of ['action-retired', '旧动作', 'bundle-retired', '旧实验包', 'group-retired', '旧臂']) assert.match(detail, new RegExp(value));
  assert.match(detail, /引用不可用/);
+});
+
+test('activity resolves current directory names by stable ID and never falls back to sample names', () => {
+ const store = createAudienceStore(null);
+ const audience = store.list().find(item => item.id === 'aud-mx-dormant');
+ store.save({ ...audience, name: '目录中的新名称' });
+ const branch = ACTIVITIES.find(item => item.id === 'campaign-branch');
+ const renamed = renderActivityDetail(branch.id, [branch], store.catalog());
+ assert.match(renamed, /目录中的新名称/);
+ assert.match(renamed, /group-recall/);
+ assert.doesNotMatch(renamed, /跨境召回人群组/);
+ const missing = renderActivityDetail(branch.id, [branch], store.catalog().filter(item => item.groupId !== 'group-recall'));
+ assert.match(missing, /跨境召回人群组/);
+ assert.match(missing, /group-recall/);
+ assert.match(missing, /引用不可用/);
+ store.setExperimentStatus('exp-recall', 'stopped');
+ const stopped = renderActivityDetail(branch.id, [branch], store.catalog());
+ assert.match(stopped, /bundle-warmup \/ group-arm-a/);
+ assert.match(stopped, /预热实验人群包 \/ A 臂/);
+ assert.match(stopped, /引用不可用/);
+});
+
+test('one published arm can be cited by multiple activities under the same bundle and group IDs', () => {
+ const store = createAudienceStore(null);
+ const arm = store.catalog().find(item => item.bundleId === 'bundle-warmup' && item.part === 'a');
+ const ref = { type: 'arm', bundleId: arm.bundleId, bundleName: arm.bundleName, groupId: arm.groupId, armName: arm.armName };
+ const activities = ['campaign-one', 'campaign-two'].map((id, index) => ({ id, name: id, treatments: [
+  { id: `treatment-${index}`, name: id, actionRef: { id: 'action-email', name: '邮件' }, audienceRef: ref },
+ ] }));
+ assert.doesNotThrow(() => validateActivities(activities, store.catalog()));
+ for (const activity of activities) assert.match(renderActivityDetail(activity.id, activities, store.catalog()), /bundle-warmup \/ group-arm-a/);
 });
