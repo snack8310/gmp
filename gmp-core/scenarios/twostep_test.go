@@ -23,6 +23,7 @@ func TestScenarioFiveTwoStepsConnectedOnlyByBackflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setting up the win-back: %v", err)
 	}
+	assertPushTreatmentsHaveNoSlots(t, chain.First, chain.Second)
 
 	first, err := chain.Runner.Run(chain.First, chain.FirstStep, "entry", audience.Live())
 	if err != nil {
@@ -93,6 +94,7 @@ func TestScenarioOneChasesThreeDaysLater(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setting up the conversion: %v", err)
 	}
+	assertPushTreatmentsHaveNoSlots(t, chain.First, chain.Second)
 	if chain.Missing == "" {
 		t.Fatal("this scenario is known to be partly inexpressible and should say so")
 	}

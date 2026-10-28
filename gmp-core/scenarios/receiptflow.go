@@ -119,11 +119,11 @@ func (s *Stack) receiptSerial() (ReceiptSerial, error) {
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	entry, err := newPushTreatment("recall-entry", SMSSlot, entryWho, entryCall)
+	entry, err := newPushTreatment("recall-entry", entryWho, entryCall)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	next, err := newPushTreatment("recall-next", CouponSlot, nextWho, nextCall)
+	next, err := newPushTreatment("recall-next", nextWho, nextCall)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
@@ -141,7 +141,7 @@ func (s *Stack) receiptSerial() (ReceiptSerial, error) {
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	runner, log, deliverers, err := s.edgeRunner(RecallPushAction, RecallMailAction)
+	runner, log, deliverers, err := s.discardingRunner(RecallPushAction, RecallMailAction)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
@@ -178,15 +178,15 @@ func (s *Stack) receiptBranch() (ReceiptBranch, error) {
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	entry, err := newPushTreatment("branch-entry", BannerSlot, entryWho, entryCall)
+	entry, err := newPushTreatment("branch-entry", entryWho, entryCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	mail, err := newPushTreatment("branch-on-success", SMSSlot, mailWho, mailCall)
+	mail, err := newPushTreatment("branch-on-success", mailWho, mailCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	sms, err := newPushTreatment("branch-on-failure", CouponSlot, smsWho, smsCall)
+	sms, err := newPushTreatment("branch-on-failure", smsWho, smsCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
@@ -204,7 +204,7 @@ func (s *Stack) receiptBranch() (ReceiptBranch, error) {
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	runner, log, deliverers, err := s.edgeRunner(BranchRCSAction, BranchMailAction, BranchSMSAction)
+	runner, log, deliverers, err := s.discardingRunner(BranchRCSAction, BranchMailAction, BranchSMSAction)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
@@ -234,11 +234,11 @@ func (s *Stack) receiptParallel() (ReceiptParallel, error) {
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	left, err := newPushTreatment("parallel-left", BannerSlot, leftWho, leftCall)
+	left, err := newPushTreatment("parallel-left", leftWho, leftCall)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	right, err := newPushTreatment("parallel-right", SMSSlot, rightWho, rightCall)
+	right, err := newPushTreatment("parallel-right", rightWho, rightCall)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
@@ -255,7 +255,7 @@ func (s *Stack) receiptParallel() (ReceiptParallel, error) {
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	runner, log, deliverers, err := s.edgeRunner(ParallelBenefitAction, ParallelNoticeAction)
+	runner, log, deliverers, err := s.discardingRunner(ParallelBenefitAction, ParallelNoticeAction)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
@@ -285,13 +285,9 @@ func receiptCall(id campaign.ActionID, text string) (campaign.Call, error) {
 	return call, nil
 }
 
-func newPushTreatment(id campaign.TreatmentID, slot campaign.SlotID, who audience.Definition, call campaign.Call) (campaign.Treatment, error) {
-	// Slots are the ones the other scenarios already name. Two treatments in
-	// one campaign cannot share a slot unless their audiences are provably
-	// exclusive, and these attribute partitions are not, so each treatment
-	// gets a different one of those slots.
+func newPushTreatment(id campaign.TreatmentID, who audience.Definition, call campaign.Call) (campaign.Treatment, error) {
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: id, Slot: slot, Who: who, Call: call,
+		ID: id, Who: who, Call: call,
 	})
 	if err != nil {
 		return campaign.Treatment{}, fmt.Errorf("scenarios: building treatment %q: %w", id, err)
@@ -312,8 +308,8 @@ func campaignWithFlow(id campaign.CampaignID, flow campaign.Flow, treatments ...
 	return built, nil
 }
 
-// edgeRunner builds a runner that does not publish into a backflow source.
-func (s *Stack) edgeRunner(actions ...campaign.ActionID) (*campaign.Runner, *campaign.MemoryLog, map[campaign.ActionID]*campaign.MemoryDeliverer, error) {
+// discardingRunner builds a runner that does not publish into a backflow source.
+func (s *Stack) discardingRunner(actions ...campaign.ActionID) (*campaign.Runner, *campaign.MemoryLog, map[campaign.ActionID]*campaign.MemoryDeliverer, error) {
 	log := campaign.NewMemoryLog()
 	runner, err := campaign.NewRunner(campaign.RunnerSpec{
 		Audiences:   s.Audiences,

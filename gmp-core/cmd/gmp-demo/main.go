@@ -297,8 +297,7 @@ func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
 		}
 		fmt.Fprintf(out, "    %-18s %v\n", name, actions)
 	}
-	fmt.Fprintln(out, "  同一个位子上两个投放项能并存，靠的是「同一次分流的两份天然互斥」这条证明。")
-	fmt.Fprintln(out, "  证明不成立时活动直接建不出来 —— 不是等发出去之后才发现一个人收到两份。")
+	fmt.Fprintln(out, "  短信和券都是推送投放项，不占展示位；同一实验臂可以各执行一次。")
 
 	received := map[audience.UID][]campaign.ActionID{}
 	for _, treatment := range built.Treatments {

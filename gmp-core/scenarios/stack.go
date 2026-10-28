@@ -15,18 +15,6 @@ const SourceID = audience.SourceID("app-profile")
 // BannerSlot is the slot the scenarios contend for.
 const BannerSlot = campaign.SlotID("app-home-banner")
 
-// SMSSlot and CouponSlot are where scenario 2's campaign reaches people.
-//
-// They are two slots rather than one because one arm is meant to get both a
-// message and a coupon. A slot holds at most one treatment per person -- that
-// is the whole point of the contest -- so two things done to the same person
-// cannot share one. Splitting them is what the model leaves open, not a way
-// around the check.
-const (
-	SMSSlot    = campaign.SlotID("sms")
-	CouponSlot = campaign.SlotID("coupon")
-)
-
 // ArmAssignment is the assignment scenario 2's arms are shares of.
 //
 // It is named here rather than only inside the builder so that a case can
@@ -106,7 +94,7 @@ func NewStack(population int) (*Stack, error) {
 	}, nil
 }
 
-// NewCampaignService builds a campaign service with the banner slot in place.
+// NewCampaignService builds a campaign service with the banner display slot in place.
 //
 // Each scenario gets its own: campaigns are immutable and a service refuses to
 // hold one twice, so comparing two configurations means two services.

@@ -89,10 +89,11 @@ type ActionID string
 // means this action declares no receipt vocabulary, and a receipt edge may not
 // leave a treatment that runs it.
 type Action struct {
-	id        ActionID
-	direction Direction
-	required  []string
-	outcomes  []Outcome
+	id           ActionID
+	direction    Direction
+	requiresSlot bool
+	required     []string
+	outcomes     []Outcome
 }
 
 // ActionSpec is the input to registering an action.
@@ -103,6 +104,8 @@ type ActionSpec struct {
 	// forgot to say would otherwise be treated as retryable, and retrying
 	// something nobody is waiting for any more is not a harmless mistake.
 	Direction Direction
+	// RequiresSlot marks an action that displays its result in a slot.
+	RequiresSlot bool
 	// Required lists the parameters this action needs.
 	Required []string
 	// Outcomes lists the receipt results this contract defines. Empty means
@@ -119,6 +122,9 @@ func RegisterAction(spec ActionSpec) (Action, error) {
 	if err := spec.Direction.validate(); err != nil {
 		return Action{}, fmt.Errorf("%w (action %q)", err, spec.ID)
 	}
+	if spec.Direction == DirectionPush && spec.RequiresSlot {
+		return Action{}, fmt.Errorf("campaign: push action %q cannot require a display slot", spec.ID)
+	}
 	outcomes, err := normalizeOutcomes(spec.ID, spec.Outcomes)
 	if err != nil {
 		return Action{}, err
@@ -131,7 +137,7 @@ func RegisterAction(spec ActionSpec) (Action, error) {
 			return Action{}, fmt.Errorf("campaign: action %q declares an unnamed parameter at position %d", spec.ID, i+1)
 		}
 	}
-	return Action{id: spec.ID, direction: spec.Direction, required: owned, outcomes: outcomes}, nil
+	return Action{id: spec.ID, direction: spec.Direction, requiresSlot: spec.RequiresSlot, required: owned, outcomes: outcomes}, nil
 }
 
 func normalizeOutcomes(id ActionID, outcomes []Outcome) ([]Outcome, error) {
@@ -188,10 +194,11 @@ func (a Action) isZero() bool { return a.id == "" }
 // Call is one action with its parameters filled in: what a treatment produces
 // and what an execution side would later carry out.
 type Call struct {
-	action    ActionID
-	direction Direction
-	params    map[string]string
-	outcomes  []Outcome
+	action       ActionID
+	direction    Direction
+	requiresSlot bool
+	params       map[string]string
+	outcomes     []Outcome
 }
 
 // Call fills this action's parameters in. Anything missing or unasked-for is
@@ -218,7 +225,7 @@ func (a Action) Call(params map[string]string) (Call, error) {
 	}
 	outcomes := make([]Outcome, len(a.outcomes))
 	copy(outcomes, a.outcomes)
-	return Call{action: a.id, direction: a.direction, params: owned, outcomes: outcomes}, nil
+	return Call{action: a.id, direction: a.direction, requiresSlot: a.requiresSlot, params: owned, outcomes: outcomes}, nil
 }
 
 // Outcomes lists the receipt results the action behind this call declares.

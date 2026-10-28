@@ -15,6 +15,8 @@ var (
 	ErrDuplicateTreatment = errors.New("campaign: treatment appears twice in one campaign")
 	// ErrDuplicateTable is returned when a campaign has two tables for one slot.
 	ErrDuplicateTable = errors.New("campaign: campaign has more than one decision table for a slot")
+	// ErrRowTreatmentWrongSlot is returned when a table routes outside its display slot.
+	ErrRowTreatmentWrongSlot = errors.New("campaign: decision table routes to a treatment outside its display slot")
 	// ErrSlotContestedWithinCampaign is returned when a campaign puts two
 	// treatments on one slot without either ordering them or being able to show
 	// they can never both apply.
@@ -75,55 +77,16 @@ func NewCampaign(spec CampaignSpec) (Campaign, error) {
 		return Campaign{}, fmt.Errorf("%w: campaign %q", err, spec.ID)
 	}
 
-	treatments := make([]Treatment, 0, len(spec.Treatments))
-	byID := make(map[TreatmentID]Treatment, len(spec.Treatments))
-	for _, treatment := range spec.Treatments {
-		if treatment.id == "" {
-			return Campaign{}, fmt.Errorf("%w: campaign %q", ErrMissingTreatmentID, spec.ID)
-		}
-		if _, taken := byID[treatment.id]; taken {
-			return Campaign{}, fmt.Errorf("%w: %q in campaign %q", ErrDuplicateTreatment, treatment.id, spec.ID)
-		}
-		byID[treatment.id] = treatment
-		treatments = append(treatments, treatment)
+	treatments, byID, err := collectTreatments(spec.ID, spec.Treatments)
+	if err != nil {
+		return Campaign{}, err
 	}
-
-	tables := make(map[SlotID]DecisionTable, len(spec.Tables))
-	for _, table := range spec.Tables {
-		if _, taken := tables[table.slot]; taken {
-			return Campaign{}, fmt.Errorf("%w: %q in campaign %q", ErrDuplicateTable, table.slot, spec.ID)
-		}
-		for _, routed := range table.routes() {
-			if _, held := byID[routed]; !held {
-				return Campaign{}, fmt.Errorf("%w: %q, slot %q, campaign %q",
-					ErrRowTreatmentNotInCampaign, routed, table.slot, spec.ID)
-			}
-		}
-		tables[table.slot] = table
+	tables, err := collectTables(spec.ID, spec.Tables, byID)
+	if err != nil {
+		return Campaign{}, err
 	}
-
-	// Two treatments on one slot need something to keep them from both
-	// applying: either a table that puts them in order, or audiences that can
-	// be shown never to overlap.
-	bySlot := map[SlotID][]Treatment{}
-	for _, treatment := range treatments {
-		bySlot[treatment.slot] = append(bySlot[treatment.slot], treatment)
-	}
-	for slot, sharing := range bySlot {
-		if len(sharing) < 2 {
-			continue
-		}
-		if _, ordered := tables[slot]; ordered {
-			continue
-		}
-		for i := range sharing {
-			for j := i + 1; j < len(sharing); j++ {
-				if !audience.ProvablyExclusive(sharing[i].who, sharing[j].who) {
-					return Campaign{}, fmt.Errorf("%w: %q and %q on slot %q in campaign %q; order them with a decision table, or give them shares of one assignment",
-						ErrSlotContestedWithinCampaign, sharing[i].id, sharing[j].id, slot, spec.ID)
-				}
-			}
-		}
+	if err := checkDisplayContention(spec.ID, treatments, tables); err != nil {
+		return Campaign{}, err
 	}
 
 	var flow Flow
@@ -144,6 +107,70 @@ func NewCampaign(spec CampaignSpec) (Campaign, error) {
 		tables:     tables,
 		flow:       flow,
 	}, nil
+}
+
+func collectTreatments(id CampaignID, input []Treatment) ([]Treatment, map[TreatmentID]Treatment, error) {
+	treatments := make([]Treatment, 0, len(input))
+	byID := make(map[TreatmentID]Treatment, len(input))
+	for _, treatment := range input {
+		if treatment.id == "" {
+			return nil, nil, fmt.Errorf("%w: campaign %q", ErrMissingTreatmentID, id)
+		}
+		if _, taken := byID[treatment.id]; taken {
+			return nil, nil, fmt.Errorf("%w: %q in campaign %q", ErrDuplicateTreatment, treatment.id, id)
+		}
+		byID[treatment.id] = treatment
+		treatments = append(treatments, treatment)
+	}
+	return treatments, byID, nil
+}
+
+func collectTables(id CampaignID, input []DecisionTable, byID map[TreatmentID]Treatment) (map[SlotID]DecisionTable, error) {
+	tables := make(map[SlotID]DecisionTable, len(input))
+	for _, table := range input {
+		if _, taken := tables[table.slot]; taken {
+			return nil, fmt.Errorf("%w: %q in campaign %q", ErrDuplicateTable, table.slot, id)
+		}
+		for _, routed := range table.routes() {
+			treatment, held := byID[routed]
+			if !held {
+				return nil, fmt.Errorf("%w: %q, slot %q, campaign %q",
+					ErrRowTreatmentNotInCampaign, routed, table.slot, id)
+			}
+			if treatment.slot != table.slot {
+				return nil, fmt.Errorf("%w: %q, slot %q, campaign %q", ErrRowTreatmentWrongSlot, routed, table.slot, id)
+			}
+		}
+		tables[table.slot] = table
+	}
+	return tables, nil
+}
+
+// Two display treatments on one slot need a table or provably exclusive audiences.
+func checkDisplayContention(id CampaignID, treatments []Treatment, tables map[SlotID]DecisionTable) error {
+	bySlot := map[SlotID][]Treatment{}
+	for _, treatment := range treatments {
+		if treatment.slot != "" {
+			bySlot[treatment.slot] = append(bySlot[treatment.slot], treatment)
+		}
+	}
+	for slot, sharing := range bySlot {
+		if len(sharing) < 2 {
+			continue
+		}
+		if _, ordered := tables[slot]; ordered {
+			continue
+		}
+		for i := range sharing {
+			for j := i + 1; j < len(sharing); j++ {
+				if !audience.ProvablyExclusive(sharing[i].who, sharing[j].who) {
+					return fmt.Errorf("%w: %q and %q on slot %q in campaign %q; order them with a decision table, or give them shares of one assignment",
+						ErrSlotContestedWithinCampaign, sharing[i].id, sharing[j].id, slot, id)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // ID reports which campaign this is.
@@ -170,6 +197,9 @@ func (c Campaign) slots() []SlotID {
 	seen := map[SlotID]bool{}
 	var out []SlotID
 	for _, treatment := range c.treatments {
+		if treatment.slot == "" {
+			continue
+		}
 		if !seen[treatment.slot] {
 			seen[treatment.slot] = true
 			out = append(out, treatment.slot)

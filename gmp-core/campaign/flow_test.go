@@ -21,9 +21,9 @@ func TestAReceiptEdgeRunsTheNextStepWithoutANewAudience(t *testing.T) {
 
 	arm := w.definition("arm-one", w.condition(audience.Share(w.assignment("flow-serial", 2, false), w.share(1))))
 	nobody := w.definition("nobody", w.condition(audience.Attribute("tier", "absent")))
-	benefit := treatmentOn(t, benefitAction, "benefit", "benefit-slot", arm)
-	whatsapp := treatmentOn(t, whatsappAction, "whatsapp", "whatsapp-slot", nobody)
-	sms := treatmentOn(t, smsAction, "sms", "sms-slot", nobody)
+	benefit := treatmentOn(t, benefitAction, "benefit", arm)
+	whatsapp := treatmentOn(t, whatsappAction, "whatsapp", nobody)
+	sms := treatmentOn(t, smsAction, "sms", nobody)
 
 	flow := mustFlow(t, "serial",
 		campaign.EdgeSpec{From: benefit.ID(), To: whatsapp.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
@@ -132,9 +132,9 @@ func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
 
 	everyone := w.definition("everyone")
 	nobody := w.definition("nobody-branch", w.condition(audience.Attribute("tier", "absent")))
-	rcs := treatmentOn(t, rcsAction, "rcs", "rcs-slot", everyone)
-	mail := treatmentOn(t, mailAction, "mail", "mail-slot", nobody)
-	sms := treatmentOn(t, smsAction, "sms-branch", "sms-branch-slot", nobody)
+	rcs := treatmentOn(t, rcsAction, "rcs", everyone)
+	mail := treatmentOn(t, mailAction, "mail", nobody)
+	sms := treatmentOn(t, smsAction, "sms-branch", nobody)
 	flow := mustFlow(t, "rcs-branch",
 		campaign.EdgeSpec{From: rcs.ID(), To: mail.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
 		campaign.EdgeSpec{From: rcs.ID(), To: sms.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeFailure},
@@ -196,9 +196,9 @@ func TestAContractOutcomeBesidesSuccessFollowsItsOwnEdge(t *testing.T) {
 
 	everyone := w.definition("everyone-rich")
 	nobody := w.definition("nobody-rich", w.condition(audience.Attribute("tier", "absent")))
-	rcs := treatmentOn(t, rcsAction, "rcs-rich", "rcs-rich-slot", everyone)
-	mail := treatmentOn(t, mailAction, "mail-rich", "mail-rich-slot", nobody)
-	review := treatmentOn(t, reviewAction, "review", "review-slot", nobody)
+	rcs := treatmentOn(t, rcsAction, "rcs-rich", everyone)
+	mail := treatmentOn(t, mailAction, "mail-rich", nobody)
+	review := treatmentOn(t, reviewAction, "review", nobody)
 	flow := mustFlow(t, "rich-branch",
 		campaign.EdgeSpec{From: rcs.ID(), To: mail.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
 		campaign.EdgeSpec{From: rcs.ID(), To: review.ID(), Kind: campaign.EdgeOnReceipt, When: blocked},
@@ -248,9 +248,9 @@ func TestOneOutcomeCanStartTwoTreatments(t *testing.T) {
 	smsAction := registerPush(t, "send-sms-both", outcomes...)
 	everyone := w.definition("everyone-both")
 	nobody := w.definition("nobody-both", w.condition(audience.Attribute("tier", "absent")))
-	rcs := treatmentOn(t, rcsAction, "rcs-both", "rcs-both-slot", everyone)
-	mail := treatmentOn(t, mailAction, "mail-both", "mail-both-slot", nobody)
-	sms := treatmentOn(t, smsAction, "sms-both", "sms-both-slot", nobody)
+	rcs := treatmentOn(t, rcsAction, "rcs-both", everyone)
+	mail := treatmentOn(t, mailAction, "mail-both", nobody)
+	sms := treatmentOn(t, smsAction, "sms-both", nobody)
 	flow := mustFlow(t, "both",
 		campaign.EdgeSpec{From: rcs.ID(), To: mail.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
 		campaign.EdgeSpec{From: rcs.ID(), To: sms.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
@@ -285,8 +285,8 @@ func TestEntriesWithNoEdgeRunWithoutWaiting(t *testing.T) {
 	benefitAction := registerPush(t, "grant-parallel", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	smsAction := registerPush(t, "send-parallel", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-parallel")
-	benefit := treatmentOn(t, benefitAction, "benefit-parallel", "benefit-parallel-slot", everyone)
-	sms := treatmentOn(t, smsAction, "sms-parallel", "sms-parallel-slot", everyone)
+	benefit := treatmentOn(t, benefitAction, "benefit-parallel", everyone)
+	sms := treatmentOn(t, smsAction, "sms-parallel", everyone)
 	flow := mustFlow(t, "unconnected")
 	built := mustCampaign(t, "parallel-entries", flow, benefit, sms)
 	entries := entryIDs(built)
@@ -331,8 +331,8 @@ func TestTwoTreatmentsWithNoFlowBothRun(t *testing.T) {
 	benefitAction := registerPush(t, "grant-noflo", nil...)
 	smsAction := registerPush(t, "send-noflo", nil...)
 	everyone := w.definition("everyone-noflow")
-	benefit := treatmentOn(t, benefitAction, "benefit-noflow", "benefit-noflow-slot", everyone)
-	sms := treatmentOn(t, smsAction, "sms-noflow", "sms-noflow-slot", everyone)
+	benefit := treatmentOn(t, benefitAction, "benefit-noflow", everyone)
+	sms := treatmentOn(t, smsAction, "sms-noflow", everyone)
 	built := mustCampaign(t, "no-flow", campaign.Flow{}, benefit, sms)
 	if _, ok := built.Flow(); ok {
 		t.Fatal("a campaign built without a flow reports one")
@@ -357,8 +357,8 @@ func TestAParallelEdgeDoesNotWaitOrTrigger(t *testing.T) {
 	benefitAction := registerPush(t, "grant-together", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	smsAction := registerPush(t, "send-together", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-together")
-	benefit := treatmentOn(t, benefitAction, "benefit-together", "benefit-together-slot", everyone)
-	sms := treatmentOn(t, smsAction, "sms-together", "sms-together-slot", everyone)
+	benefit := treatmentOn(t, benefitAction, "benefit-together", everyone)
+	sms := treatmentOn(t, smsAction, "sms-together", everyone)
 	flow := mustFlow(t, "together", campaign.EdgeSpec{
 		From: benefit.ID(), To: sms.ID(), Kind: campaign.EdgeParallel,
 	})
@@ -396,8 +396,8 @@ func TestAReceiptEdgeRefusesAReceiptWithNoOutcome(t *testing.T) {
 	rcsAction := registerPush(t, "send-rcs-bare", outcomes...)
 	mailAction := registerPush(t, "send-mail-bare", outcomes...)
 	everyone := w.definition("everyone-bare")
-	rcs := treatmentOn(t, rcsAction, "rcs-bare", "rcs-bare-slot", everyone)
-	mail := treatmentOn(t, mailAction, "mail-bare", "mail-bare-slot", everyone)
+	rcs := treatmentOn(t, rcsAction, "rcs-bare", everyone)
+	mail := treatmentOn(t, mailAction, "mail-bare", everyone)
 	flow := mustFlow(t, "bare", campaign.EdgeSpec{
 		From: rcs.ID(), To: mail.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess,
 	})
@@ -430,7 +430,7 @@ func TestAReceiptOutcomeOutsideTheContractIsRefused(t *testing.T) {
 	w := newWorld(t, 2)
 	action := registerPush(t, "send-strict", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-strict")
-	treatment := treatmentOn(t, action, "strict", "strict-slot", everyone)
+	treatment := treatmentOn(t, action, "strict", everyone)
 	built := mustCampaign(t, "strict-contract", campaign.Flow{}, treatment)
 	runner, log, _, _ := flowRunner(t, w.audiences, action)
 	report, err := runner.Run(built, treatment.ID(), "entry", audience.Live())
@@ -471,9 +471,9 @@ func TestAReceiptForAnotherCampaignIsRefused(t *testing.T) {
 	w := newWorld(t, 2)
 	action := registerPush(t, "send-owned", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-owned")
-	treatment := treatmentOn(t, action, "owned", "owned-slot", everyone)
+	treatment := treatmentOn(t, action, "owned", everyone)
 	built := mustCampaign(t, "owner", campaign.Flow{}, treatment)
-	otherTreatment := treatmentOn(t, action, "other", "other-slot", everyone)
+	otherTreatment := treatmentOn(t, action, "other", everyone)
 	other := mustCampaign(t, "not-the-owner", campaign.Flow{}, otherTreatment)
 	runner, _, deliverers, _ := flowRunner(t, w.audiences, action)
 	report, err := runner.Run(built, treatment.ID(), "entry", audience.Live())
@@ -501,9 +501,9 @@ func TestFlowRefusesArrangementsThatFailSilently(t *testing.T) {
 	mailAction := registerPush(t, "send-mail-guard", outcomes...)
 	smsAction := registerPush(t, "send-sms-guard", outcomes...)
 	everyone := w.definition("everyone-guard")
-	rcs := treatmentOn(t, rcsAction, "rcs", "rcs-guard-slot", everyone)
-	mail := treatmentOn(t, mailAction, "mail", "mail-guard-slot", everyone)
-	sms := treatmentOn(t, smsAction, "sms", "sms-guard-slot", everyone)
+	rcs := treatmentOn(t, rcsAction, "rcs", everyone)
+	mail := treatmentOn(t, mailAction, "mail", everyone)
+	sms := treatmentOn(t, smsAction, "sms", everyone)
 	banner := w.treatment("banner", everyone, "a.png")
 
 	t.Run("flow id", func(t *testing.T) {
@@ -657,14 +657,14 @@ func registerPush(t *testing.T, id string, outcomes ...campaign.Outcome) campaig
 	return action
 }
 
-func treatmentOn(t *testing.T, action campaign.Action, id, slot string, who audience.Definition) campaign.Treatment {
+func treatmentOn(t *testing.T, action campaign.Action, id string, who audience.Definition) campaign.Treatment {
 	t.Helper()
 	call, err := action.Call(map[string]string{"copy": "预设文案"})
 	if err != nil {
 		t.Fatalf("filling in %s: %v", id, err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: campaign.TreatmentID(id), Slot: campaign.SlotID(slot), Who: who, Call: call,
+		ID: campaign.TreatmentID(id), Who: who, Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building treatment %s: %v", id, err)

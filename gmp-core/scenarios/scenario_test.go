@@ -1,7 +1,6 @@
 package scenarios_test
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
@@ -227,7 +226,7 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 		t.Fatalf("building the audience definition: %v", err)
 	}
 	action, err := campaign.RegisterAction(campaign.ActionSpec{
-		ID: "show-image", Direction: campaign.DirectionPull, Required: []string{"image"},
+		ID: "show-image", Direction: campaign.DirectionPull, RequiresSlot: true, Required: []string{"image"},
 	})
 	if err != nil {
 		t.Fatalf("registering the action: %v", err)
@@ -282,6 +281,7 @@ func TestScenarioTwoDeliveryCarriesTreatmentAndArm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setting up the delivery: %v", err)
 	}
+	assertPushTreatmentsHaveNoSlots(t, delivery.Campaign)
 
 	// Learn the keys without sending anything, then make every send fail so the
 	// failing path is the one under test.
@@ -545,63 +545,27 @@ func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
 	}
 }
 
-// The check that lets two treatments share one slot is the proof that shares of
-// one assignment never overlap. Aim two at the same arm and the campaign must
-// refuse to build -- left to run time, two of one campaign's treatments would
-// reach the same person with nothing downstream flagging it.
-func TestScenarioTwoTwoTreatmentsOnOneSlotForOneArmIsRefused(t *testing.T) {
+// The same arm can receive both push actions without inventing display slots.
+func TestScenarioTwoPushTreatmentsDoNotOccupyDisplaySlots(t *testing.T) {
 	stack := newStack(t, 200)
-	arms, err := stack.ExperimentArms()
+	built, err := stack.ArmCampaign()
 	if err != nil {
-		t.Fatalf("building the arms: %v", err)
+		t.Fatalf("building the push campaign: %v", err)
 	}
-	action, err := campaign.RegisterAction(campaign.ActionSpec{
-		ID: scenarios.SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
-	})
-	if err != nil {
-		t.Fatalf("registering the action: %v", err)
+	assertPushTreatmentsHaveNoSlots(t, built.Campaign)
+	if err := campaign.NewService(stack.Audiences).Add(built.Campaign); err != nil {
+		t.Fatalf("push campaign requires a registered display slot: %v", err)
 	}
-	call, err := action.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
-	if err != nil {
-		t.Fatalf("filling in the action: %v", err)
-	}
-	one := arms.Arms["C-sms-and-coupon"]
-	first, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms-c", Slot: scenarios.SMSSlot, Who: one, Call: call,
-	})
-	if err != nil {
-		t.Fatalf("building the first treatment: %v", err)
-	}
-	second, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms-c-again", Slot: scenarios.SMSSlot, Who: one, Call: call,
-	})
-	if err != nil {
-		t.Fatalf("building the second treatment: %v", err)
-	}
-	_, err = campaign.NewCampaign(campaign.CampaignSpec{
-		ID:         "double-eleven-experiment-broken",
-		Priority:   campaign.NewPriority(100),
-		Treatments: []campaign.Treatment{first, second},
-	})
-	if !errors.Is(err, campaign.ErrSlotContestedWithinCampaign) {
-		t.Fatalf("building the campaign returned %v, expected it to refuse the contested slot", err)
-	}
+}
 
-	// The same pair on different arms is the arrangement the scenario needs,
-	// and it has to be allowed -- otherwise the refusal above would just mean
-	// "two treatments on one slot", not "nothing separates them".
-	other, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms-b", Slot: scenarios.SMSSlot, Who: arms.Arms["B-sms"], Call: call,
-	})
-	if err != nil {
-		t.Fatalf("building the treatment for the other arm: %v", err)
-	}
-	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID:         "double-eleven-experiment-two-arms",
-		Priority:   campaign.NewPriority(100),
-		Treatments: []campaign.Treatment{first, other},
-	}); err != nil {
-		t.Fatalf("two arms on one slot were refused: %v", err)
+func assertPushTreatmentsHaveNoSlots(t *testing.T, campaigns ...campaign.Campaign) {
+	t.Helper()
+	for _, built := range campaigns {
+		for _, treatment := range built.Treatments() {
+			if treatment.Slot() != "" {
+				t.Fatalf("push treatment %q occupies display slot %q", treatment.ID(), treatment.Slot())
+			}
+		}
 	}
 }
 

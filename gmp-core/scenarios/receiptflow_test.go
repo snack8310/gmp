@@ -267,7 +267,7 @@ func TestReceiptFlowTreatmentsEachCarryOneAction(t *testing.T) {
 		t.Fatalf("building an audience: %v", err)
 	}
 	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "packed", Slot: scenarios.SMSSlot, Who: who,
+		ID: "packed", Who: who,
 	}); !errors.Is(err, campaign.ErrMissingTreatmentCall) {
 		t.Fatalf("a treatment with no action: %v", err)
 	}
@@ -289,6 +289,7 @@ func TestReceiptFlowTreatmentsEachCarryOneAction(t *testing.T) {
 		"parallel-left":  "parallel-benefit",
 		"parallel-right": "parallel-notice",
 	})
+	assertPushTreatmentsHaveNoSlots(t, built.Serial.Campaign, built.Branch.Campaign, built.Parallel.Campaign)
 }
 
 func mustReceiptFlow(t *testing.T, stack *scenarios.Stack) *scenarios.ReceiptFlow {
