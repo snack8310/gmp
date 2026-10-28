@@ -16,7 +16,7 @@ export function mountExperiments({store,onChanged}) {
  function refresh(){
   const experiments=store.experiments();
   el('experiment-count').textContent=experiments.length;
-  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10%</p><div class="card-actions"><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验，创建后即可被受众或组合引用。</p>';
+  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10% · ${experiment.runtimeStatus === 'running' ? '运行中' : '已停用'}</p><div class="card-actions"><button type="button" data-toggle-experiment="${escapeHTML(experiment.id)}">${experiment.runtimeStatus === 'running' ? '停用分流' : '运行分流'}</button><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验，创建后即可被受众或组合引用。</p>';
   el('experiment-storage-warning').textContent=store.warning;
  }
  function open(id=null){const experiment=store.experiments().find(value=>value.id===id);editingId=experiment?.id||null;el('experiment-name').value=experiment?.name||'';el('experiment-form').hidden=false;el('experiment-error').textContent='';el('experiment-name').focus?.();}
@@ -24,8 +24,9 @@ export function mountExperiments({store,onChanged}) {
  el('new-experiment').addEventListener('click',()=>open());
  el('cancel-experiment').addEventListener('click',close);
  el('experiment-list').addEventListener('click',event=>{
-  const edit=event.target.closest('[data-edit-experiment]'),remove=event.target.closest('[data-delete-experiment]');
-  if(edit)open(edit.dataset.editExperiment);
+  const edit=event.target.closest('[data-edit-experiment]'),remove=event.target.closest('[data-delete-experiment]'),toggle=event.target.closest('[data-toggle-experiment]');
+  if(toggle){const experiment=store.experiments().find(item=>item.id===toggle.dataset.toggleExperiment);try{store.setExperimentStatus(experiment.id,experiment.runtimeStatus==='running'?'stopped':'running');refresh();onChanged?.();el('experiment-status').textContent=experiment.runtimeStatus==='running'?'分流已停用；旧包臂不可用，再运行也不会复活。':'分流运行中；可发布新包。';}catch(error){el('experiment-status').textContent=error.message;}}
+  else if(edit)open(edit.dataset.editExperiment);
   else if(remove){try{store.deleteExperiment(remove.dataset.deleteExperiment);close();refresh();onChanged?.();el('experiment-status').textContent='实验已删除。';}catch(error){el('experiment-status').textContent=error.message;}}
  });
  el('experiment-form').addEventListener('submit',event=>{

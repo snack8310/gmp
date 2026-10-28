@@ -19,6 +19,8 @@
 <div class="audience-overview"><div><span>模拟样本池</span><strong>240 <small>位</small></strong><p>完全虚构 · 固定数据集</p></div><div><span>已保存定义</span><strong id="audience-count">—</strong><p>仅本浏览器可见</p></div><div class="overview-note"><span class="tiny-heading">圈选与分流，是两件事</span><p>先按属性判断「谁符合」，再决定是否进行 A/B 分配。<br>关闭 A/B 时，全部符合条件的人直接进入触达模拟。</p></div></div>
 <div class="audience-list-toolbar"><label for="audience-search">查找人群<input id="audience-search" type="search" placeholder="输入人群名称…" maxlength="60"></label><span>数据版本 MOCK / V1 · 无真实用户信息</span></div>
 <div id="audience-list" class="audience-list"></div>
+<section class="campaign-detail-block" aria-label="发布实验人群包"><h3>发布实验人群包</h3><p class="field-help">选择一份已保存且引用运行中实验的人群，同一来源生成完整 A、B、对照臂。保存人群定义不会自动发布。</p><form id="bundle-form" class="experiment-form"><label for="bundle-name">包名称</label><input id="bundle-name" maxlength="48" placeholder="例如：召回实验人群包" autocomplete="off"><label for="bundle-audience">已保存人群</label><select id="bundle-audience"></select><button class="primary" type="submit">发布实验人群包</button></form><p id="bundle-status" role="status" aria-live="polite"></p><div id="bundle-list" class="domain-cards"></div></section>
+<section class="campaign-detail-block" aria-label="统一人群引用目录"><h3>统一人群引用目录</h3><p class="field-help">普通人群组与已发布包臂共用此目录。停用实验后旧包臂保留，但不可用。</p><div id="audience-catalog"></div></section>
 </div>
 <section id="audience-editor" hidden aria-labelledby="editor-title">
 <div class="section-heading"><div><p class="eyebrow">AUDIENCE DEFINITION / AND</p><h2 id="editor-title">新建人群</h2><p>调整左侧条件，右侧即时查看匹配结果。尚未保存的草稿不会影响沙盘。</p></div><button id="cancel-audience">取消编辑</button></div>

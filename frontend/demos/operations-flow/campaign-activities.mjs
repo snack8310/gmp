@@ -1,20 +1,13 @@
+import { buildReferenceCatalog, DEFAULT_AUDIENCES, DEFAULT_EXPERIMENTS, DEFAULT_BUNDLES } from './audience.mjs';
+
 export const REFERENCE_CATALOG = {
  actions: [
   { id: 'action-rcs', name: 'RCS 消息' },
   { id: 'action-email', name: '邮件' },
   { id: 'action-sms', name: '短信' },
  ],
- groups: [
-  { groupId: 'group-recall', groupName: '跨境召回人群组' },
-  { groupId: 'group-new', groupName: '新客人群组' },
- ],
- bundles: [
-  { bundleId: 'bundle-warmup', bundleName: '预热实验人群包', arms: [
-   { groupId: 'group-arm-a', armName: 'A 臂' },
-   { groupId: 'group-arm-b', armName: 'B 臂' },
-  ] },
- ],
 };
+export const DEFAULT_AUDIENCE_CATALOG = buildReferenceCatalog(DEFAULT_AUDIENCES, DEFAULT_EXPERIMENTS, DEFAULT_BUNDLES);
 
 export const ACTIVITIES = [
  { id: 'campaign-branch', name: '跨境召回', treatments: [
@@ -47,12 +40,13 @@ export function actionAvailable(ref, catalog = REFERENCE_CATALOG) {
  return exactKeys(ref, ['id', 'name']) && nonBlank(ref.name) && catalog.actions.some(action => action.id === ref.id);
 }
 
-export function audienceAvailable(ref, catalog = REFERENCE_CATALOG) {
+export function resolveAudience(ref, catalog = DEFAULT_AUDIENCE_CATALOG) {
  if (!ref) return false;
- if (ref.type === 'group') return exactKeys(ref, ['type', 'groupId', 'groupName']) && nonBlank(ref.groupName) && catalog.groups.some(group => group.groupId === ref.groupId);
- if (ref.type === 'arm') return exactKeys(ref, ['type', 'bundleId', 'bundleName', 'groupId', 'armName']) && nonBlank(ref.bundleName) && nonBlank(ref.armName) && catalog.bundles.some(bundle => bundle.bundleId === ref.bundleId && bundle.arms.some(arm => arm.groupId === ref.groupId));
- return false;
+ if (ref.type === 'group' && exactKeys(ref, ['type', 'groupId', 'groupName']) && nonBlank(ref.groupName)) return catalog.find(group => group.type === 'group' && group.groupId === ref.groupId);
+ if (ref.type === 'arm' && exactKeys(ref, ['type', 'bundleId', 'bundleName', 'groupId', 'armName']) && nonBlank(ref.bundleName) && nonBlank(ref.armName)) return catalog.find(arm => arm.type === 'arm' && arm.bundleId === ref.bundleId && arm.groupId === ref.groupId);
+ return undefined;
 }
+export const audienceAvailable = (ref, catalog = DEFAULT_AUDIENCE_CATALOG) => Boolean(resolveAudience(ref, catalog)?.available);
 
 function requireText(value, label) {
  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label}必填`);
@@ -65,13 +59,10 @@ function requireUnique(id, seen, label) {
 }
 
 function validateCatalog(catalog) {
- const actions = new Set(), groups = new Set(), bundles = new Set();
- for (const action of catalog.actions) { requireUnique(action.id, actions, '动作'); requireText(action.name, '动作名称'); }
- for (const group of catalog.groups) { requireUnique(group.groupId, groups, '人群组'); requireText(group.groupName, '人群组名称'); }
- for (const bundle of catalog.bundles) {
-  requireUnique(bundle.bundleId, bundles, '实验人群包');
-  requireText(bundle.bundleName, '实验人群包名称');
-  for (const arm of bundle.arms) { requireUnique(arm.groupId, groups, '人群组'); requireText(arm.armName, '臂名称'); }
+ const groups = new Set();
+ for (const group of catalog) {
+  requireUnique(group.groupId, groups, '人群组');
+  requireText(group.type === 'arm' ? group.armName : group.groupName, '人群组名称');
  }
 }
 
@@ -81,7 +72,7 @@ function validateTreatments(activity, treatmentIds, catalog) {
   requireUnique(treatment.id, treatmentIds, '投放项');
   requireText(treatment.name, '投放项名称');
   localIds.add(treatment.id);
-  if (!actionAvailable(treatment.actionRef, catalog) || !audienceAvailable(treatment.audienceRef, catalog)) throw new Error(`投放项引用不可用：${treatment.id}`);
+  if (!actionAvailable(treatment.actionRef) || !audienceAvailable(treatment.audienceRef, catalog)) throw new Error(`投放项引用不可用：${treatment.id}`);
  }
  return localIds;
 }
@@ -96,7 +87,7 @@ function validateFlow(flow, localIds, flowIds, edgeIds) {
  }
 }
 
-export function validateActivities(activities, catalog = REFERENCE_CATALOG) {
+export function validateActivities(activities, catalog = DEFAULT_AUDIENCE_CATALOG) {
  validateCatalog(catalog);
  const activityIds = new Set(), treatmentIds = new Set(), flowIds = new Set(), edgeIds = new Set();
  for (const activity of activities) {
@@ -107,4 +98,4 @@ export function validateActivities(activities, catalog = REFERENCE_CATALOG) {
  }
 }
 
-validateActivities(ACTIVITIES);
+validateActivities(ACTIVITIES, DEFAULT_AUDIENCE_CATALOG);
