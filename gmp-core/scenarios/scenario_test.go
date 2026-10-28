@@ -1,6 +1,7 @@
 package scenarios_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
@@ -328,4 +329,315 @@ func TestScenarioTwoDeliveryCarriesTreatmentAndArm(t *testing.T) {
 	if failed == len(report.Executions) {
 		t.Fatal("every delivery failed, so the comparison has no discriminating power")
 	}
+}
+
+// Scenario 2 in the shape operations would configure it: one campaign holding
+// the arms of one assignment, each arm doing its own thing.
+//
+// The assertion is "each arm gets exactly what its arm prescribes and nothing
+// else". Only checking that an arm got what it should would pass a campaign
+// that also sent everyone everything.
+func TestScenarioTwoOneCampaignHoldsEveryArm(t *testing.T) {
+	stack := newStack(t, 800)
+	built, err := stack.ArmCampaign()
+	if err != nil {
+		t.Fatalf("building the experiment campaign: %v", err)
+	}
+
+	// What the scenario asks for, stated here rather than read off the
+	// campaign. Deriving it from the campaign would move with any mistake in
+	// the campaign and catch nothing.
+	prescribed := map[string][]campaign.ActionID{
+		"A-control":        nil,
+		"B-sms":            {scenarios.SMSAction},
+		"C-sms-and-coupon": {scenarios.SMSAction, scenarios.CouponAction},
+		"D-coupon":         {scenarios.CouponAction},
+	}
+	if len(prescribed) != len(built.Arms.Order) {
+		t.Fatalf("the scenario prescribes %d arms, the experiment carves %d",
+			len(prescribed), len(built.Arms.Order))
+	}
+	for _, name := range built.Arms.Order {
+		if _, held := prescribed[name]; !held {
+			t.Fatalf("arm %q is in the experiment but the scenario prescribes nothing for it", name)
+		}
+	}
+	if got := prescribed[built.Arms.Control]; len(got) != 0 {
+		t.Fatalf("the control arm %q is prescribed %v; it is supposed to get nothing",
+			built.Arms.Control, got)
+	}
+	// Which share each arm is. Stated here, and deliberately a different value
+	// per arm: an execution's placement is checked against this rather than
+	// merely checked for being present. A placement that exists but always
+	// says the same share would record every arm's results under one arm, and
+	// the experiment side would attribute all of them wrongly.
+	share := map[string]int{
+		"A-control":        1,
+		"B-sms":            2,
+		"C-sms-and-coupon": 3,
+		"D-coupon":         4,
+	}
+	for _, name := range built.Arms.Order {
+		if _, held := share[name]; !held {
+			t.Fatalf("arm %q is in the experiment but no share is stated for it", name)
+		}
+	}
+
+	// The campaign has to hang exactly that, arm by arm.
+	hangs := built.ByArm()
+	for _, name := range built.Arms.Order {
+		if !sameActions(hangs[name], prescribed[name]) {
+			t.Fatalf("the campaign hangs %v on arm %q, the scenario prescribes %v",
+				hangs[name], name, prescribed[name])
+		}
+	}
+
+	// Without this the loops below can run over empty arms and pass while
+	// asserting nothing.
+	//
+	// The bound is not "non-empty": one member of an arm is spent per
+	// treatment below, to make a send fail. An arm with no more members than
+	// it has treatments would have every member short of something, and for
+	// the arm prescribed more than one action nobody would be left whose
+	// comparison says both arrived -- with every other guard silent.
+	treatmentsPerArm := map[string]int{}
+	for _, treatment := range built.Treatments {
+		treatmentsPerArm[treatment.Arm]++
+	}
+	for _, name := range built.Arms.Order {
+		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
+		if err != nil {
+			t.Fatalf("enumerating arm %q: %v", name, err)
+		}
+		if len(members) <= treatmentsPerArm[name] {
+			t.Fatalf("arm %q has %d members and %d treatments; with one member spent per treatment, none is left whose comparison says everything arrived",
+				name, len(members), treatmentsPerArm[name])
+		}
+	}
+	var acting int
+	for _, name := range built.Arms.Order {
+		if len(prescribed[name]) > 0 {
+			acting++
+		}
+	}
+	if acting < 2 {
+		t.Fatal("fewer than two arms do anything, so the campaign shows no difference between arms")
+	}
+
+	// Run every treatment, then ask what each person actually received. One
+	// send is made to fail throughout: a failure still belongs to its arm --
+	// dropping it would quietly filter the audience -- but it is not something
+	// received, and the difference has to hold rather than merely be written
+	// down.
+	received := map[audience.UID][]campaign.ActionID{}
+	failedBy := map[campaign.TreatmentID]audience.UID{}
+	// What a person is short of because a send for them was made to fail.
+	// Subtracted from their arm's prescription rather than excusing them from
+	// the comparison: excusing them would stop the comparison from noticing a
+	// failed send being counted as received.
+	missing := map[audience.UID][]campaign.ActionID{}
+	// How many treatments of an arm have already had a send made to fail, so
+	// that the next one picks a different person. Failing the same person on
+	// every treatment of their arm would subtract their whole prescription,
+	// and their comparison would degenerate to empty against empty.
+	failedSoFar := map[string]int{}
+	var failures int
+	for _, treatment := range built.Treatments {
+		want, held := share[treatment.Arm]
+		if !held {
+			t.Fatalf("treatment %q names arm %q, which is not in the experiment",
+				treatment.ID, treatment.Arm)
+		}
+		before := built.Log.Size()
+		rehearsed, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Rehearsal())
+		if err != nil {
+			t.Fatalf("rehearsing treatment %q: %v", treatment.ID, err)
+		}
+		if len(rehearsed.Planned) == 0 {
+			t.Fatalf("the rehearsal of %q planned nothing, so the failure below is never injected",
+				treatment.ID)
+		}
+		if built.Log.Size() != before {
+			t.Fatalf("rehearsing %q changed the log, so a rehearsal is not free of effect",
+				treatment.ID)
+		}
+		deliverer, wired := built.Deliverers[treatment.Action]
+		if !wired {
+			t.Fatalf("action %q has no deliverer", treatment.Action)
+		}
+		at := failedSoFar[treatment.Arm]
+		failedSoFar[treatment.Arm]++
+		if at >= len(rehearsed.Planned) {
+			t.Fatalf("arm %q has more treatments than people, so two of them would fail the same person",
+				treatment.Arm)
+		}
+		victim := rehearsed.Planned[at]
+		deliverer.FailNext(victim.Key, 99)
+		failedBy[treatment.ID] = victim.UID
+		missing[victim.UID] = append(missing[victim.UID], treatment.Action)
+		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
+		if err != nil {
+			t.Fatalf("running treatment %q: %v", treatment.ID, err)
+		}
+		if len(report.Executions) == 0 {
+			t.Fatalf("treatment %q reached nobody, so it asserts nothing", treatment.ID)
+		}
+		for _, execution := range report.Executions {
+			// Scenario 2's hard requirement: a result has to carry both which
+			// treatment produced it and which share the person is in, or one
+			// side of the metrics cannot be computed.
+			if execution.Treatment != treatment.ID {
+				t.Fatalf("%q was recorded under treatment %q, expected %q",
+					execution.Key, execution.Treatment, treatment.ID)
+			}
+			if len(execution.Placements) != 1 {
+				t.Fatalf("%q carries %d placements, expected exactly the one assignment its arm is a share of",
+					execution.Key, len(execution.Placements))
+			}
+			placement := execution.Placements[0]
+			if placement.Assignment != scenarios.ArmAssignment {
+				t.Fatalf("%q is placed in assignment %q, expected %q",
+					execution.Key, placement.Assignment, scenarios.ArmAssignment)
+			}
+			if placement.Share != want {
+				t.Fatalf("%q is in arm %q and placed in share %d, expected share %d",
+					execution.Key, treatment.Arm, placement.Share, want)
+			}
+			if execution.State == campaign.StateFailed {
+				if execution.UID != failedBy[treatment.ID] {
+					t.Fatalf("%q failed, but the send made to fail was %q's",
+						execution.UID, failedBy[treatment.ID])
+				}
+				failures++
+				// Still placed in its arm -- asserted above, before this --
+				// but not something received.
+				continue
+			}
+			received[execution.UID] = append(received[execution.UID], execution.Action)
+		}
+	}
+	if failures != len(built.Treatments) {
+		t.Fatalf("%d sends failed, expected one per treatment", failures)
+	}
+	// The failures are spread over different people. Stacking them on one
+	// person would subtract their whole prescription, and for the arm that is
+	// prescribed more than one action that person's comparison would stop
+	// saying anything about getting both.
+	for uid, actions := range missing {
+		if len(actions) > 1 {
+			t.Fatalf("%q had %v subtracted; failures are supposed to fall on different people",
+				uid, actions)
+		}
+	}
+
+	for _, name := range built.Arms.Order {
+		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
+		if err != nil {
+			t.Fatalf("enumerating arm %q: %v", name, err)
+		}
+		for _, uid := range members {
+			want := without(prescribed[name], missing[uid])
+			got := received[uid]
+			if !sameActions(got, want) {
+				t.Fatalf("%q is in arm %q and received %v, expected %v", uid, name, got, want)
+			}
+		}
+	}
+}
+
+// The check that lets two treatments share one slot is the proof that shares of
+// one assignment never overlap. Aim two at the same arm and the campaign must
+// refuse to build -- left to run time, two of one campaign's treatments would
+// reach the same person with nothing downstream flagging it.
+func TestScenarioTwoTwoTreatmentsOnOneSlotForOneArmIsRefused(t *testing.T) {
+	stack := newStack(t, 200)
+	arms, err := stack.ExperimentArms()
+	if err != nil {
+		t.Fatalf("building the arms: %v", err)
+	}
+	action, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: scenarios.SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
+	})
+	if err != nil {
+		t.Fatalf("registering the action: %v", err)
+	}
+	call, err := action.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
+	if err != nil {
+		t.Fatalf("filling in the action: %v", err)
+	}
+	one := arms.Arms["C-sms-and-coupon"]
+	first, err := campaign.NewTreatment(campaign.TreatmentSpec{
+		ID: "warmup-sms-c", Slot: scenarios.SMSSlot, Who: one, Call: call,
+	})
+	if err != nil {
+		t.Fatalf("building the first treatment: %v", err)
+	}
+	second, err := campaign.NewTreatment(campaign.TreatmentSpec{
+		ID: "warmup-sms-c-again", Slot: scenarios.SMSSlot, Who: one, Call: call,
+	})
+	if err != nil {
+		t.Fatalf("building the second treatment: %v", err)
+	}
+	_, err = campaign.NewCampaign(campaign.CampaignSpec{
+		ID:         "double-eleven-experiment-broken",
+		Priority:   campaign.NewPriority(100),
+		Treatments: []campaign.Treatment{first, second},
+	})
+	if !errors.Is(err, campaign.ErrSlotContestedWithinCampaign) {
+		t.Fatalf("building the campaign returned %v, expected it to refuse the contested slot", err)
+	}
+
+	// The same pair on different arms is the arrangement the scenario needs,
+	// and it has to be allowed -- otherwise the refusal above would just mean
+	// "two treatments on one slot", not "nothing separates them".
+	other, err := campaign.NewTreatment(campaign.TreatmentSpec{
+		ID: "warmup-sms-b", Slot: scenarios.SMSSlot, Who: arms.Arms["B-sms"], Call: call,
+	})
+	if err != nil {
+		t.Fatalf("building the treatment for the other arm: %v", err)
+	}
+	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID:         "double-eleven-experiment-two-arms",
+		Priority:   campaign.NewPriority(100),
+		Treatments: []campaign.Treatment{first, other},
+	}); err != nil {
+		t.Fatalf("two arms on one slot were refused: %v", err)
+	}
+}
+
+// sameActions compares what someone received against what their arm
+// prescribes, order aside.
+func sameActions(got, want []campaign.ActionID) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	counts := map[campaign.ActionID]int{}
+	for _, action := range got {
+		counts[action]++
+	}
+	for _, action := range want {
+		counts[action]--
+		if counts[action] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// without is an arm's prescription less what a person's failed sends never
+// delivered.
+func without(prescribed, missing []campaign.ActionID) []campaign.ActionID {
+	short := map[campaign.ActionID]int{}
+	for _, action := range missing {
+		short[action]++
+	}
+	out := make([]campaign.ActionID, 0, len(prescribed))
+	for _, action := range prescribed {
+		if short[action] > 0 {
+			short[action]--
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
 }

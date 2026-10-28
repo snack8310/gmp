@@ -43,6 +43,9 @@ func run(out *os.File) error {
 	if err := showArms(out, stack); err != nil {
 		return err
 	}
+	if err := showArmCampaign(out, stack); err != nil {
+		return err
+	}
 	if err := showDelivery(out, stack); err != nil {
 		return err
 	}
@@ -271,6 +274,70 @@ func why(reason campaign.LossReason) string {
 	default:
 		return string(reason)
 	}
+}
+
+func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
+	section(out, "场景 ② · 一个活动，挂住各个实验臂",
+		"同一个活动下，每个臂是一个普通的人群定义，各自挂自己的投放项。对照组挂零个。")
+
+	built, err := stack.ArmCampaign()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "  活动 %q，优先级穿透到下面所有投放项\n", built.Campaign.ID())
+	hangs := built.ByArm()
+	for _, name := range built.Arms.Order {
+		actions := hangs[name]
+		if len(actions) == 0 {
+			fmt.Fprintf(out, "    %-18s 挂 0 个投放项  ← 对照组，但它在系统里真实存在\n", name)
+			continue
+		}
+		fmt.Fprintf(out, "    %-18s %v\n", name, actions)
+	}
+	fmt.Fprintln(out, "  同一个位子上两个投放项能并存，靠的是「同一次分流的两份天然互斥」这条证明。")
+	fmt.Fprintln(out, "  证明不成立时活动直接建不出来 —— 不是等发出去之后才发现一个人收到两份。")
+
+	received := map[audience.UID][]campaign.ActionID{}
+	for _, treatment := range built.Treatments {
+		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "  投放项 %-16s → 人群 %-18s 动作 %-13s 投递 %d 人\n",
+			treatment.ID, treatment.Arm, treatment.Action, len(report.Executions))
+		for _, execution := range report.Executions {
+			received[execution.UID] = append(received[execution.UID], execution.Action)
+		}
+	}
+
+	fmt.Fprintln(out, "  再从人的角度看一遍，每个臂取一个样本：")
+	for _, name := range built.Arms.Order {
+		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
+		if err != nil {
+			return err
+		}
+		if len(members) == 0 {
+			continue
+		}
+		uid := members[0]
+		got := received[uid]
+		if len(got) == 0 {
+			fmt.Fprintf(out, "    %s（%s）什么都没收到\n", uid, name)
+			continue
+		}
+		placements, err := stack.Audiences.Placements(built.Arms.Arms[name], audience.Live(), uid)
+		if err != nil {
+			return err
+		}
+		where := ""
+		if len(placements) > 0 {
+			where = placements[0].String()
+		}
+		fmt.Fprintf(out, "    %s（%s）收到 %v，落点 %s\n", uid, name, got, where)
+	}
+	fmt.Fprintln(out, "  每条执行记录都同时带着投放项与份号 —— 少一样，就有一边算不出账。")
+	fmt.Fprintln(out, "  未覆盖：哪个臂更好、差异显不显著，归实验服务，尚未建设。")
+	return nil
 }
 
 func showDelivery(out *os.File, stack *scenarios.Stack) error {

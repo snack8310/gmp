@@ -158,7 +158,7 @@ func (s *Stack) ExperimentArms() (*ExperimentArms, error) {
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := EqualAssignment("double-eleven-warmup", 4, true)
+	assignment, err := EqualAssignment(ArmAssignment, 4, true)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 	who := arms.Arms[arms.Order[arm-1]]
 
 	action, err := campaign.RegisterAction(campaign.ActionSpec{
-		ID: "send-sms", Direction: campaign.DirectionPush, Required: []string{"copy"},
+		ID: SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: registering the action: %w", err)
@@ -267,11 +267,166 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
 	}
 	deliverer := campaign.NewMemoryDeliverer()
-	if err := runner.RegisterDeliverer("send-sms", deliverer); err != nil {
+	if err := runner.RegisterDeliverer(SMSAction, deliverer); err != nil {
 		return nil, fmt.Errorf("scenarios: wiring the deliverer: %w", err)
 	}
 	return &ArmDelivery{
 		Campaign: built, Treatment: treatment.ID(),
 		Runner: runner, Log: log, Deliverer: deliverer, Arm: arm,
 	}, nil
+}
+
+// ArmCampaign is scenario 2 in the shape operations would configure it: one
+// campaign, with the arms of one assignment hanging under it, each arm doing
+// its own thing.
+//
+// It is kept apart from ArmDelivery, which shows a different thing -- one
+// arm's decision, delivery and receipt carrying a single key. Both draw their
+// audiences from ExperimentArms, so the arms they talk about are the same
+// arms.
+type ArmCampaign struct {
+	Campaign campaign.Campaign
+	Arms     *ExperimentArms
+	// Treatments is what hangs under the campaign, in build order.
+	Treatments []ArmTreatment
+	Runner     *campaign.Runner
+	Log        *campaign.MemoryLog
+	// Deliverers is what each action was wired to, so that a case can make a
+	// send fail and check that a failure is still recorded in its arm.
+	Deliverers map[campaign.ActionID]*campaign.MemoryDeliverer
+}
+
+// ArmTreatment is one treatment together with the arm it is aimed at.
+type ArmTreatment struct {
+	ID     campaign.TreatmentID
+	Arm    string
+	Slot   campaign.SlotID
+	Action campaign.ActionID
+}
+
+// SMSAction and CouponAction are the two things scenario 2 does.
+const (
+	SMSAction    = campaign.ActionID("send-sms")
+	CouponAction = campaign.ActionID("grant-coupon")
+)
+
+// ArmCampaign builds scenario 2 as a single campaign.
+//
+// The scenario lists a control arm, an arm that gets only a message, an arm
+// that gets both a message and a coupon, and an arm that gets only a coupon.
+// That is taken arm by arm: the control arm hangs nothing, and the arm that
+// gets two things gets two treatments. Nothing new is introduced to express
+// it -- the arms are ordinary audience definitions, and what separates two
+// treatments on one slot is the proof that shares of one assignment never
+// overlap.
+func (s *Stack) ArmCampaign() (*ArmCampaign, error) {
+	arms, err := s.ExperimentArms()
+	if err != nil {
+		return nil, err
+	}
+
+	sms, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: registering the message action: %w", err)
+	}
+	coupon, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: CouponAction, Direction: campaign.DirectionPush, Required: []string{"coupon-id"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: registering the coupon action: %w", err)
+	}
+	smsCall, err := sms.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: filling in the message action: %w", err)
+	}
+	couponCall, err := coupon.Call(map[string]string{"coupon-id": "double-eleven-20-off"})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: filling in the coupon action: %w", err)
+	}
+
+	// Arm by arm, in the order the scenario lists them. The control arm is
+	// absent from this list on purpose, and its absence is what the regression
+	// case checks: it is in the system as an audience, with nothing hung on it.
+	planned := []struct {
+		id   campaign.TreatmentID
+		arm  string
+		slot campaign.SlotID
+		call campaign.Call
+	}{
+		{"warmup-sms-b", "B-sms", SMSSlot, smsCall},
+		{"warmup-sms-c", "C-sms-and-coupon", SMSSlot, smsCall},
+		{"warmup-coupon-c", "C-sms-and-coupon", CouponSlot, couponCall},
+		{"warmup-coupon-d", "D-coupon", CouponSlot, couponCall},
+	}
+
+	treatments := make([]campaign.Treatment, 0, len(planned))
+	described := make([]ArmTreatment, 0, len(planned))
+	for _, p := range planned {
+		who, held := arms.Arms[p.arm]
+		if !held {
+			return nil, fmt.Errorf("scenarios: treatment %q names arm %q, which is not in the experiment", p.id, p.arm)
+		}
+		built, err := campaign.NewTreatment(campaign.TreatmentSpec{
+			ID: p.id, Slot: p.slot, Who: who, Call: p.call,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scenarios: building treatment %q: %w", p.id, err)
+		}
+		treatments = append(treatments, built)
+		described = append(described, ArmTreatment{
+			ID: p.id, Arm: p.arm, Slot: p.slot, Action: p.call.Action(),
+		})
+	}
+
+	// Two treatments share each slot here, and neither slot has a decision
+	// table. What lets them through is the proof that different shares of one
+	// assignment can never both hold; without it this call fails.
+	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID:         "double-eleven-experiment",
+		Priority:   campaign.NewPriority(100),
+		Treatments: treatments,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the experiment campaign: %w", err)
+	}
+
+	log := campaign.NewMemoryLog()
+	runner, err := campaign.NewRunner(campaign.RunnerSpec{
+		Audiences: s.Audiences, Log: log, Events: campaign.DiscardEvents(), MaxAttempts: 3,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
+	}
+	deliverers := make(map[campaign.ActionID]*campaign.MemoryDeliverer, len(described))
+	for _, action := range []campaign.ActionID{SMSAction, CouponAction} {
+		deliverer := campaign.NewMemoryDeliverer()
+		if err := runner.RegisterDeliverer(action, deliverer); err != nil {
+			return nil, fmt.Errorf("scenarios: wiring the deliverer for %q: %w", action, err)
+		}
+		deliverers[action] = deliverer
+	}
+
+	return &ArmCampaign{
+		Campaign: built, Arms: arms, Treatments: described,
+		Runner: runner, Log: log, Deliverers: deliverers,
+	}, nil
+}
+
+// ByArm reads off the campaign what each arm ends up with, keyed by arm name.
+//
+// This is a description of what was built, not a statement of what the
+// scenario asks for. Checking the build against it would prove nothing --
+// aim a treatment at the wrong arm and this moves with it. The regression
+// case therefore states the scenario's own prescription itself.
+func (a *ArmCampaign) ByArm() map[string][]campaign.ActionID {
+	out := make(map[string][]campaign.ActionID, len(a.Arms.Order))
+	for _, name := range a.Arms.Order {
+		out[name] = nil
+	}
+	for _, treatment := range a.Treatments {
+		out[treatment.Arm] = append(out[treatment.Arm], treatment.Action)
+	}
+	return out
 }
