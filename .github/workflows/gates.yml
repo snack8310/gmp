@@ -103,3 +103,16 @@ jobs:
       - name: go run the demo
         working-directory: gmp-core
         run: go run ./cmd/gmp-demo > /dev/null
+
+      - name: management API checks
+        working-directory: management
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go build ./...
+          go vet ./...
+          go test ./...
