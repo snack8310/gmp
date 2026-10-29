@@ -10,13 +10,14 @@
 
 ## 运营流程立体展示
 
-全部是构造数据，不接真实渠道，也不依赖 `gmp-core` 服务。从仓库根目录启动静态服务：
+全部是构造数据，不接真实渠道，也不依赖 `gmp-core` 服务。活动编辑需要本机管理 API；分别启动：
 
 ```sh
-python3 -m http.server 8080 --bind 127.0.0.1 --directory frontend/demos/operations-flow
+cd management && go run ./cmd/campaign-api -addr 127.0.0.1:8082
+node frontend/demos/operations-flow/serve.mjs 8081 8082
 ```
 
-浏览器打开 `http://127.0.0.1:8080`。如需单文件直接打开，使用 Demo 内的 `export.mjs`，见 [运行说明](frontend/demos/operations-flow/README.md)。
+浏览器打开 `http://127.0.0.1:8081`。浏览器默认以页面同源地址访问活动 API，前端入口经 HTTP 转给管理 API；`serve.mjs` 换监听端口时无需改浏览器基址。单文件离线打开时默认无法管理活动。详见 [运行说明](frontend/demos/operations-flow/README.md)。
 
 原命令行领域演示保持不变：在 `gmp-core` 下执行 `go run ./cmd/gmp-demo`。
 

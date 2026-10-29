@@ -1,0 +1,127 @@
+# #68 前端：运营活动与投放项编辑（接 REST）任务卡
+
+## 任务分类与本质
+
+- 类型：新需求开发；等级：大任务；标签含 `risk/high`。
+- 表面请求：运营活动列表/详情可编辑活动与投放项。真实问题：活动读写与受众删除保护须以 **#69 管理 REST API** 为真源，不能再用浏览器 `localStorage` / 静态 `BROWSE_ACTIVITIES` 冒充已保存活动。
+- Depends on：#69（已合入 main，`3029965` / PR #70）。契约：`docs/api/campaign-management-api.md`；启动：`cd management && go run ./cmd/campaign-api -addr 127.0.0.1:8081`。
+- 硬约束：真实 HTTP 接入；API 失败不得伪装保存成功；`gmp-campaign-demo-v1` 仅可作迁移/缓存/离线过渡；默认不改 `gmp-core`；合入前产品再问用户放行。
+- 成功标准：issue #68 修订后的验收由前端自动化测试、真实 HTTP 集成（本机起 management API）与浏览器主路径证据证明；验收 6 中受众删除的服务端写入边界最终校验经用户决定修订 #68 验收，已拆到后续 issue [#72](https://github.com/snack8310/gmp/issues/72)，不计为本 PR 已满足。
+
+## 验收标准（承接修订后 issue）
+
+1. 经管理 REST API 新建、查看、编辑、删除活动；稳定 ID；取消不写；删后列表/详情/刷新一致；同进程删空后前端不得用种子重生已删活动；未知详情 ID 明确未找到（新版 `campaign-http-check.mjs` 的 `unknown_campaign` 已在沙箱外验证为 404 `not_found`，见[变更证据](../../history/changes/2026-10-29-campaign-activity-edit.md)）。
+2. 投放项增删改；每项恰好一动作+一人群；动作来自 API 动作目录，人群选择承接 `store.catalog()` 统一目录；HTTP 保存失败不得显示成功。
+3. 普通组按 groupId、包臂按 bundleId+groupId；目录缺失/不可用时保留原 ID/名称并标不可用，不得静默改绑；不可用引用不能作为有效新保存。
+4. 展示类动作须有展示位；推送不得带展示位；前端可补/对齐 `show-image`/`action-show-image` 正反例。
+5. 同活动同展示位：无法证明互斥且无决策表则拦截；同包不同臂可证互斥则允许；推送不参与。服务端写入校验为准，前端提示一致。
+6. 保存/删除后从前端刷新**服务端当前已保存活动**，并调用 `audience-reference-usages`（或等价）更新受众禁删提示；取消/HTTP 失败/过期缓存不得改变保护结果。删带边投放项按契约拦截；删整活动边随消失。
+
+   受众删除目前由浏览器读取服务端占用后拦截；服务端写入边界的最终校验经用户决定已拆到后续 issue [#72](https://github.com/snack8310/gmp/issues/72)，本 PR 不扩 scope、不声明已满足该部分。
+7. `gmp-campaign-demo-v1` 不再是活动真源。README 写明旧键迁移/兼容、冲突与失败、回退边界；旧缓存不得覆盖服务端；API 不可用时明确提示，不以本地写入冒充成功。
+8. 更新 demo README、自动化测试、`docs/history/changes/2026-10-29-campaign-activity-edit.md`；真实 HTTP 集成 + 浏览器主路径；离线单文件导出须写明 API 不可用限制。
+
+## 范围、影响与非目标
+
+- 范围内：`frontend/demos/operations-flow/` 活动编辑 UI、HTTP 客户端、受众禁删接占用查询、任务卡、变更证据、README；可参考 stash `wip-68-campaign-edit-pending-rest` 的 UI，但**不得**以 localStorage 为最终真源。
+- 非目标：活动流程边完整编辑器；拖拽/Flow 引擎；组合页重写；生产 DB；决策表/放量/染色编辑器；改 management API 契约（若发现契约 bug，停下报告）。
+- 外部读写：前端 HTTP 读写本机 management 服务；过渡键仅在明确迁移/缓存/离线场景读写浏览器数据。
+- 默认不改 `gmp-core`。必须薄改则停下报告。
+
+## 已确认默认
+
+| # | 内容 | 状态 |
+|---|---|---|
+| 1 | 选 C：先 #69 API，#68 接 REST；不以纯前端 localStorage 闭环 | 已确认 |
+| 2 | 过渡键名常量 `gmp-campaign-demo-v1`（单一导出常量） | 已拍板 |
+| 3 | 失效引用保留标不可用；不改 gmp-core；禁删依据服务端当前活动 | 已确认 |
+| 4 | #69 合入后开工；合 #68 前仍停问用户 | 已确认 |
+
+## 建议实施方案（Codex 可微调，不得违反硬约束）
+
+1. 新建 `campaign-api-client.mjs`（或等价）：封装 `docs/api/campaign-management-api.md` 路由；基址可配置（Node 默认 `http://127.0.0.1:8081`，浏览器默认当前 HTTP/HTTPS 页面的同源地址，可由 `window.CAMPAIGN_API_BASE` 覆盖；`file://` 无同源时明确报 API 不可用）；统一解析 `{error:{code,message}}`；网络/非 2xx 抛可判别错误，调用方不得当成功。
+2. 活动真源改为 API：`list/get/create/update/delete` 与投放项 CRUD 走 HTTP；列表/详情/编辑保存后以响应或重新 GET 刷新 UI。
+3. 动作目录优先 `GET /api/v1/actions`；人群选择器仍用 `store.catalog()`（#66/#67），保存时映射为 API `audienceRef`；占用用 `GET /api/v1/audience-reference-usages`。
+4. 若保留 `gmp-campaign-demo-v1`：仅迁移提示/只读缓存/离线降级；**禁止**在 API 失败时写入并提示「已保存」。
+5. 受众侧删除保护：以服务端 usages + 当前 API 活动列表为准，禁止静态 `BROWSE_ACTIVITIES` 作保护真源。
+6. UI 可借鉴 stash 中的编辑器布局（`campaign-ui.mjs` 等），但数据层重接 API。
+7. 测试：前端 node test；HTTP 客户端契约/失败路径；可起 management API 的集成脚本；更新 `browser-check.mjs`；export 注明离线限制。
+8. 变更证据写明 Depends on #69 已合、验证命令、已知缺口。
+
+## 高风险项
+
+| 判定 | 命中 | 依据 |
+|---|---|---|
+| 通用·跨边界写入 / 新契约消费 | 是 | 前端消费 #69 HTTP；受众禁删依赖占用查询 |
+| 改 gmp-core | 否（默认） | 必须改则停 |
+| 以 localStorage 为真源开 PR | 阻断 | 明确禁止 |
+
+### 风险三档与入口检查
+
+- 真风险（阻断）：当浏览器从 8080 跨源请求 8081 时，#69 无 CORS 响应头，界面无法读写；演示入口须同源代理到真实管理 API，并用浏览器验证。若 API 请求失败而界面提示已保存，运营会误认状态已持久化；客户端必须抛错并保留草稿。
+- 真风险（放行后续跟进）：管理 API 是进程内状态，重启会恢复种子；README 与界面须说明，后续持久化另议。
+- 伪风险：本轮不迁移活动旧键，因此损坏或未知版本不会被读取、覆盖或清空；无需实现猜测式自动迁移。
+- 未讨论项（评估器攻击点）：浏览器本地新增的人群组不在 #69 构造目录；编辑器是否会错误允许选中、或将服务端拒绝伪装为成功？
+- 高风险人工确认：本轮用户已明确确认接 #69、服务端真源、失效引用、禁删依据、展示位规则及不改 gmp-core；该指令构成实施前确认。对外破坏性变更：否。
+- 更本质候选：让前端继续只读并手工调用 API 无法完成 issue #68 的编辑目标，故采用现有静态页加最小 HTTP 接线。
+- 外部影响：浏览器读写本机管理 API 的进程内活动；受众和实验仍读写原浏览器键；活动旧键不读取、不写入。客户端与同源演示代理的 HTTP 交互只记录方法、状态、耗时，不记录请求体。
+- 历史规则命中：`docs/history/memory/review-package-consistency.md` 的送审载体一致性适用于本任务卡及变更证据；`source-enumeration-fidelity.md` 的摘要禁用冻结计数适用；`mechanization-claims.md` 的实测证据要求适用。其他记忆涉及 shell、领域事件或分桶，未命中前端接线。
+- 历史扫描：已读取 `docs/history/memory/`，并以同能力、同目录和同风险选取 `2026-10-29-campaign-management-api.md`、`2026-10-28-frontend-bundle-publish-catalog.md`、`2026-10-28-slot-push-display-split.md`；规格以 `docs/api/campaign-management-api.md` 为准。
+- 最小验证：本卡下方命令、客户端失败路径、真实 HTTP CRUD 与占用变化、桌面和窄屏浏览器主路径。若沙箱无法 bind 或无浏览器，则如实列缺失验证。本轮不覆盖生产持久化、鉴权和跨浏览器矩阵。
+- 约束落地：API 请求失败通过抛错接口表达；展示位和引用错误通过前端测试与服务端 4xx 双重校验，不新增散文规则。
+
+## 最小验证集
+
+- `node --test frontend/demos/operations-flow/*.test.mjs`
+- 改动 `.mjs` 的 `node --check`
+- `python3 test/docs/consistency_check.py`、`git diff --check`
+- 本机启动 management API + 真实 HTTP（curl 或 node 客户端）覆盖 CRUD/失败路径/占用
+- `export.mjs` + 浏览器主路径（或 `browser-check.mjs`）；8080/8081 占用可换端口
+- 如实记录缺口；勿声称未跑过的检查已通过
+
+## 评估器重点
+
+是否仍以 localStorage 冒充保存成功；禁删是否仍读静态种子；是否真实起 API；失败是否当成功；是否改 gmp-core；PR 模板材料是否齐全；合前是否停问。
+
+## #68 后续：浏览器默认 API 基址修复
+
+- 类型与等级：小型缺陷修复。背景：`serve.mjs` 换监听端口时，浏览器硬编码 8081 会误连其他服务；目标是让浏览器默认请求当前页面同源代理。
+- 范围：前端客户端、`app.mjs`、相关测试、README 与本次变更证据；不改管理 API、领域核心或数据格式。改用服务端端口向页面注入配置仍会增加接线，故保留已有同源代理并读取浏览器 `origin`。
+- 验收：HTTP/HTTPS 页面默认同源；`window.CAMPAIGN_API_BASE` 可覆盖；`file://` 无同源时明确失败且不发请求；Node 显式参数和 8081 默认值保持可用。执行用户指定的前端测试、语法、导出、文档和 diff 检查。
+- 真风险（阻断）：当换端口后仍请求 8081 时会误读无关服务；当 `file://` 被误当作可用 API 时会误报保存成功。均用回归用例覆盖。
+- 伪风险：本修复不读写或迁移活动数据，不涉及数据格式兼容处理。
+- 未讨论项：离线页面若显式覆盖基址，是否仍优先使用覆盖值；交评估器检查。
+- 高风险与人工确认：未命中根规则的核心模型、协议、幂等、存储、权限、跨模块或多实现一致性判定；本次用户指令已明确授权修复。外部影响为浏览器对同源演示代理的 HTTP 读写地址选择，CLI 默认请求地址不变。
+- 历史规则：`review-package-consistency.md` 要求任务卡、README 与变更证据陈述一致；`mechanization-claims.md` 要求验证结论有真实命令结果；`source-enumeration-fidelity.md` 禁止在送审摘要冻结用例计数。其余记忆涉及 shell 钩子、领域事件与人群，未命中。
+- 验证记录：该基址修复阶段未覆盖真实 HTTP 服务联调与原生浏览器；后续已由执行器在沙箱外补跑，见[变更证据](../../history/changes/2026-10-29-campaign-activity-edit.md)。评估器重点攻击换端口、显式覆盖和离线错误路径。
+
+## #68 后续：原生 fetch 接收者缺陷修复
+
+- 类型与等级：缺陷修复、小任务。用户提供的本机 headless Chrome 证据是活动页报「无法连接」，同页直接 `fetch('/api/v1/campaigns')` 返回 200；客户端用 `this.request(...)` 调用默认 `globalThis.fetch`，需要用严格接收者测试核实假设。
+- 问题本质：让浏览器默认请求真正到达同源代理，且保留注入请求函数的能力。硬约束是不改管理服务和领域核心、不改变网络错误语义、不把失败显示成成功、不提交或推送。只改错误提示不能使请求到达，故否决。
+- 范围：`campaign-api-client.mjs`、其回归测试、本任务卡及 `docs/history/changes/2026-10-29-campaign-activity-edit.md`。调用方为 `app.mjs`、导出页面和 Node HTTP 检查；无须改其调用方式、夹具、配置或导出列表。运行时仍读写本机管理 API 的当前进程内数据；本次单测只用模拟响应，无外部写入。
+- 验收：默认 fetch 以全局对象为接收者；注入 request 仍可用；模拟严格接收者的测试在旧实现失败、新实现通过；真实网络异常仍报「无法连接」；执行用户指定的测试、语法、导出、文档和 diff 检查。浏览器复验由沙箱外执行器提供，未运行不得记为通过。
+- 高风险：通用判定标准 1–7 均未命中：不变更领域语义、外部协议或数据格式、幂等/顺序、持久化结构、权限、多个实现的契约或跨模块行为；项目高风险清单 1–17 均未命中。本次仅修正前端默认函数接收者；无对外破坏性变更，无额外实施前人工确认。用户当前指令已授权修复。
+- 真风险（阻断）：当默认请求仍以 `CampaignApi` 为接收者时，浏览器会在发包前抛错却显示网络不可用；严格接收者回归测试必须转绿。当真实网络断开时若误报成功，运营会误判服务端状态；沿用网络失败测试。
+- 真风险（仅观察）：Node 模拟不等同于原生 Chrome；本机真实浏览器主路径需由沙箱外执行器复验。
+- 伪风险：本修复不读写浏览器活动旧键，不迁移数据，旧缓存兼容无需处理。
+- 未讨论项（评估器攻击点）：显式注入 request 是否仍按既有方式调用；默认 fetch 修正后是否还有路径吞掉网络错误。
+- 历史规则：`docs/history/memory/mechanization-claims.md` 规则 1 命中，未跑的浏览器检查不得称已固化或通过；`review-package-consistency.md`「载体之间陈述一致」命中，任务卡与变更证据须一致，送审 SHA、CI、外部写出和 commit 规则因本轮不提交或开 PR 而不适用；`source-enumeration-fidelity.md`「送审摘要禁止冻结计数」命中，证据只列验证类别和退出码；`shell-script-portability.md`、`receipt-edge-audience-partition.md` 不涉及本次前端函数调用。
+- 历史扫描：以 `rg --files docs/history/memory docs/history/changes` 检索，读取上述相关记忆及近期同目录的 `2026-10-28-campaign-activities-browse.md`、`2026-10-25-operations-flow-demo.md` 和本任务现有变更证据；以本任务卡及 `frontend/demos/operations-flow/README.md` 为功能说明。未命中其他同能力接收者缺陷记录。
+- 最小验证：严格接收者用例先红后绿、现有注入与网络失败用例、全部前端测试、改动 `.mjs` 的 `node --check`、单文件导出、文档一致性及 diff 检查。不覆盖真实 HTTP CRUD、原生浏览器实际结果或其他浏览器；这些不能由 Node 模拟替代。
+- 约束落地：不新增散文禁令，接收者要求由自动化回归测试约束。评估器重点核对默认绑定、显式注入、网络错误、验证结果和浏览器证据的如实记录。
+
+## PR #71 产品评估 FAIL 后续：验收脚本补证
+
+- 类型：缺陷修复；等级：小任务。背景：现有 HTTP 脚本经客户端只确认返回对象，不能证明成功响应的精确状态码，也未请求未知活动 ID；浏览器脚本缺少原生前进后退与 390px 主路径。目标是让执行器能以结构化步骤复验这些行为，并纠正受众删除保护的归属措辞。
+- 范围：`campaign-http-check.mjs`、`browser-check.mjs`、本任务卡及对应变更证据；不改 `management/`、`gmp-core/` 或前端运行时。非目标：服务端受众删除最终校验、生产持久化、跨浏览器矩阵。脚本对本机管理 API 的读写仅限构造测试活动，测试结束清理；不接生产外部系统。
+- 验收：未知 ID 为 404 `not_found`；创建活动与投放项 201、更新活动与投放项 PUT 200、删除活动与投放项 DELETE 204，并逐步输出 JSON 状态；原生历史栈恢复的详情 ID、名称、引用与同时 GET 的 API 一致；390×844 移动视口跑列表、创建、添加、删除并检查可见性及溢出，结束清理数据和视口；保留原有步骤。
+- 问题本质：执行器需要直接可核验的 HTTP 与浏览器证据。仅在文档补写“已通过”无法证明行为，故改脚本并把真实运行留给沙箱外执行器。
+- 真风险（阻断）：当脚本仍只看客户端对象时，服务端把 201/204 错返 200 仍会通过；在请求层记录并断言原始状态。当历史回退页来自旧缓存时会显示过期名称；回退前经 API 改名，再与同时 GET 比对。当脚本失败后残留测试活动时，下次运行会污染进程状态；在清理路径删除本次活动。
+- 真风险（仅观察）：浏览器与 HTTP 实测在 Codex 沙箱内无法监听端口，脚本编写和静态检查不能视为实测通过；执行器已在沙箱外补跑新版脚本，退出码与覆盖类别见[变更证据](../../history/changes/2026-10-29-campaign-activity-edit.md)。
+- 伪风险：`export.test.mjs` 已用 `os.tmpdir()`、`mkdtemp()` 和 `finally` 清理；评估器沙箱禁止临时写入不代表测试断言或路径设计有缺陷，本轮不削弱断言。
+- 未讨论项（交评估器攻击）：原生前进后退触发的异步详情 GET 与 UI 更新是否会乱序；窄屏表格是否仅在可滚动容器内横向溢出。
+- 高风险与人工确认：本轮只改验收脚本和文档，不变更核心模型、外部契约、幂等/顺序、持久化、权限或多实现行为，通用标准 1–7 与项目清单 1–17 均未命中；无对外破坏性变更，无新增实施前人工确认。验收 6 的「受众删除最终校验须在服务端写入边界执行」不在本 PR 实现，用户已决定修订 #68 验收并已拆到后续 issue [#72](https://github.com/snack8310/gmp/issues/72)；当前仅浏览器读取服务端占用后拦截删除，不声明已满足这部分。
+- 历史规则：`docs/history/memory/review-package-consistency.md` 的载体一致性命中，任务卡与证据须统一措辞；`mechanization-claims.md` 的真实执行证据要求命中，不把脚本写成视为运行通过；`source-enumeration-fidelity.md` 的摘要禁用冻结计数命中，不写用例总数。其余记忆涉及 shell、领域事件或分桶，本轮不适用。近期同领域证据检索 `docs/history/changes/`，以 `2026-10-29-campaign-management-api.md`、`2026-10-28-campaign-activities-browse.md` 和本次变更证据为依据；规格为 `docs/api/campaign-management-api.md`。
+- 最小验证：用户指定的 Node 测试、demo `.mjs` 语法检查、导出、文档一致性与 diff 检查；沙箱外执行器运行 `campaign-http-check.mjs` 与 `browser-check.mjs`。未覆盖项：沙箱内真实 HTTP 和原生 Chrome（已由执行器沙箱外补跑通过，见[变更证据](../../history/changes/2026-10-29-campaign-activity-edit.md)）、验收 6 服务端最终校验（已拆到后续 issue [#72](https://github.com/snack8310/gmp/issues/72)）。约束由脚本断言固化，不新增散文规则。
+- 评估器重点：攻击精确状态码、未知 ID、历史栈 API 最新值、窄屏溢出、重复运行清理、证据对未执行结果的表述及验收 6 缺口。

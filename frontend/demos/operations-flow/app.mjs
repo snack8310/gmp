@@ -1,8 +1,8 @@
 import { filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
 import { mountAudiences } from './audience-ui.mjs';
 import { mountExperimentPicker, mountExperiments, escapeHTML } from './experiment-ui.mjs';
-import { renderActivitiesList, renderActivityDetail } from './campaign-ui.mjs';
-import { BROWSE_ACTIVITIES } from './campaign-activities.mjs';
+import { CampaignApi, browserCampaignApiBase } from './campaign-api-client.mjs';
+import { mountCampaigns } from './campaign-controller.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -229,28 +229,18 @@ function applyAudience(item,preserveExtra=false){
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
 function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(extraConfig&&!audienceUI.store.experiments().some(item=>item.id===extraConfig.experimentId))extraConfig=null;if(currentAudience)applyAudience(currentAudience,true);}
 const domains={audience:'audience-section',experimentation:'experimentation-section',campaign:'campaign-section',compose:'flow-section'};
-function activityIdFromRoute(route){
- try{return decodeURIComponent(route.slice('campaign/activities/'.length));}
- catch{return '';}
-}
-function renderCampaignRoute(route){
- const view=route==='campaign/activities'?'list':route.startsWith('campaign/activities/')?'detail':'overview';
- $('campaign-overview').hidden=view!=='overview';
- $('campaign-activities').hidden=view!=='list';
- $('campaign-detail').hidden=view!=='detail';
- if(view==='list')$('campaign-activities').innerHTML=renderActivitiesList();
- if(view==='detail')$('campaign-detail').innerHTML=renderActivityDetail(activityIdFromRoute(route), BROWSE_ACTIVITIES, audienceUI.store.catalog());
-}
 function renderDomain(){
  const route=window.location.hash.slice(1);
  const domain=route==='campaign'||route.startsWith('campaign/')?'campaign':Object.hasOwn(domains,route)?route:'audience';
  for(const [key,section] of Object.entries(domains)){$(section).hidden=key!==domain;$(`nav-${key}`).setAttribute('aria-current',key===domain?'page':'false');}
- if(domain==='campaign')renderCampaignRoute(route);
+ campaignUI.render(route);
  if(domain!=='compose')clock.pause();
 }
 function navigate(domain){window.location.hash=`#${domain}`;renderDomain();}
 window.addEventListener('hashchange',renderDomain);
-const audienceUI=mountAudiences({onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onDeleted:(id,items)=>{refreshAudienceOptions(items);if(currentAudience?.id===id)applyAudience(items[0]||null);else $('flow-audience').value=currentAudience?.id||'';},onNavigate:navigate});
+const campaignApi=new CampaignApi(browserCampaignApiBase(window.location, window.CAMPAIGN_API_BASE));
+const audienceUI=mountAudiences({api:campaignApi,onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onDeleted:(id,items)=>{refreshAudienceOptions(items);if(currentAudience?.id===id)applyAudience(items[0]||null);else $('flow-audience').value=currentAudience?.id||'';},onNavigate:navigate});
+const campaignUI=mountCampaigns({api:campaignApi,audienceStore:audienceUI.store,onNavigate:navigate,onChanged:()=>audienceUI.refreshProtection()});
 mountExperiments({store:audienceUI.store,onChanged:refreshExperiments});
 function addFlowNode(branch){
  if(!currentAudience||extraConfig||!(currentAudience.experimentId?['a','b']:['direct']).includes(branch))return;
