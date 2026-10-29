@@ -1,16 +1,17 @@
 # 领域演示：受众、实验、运营与组合
 
-独立前端展示 Demo：按受众、实验、运营三域查看对象，再在组合页引用并播放 SVG 沙盘。全部为构造数据，不接生产服务，不依赖 `gmp-core`、WebGL、框架、CDN 或第三方资产。
+独立前端展示 Demo：受众、实验和组合仍在浏览器中演示；活动与投放项经本机 #69 管理 REST API 读写。全部为构造数据，不接生产服务，不依赖 `gmp-core`、WebGL、框架、CDN 或第三方资产。
 
 ## 运行与导出
 
-在仓库根目录启动：
+活动编辑须同时启动管理 API 和同源演示入口。在两个终端分别运行：
 
 ```sh
-python3 -m http.server 8080 --bind 127.0.0.1 --directory frontend/demos/operations-flow
+cd management && GOCACHE=${GOCACHE:-/tmp/gmp-68-go-build-cache} go run ./cmd/campaign-api -addr 127.0.0.1:8082
+node frontend/demos/operations-flow/serve.mjs 8081 8082
 ```
 
-打开 `http://127.0.0.1:8080`。多文件版使用 JavaScript 模块，需 HTTP 服务。
+打开 `http://127.0.0.1:8081`。浏览器默认把当前 HTTP/HTTPS 页面的 `window.location.origin` 用作 API 基址；载入 `app.mjs` 前设置 `window.CAMPAIGN_API_BASE` 可覆盖。Node 客户端可向 `CampaignApi` 构造器传入基址，未传时仍默认 `http://127.0.0.1:8081`。#69 服务不提供跨源响应头，演示入口在同一源代理 `/api/v1/*` 到 8082；HTTP 写入仍由 #69 服务执行。只用普通静态服务启动页面时，没有 `/api/v1/*` 代理，活动 API 不可用。端口占用时可给 `serve.mjs` 传其他监听端口和 API 端口，浏览器无需再配置默认基址。
 
 直接打开的单文件版：
 
@@ -18,13 +19,13 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory frontend/demos/operatio
 node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 ```
 
-生成器内联同版本样式与模块，不上传、不部署；HTML 可离线打开。运行时无外部依赖，Node 只用于测试与导出。
+生成器内联同版本样式与模块，不上传、不部署；HTML 可离线打开。受众、实验和组合可离线演示；`file://` 没有 HTTP/HTTPS 同源基址，活动页默认明确提示 API 不可用，不会读取或保存活动。Node 用于演示服务、测试与导出。
 
 ## 操作
 
 ### 受众
 
-- 受众页管理可复用人群：名称搜索、新建、编辑、删除、取消、保存与实时预览。被演示活动或已发布包引用的人群组不能删除；删除未被引用且当前组合使用的人群时，组合会切到剩余的首个人群，或清空引用。进入方式包含批量来源及手动/每日 UTC 排期，或事件来源及预置模拟触发事件；国家、生命周期、未活跃天数按 AND 圈选。
+- 受众页管理可复用人群：名称搜索、新建、编辑、删除、取消、保存与实时预览。删除前重新读取服务端活动和引用占用；读取失败时拒绝删除。被服务端当前活动或已发布包引用的人群组不能删除；删除未被引用且当前组合使用的人群时，组合会切到剩余的首个人群，或清空引用。进入方式包含批量来源及手动/每日 UTC 排期，或事件来源及预置模拟触发事件；国家、生命周期、未活跃天数按 AND 圈选。
 - 可选引用**实验页已保存**的实验，本页只选 ID，不创建、改名或调整比例。匹配预览展示固定模拟池的资格人数和匿名样本；零匹配可保存，组合页不能播放触达。
 - 「发布实验人群包」是独立动作：选一份已保存、引用运行中实验的人群，按同一来源发布完整 A、B、对照臂。包与臂各有稳定 ID；对照臂可不挂投放项。仅保存带实验 ID 的人群不会生成包臂。下方统一引用目录列出普通人群组和已发布包臂的身份、名称、类型与可用性；被活动引用的包不能删除。
 - 点击「引用到组合」带入已保存人群。草稿不影响保存定义或组合；组合的「编辑此人群」返回本页。
@@ -37,9 +38,11 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 
 ### 运营
 
-- `#campaign` 保留活动、投放项、活动流程边三张概念卡，点击「查看活动列表」进入 `#campaign/activities`；列表按活动名称、投放项数量展示，点击「查看详情」进入 `#campaign/activities/<活动ID>`。详情可返回列表，支持刷新深链及浏览器前进、后退；未知 ID 会显示未找到。
-- 详情只读展示投放项清单及活动流程边关系表。普通组按组 ID、包臂按包 ID 与组 ID 从受众页同一目录解析；有效引用显示目录当前名称，改名不改变引用身份。目录缺失或不可用时保留活动原 ID、名称并标「引用不可用」，不会用同名静态种子冒充有效。RCS 成功到邮件、失败到短信的结果含义来自演示动作说明，关系表不求值或播放。无投放项、无流程对象、无边及不可用引用均有单独提示。
-- 活动与动作样例仍是 `campaign-activities.mjs` 中的虚构构造数据；正常活动样例引用受众 store 的默认普通组与已发布包臂种子。包内对照臂存在于目录，但无需投放项。运营不提供搜索、筛选、CRUD、装配和播放；跨层执行证据留在 `gmp-core/scenarios/`。
+- `#campaign` 保留概念卡；活动列表从 `GET /api/v1/campaigns` 读取，详情使用稳定 ID 深链。可创建、改名、删除活动，增删改投放项；取消编辑不写 API。活动与投放项 ID 均由服务端分配，删除整活动同时删除其活动流程边；被边引用的投放项删除会收到冲突提示。活动流程只读展示。
+- 每个投放项选一个 API 动作和一个 `store.catalog()` 人群，保存前同时核对 API 引用目录；展示动作须选择展示位，推送不得带展示位。同一活动同展示位仅同包不同臂可证互斥。服务端仍会对每次写入重校验，非 2xx 或网络错误留在编辑页显示，不能冒充保存成功。
+- 普通组按组 ID、包臂按包 ID 与组 ID 识别。缺失或不可用引用保留服务端 ID，以本地或 API 目录已知名称显示并标不可用，编辑时须改选可用引用。浏览器本地新增的人群不自动进入 #69 的构造目录，故不能直接用于活动保存；后续需单独解决目录同步。
+- `campaign-activities.mjs` 的静态构造活动只保留给旧只读渲染测试作对照，运行时活动列表和详情均不读取它。#69 进程重启会恢复构造种子，编辑结果不持久化到磁盘。
+- 旧活动键 `gmp-campaign-demo-v1` **不读取、不迁移、不写入、不清空**；服务端与旧键冲突时以服务端为准。损坏或未知版本原样留在浏览器，不能覆盖服务端活动。回退到旧只读前端不改变该键；若未来要迁移，应另行设计版本校验、冲突解决和失败回退。受众键 `gmp-audience-demo-v1` 仍按原有兼容规则使用。
 
 ### 组合
 
@@ -55,7 +58,7 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 - 节点累计到达不能跨节点相加为总人数；当前占用包含节点和其出站路段。主、副对照留存合计为不触达终态。
 - 成功仅指模拟回执，不是阅读、下单或转化。渠道和结果为展示脚本，优化场景不是效果预测。
 - 排期与触发类型仅演示配置；播放仍只模拟符合条件样本依次进入，不执行调度、事件订阅、重复事件处理或多画布分发。多画布事件归属与投递语义尚未确定，本 Demo 不替产品作决定。
-- 不上传名单、不保存样本、不记录生产执行或染色、不接真实分桶、不发任何消息。没有账号、权限、后端、多用户同步或生产执行引擎。
+- 不上传名单、不保存样本、不记录生产执行或染色、不接真实分桶、不发任何消息。活动管理仅有本机进程内后端，没有账号、权限、多用户同步或生产执行引擎。
 - 统一目录和运行态只在当前浏览器本地演示；不跨设备同步，不代表生产发布或生产可用性判定。
 - 这是展示沙盘，不是生产平台的流程引擎或领域语义实现。领域文档中尚待确认的功能不因本 Demo 变成业务决策。
 
@@ -72,17 +75,21 @@ node --check frontend/demos/operations-flow/campaign-ui.mjs
 node --check frontend/demos/operations-flow/app.mjs
 node --check frontend/demos/operations-flow/export.mjs
 node --check frontend/demos/operations-flow/browser-check.mjs
+node --check frontend/demos/operations-flow/campaign-api-client.mjs
+node --check frontend/demos/operations-flow/campaign-controller.mjs
+node --check frontend/demos/operations-flow/serve.mjs
+node frontend/demos/operations-flow/campaign-http-check.mjs http://127.0.0.1:8081
 ```
 
-macOS 上可用真实 Chrome headless 复现发布、目录、活动引用、停用失效、禁删与刷新主路径。先按上文启动 HTTP 服务，再在另一个终端用全新临时浏览器配置启动 Chrome，最后运行脚本（需要支持内置 `WebSocket` 的 Node）：
+macOS 上可用真实 Chrome headless 复现活动与受众主路径。先按上文启动 API 和同源演示入口，再在另一个终端用全新临时浏览器配置启动 Chrome，最后运行脚本（需要支持内置 `WebSocket` 的 Node）：
 
 ```sh
-'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --remote-debugging-port=9222 --user-data-dir="$(mktemp -d)" --no-first-run --no-default-browser-check http://127.0.0.1:8080/
-node frontend/demos/operations-flow/browser-check.mjs 8080 9222
+'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --remote-debugging-port=9222 --user-data-dir="$(mktemp -d)" --no-first-run --no-default-browser-check http://127.0.0.1:8081/
+node frontend/demos/operations-flow/browser-check.mjs 8081 9222
 ```
 
 Chrome 命令需保持运行；脚本的位置参数依次为 HTTP 端口与 Chrome 调试端口。脚本会在该临时浏览器配置中写入演示键，请勿指向日常浏览器配置。
 
-测试覆盖四域导航、活动列表与详情深链、发布校验、目录身份与失效、活动跨引用、禁删、v1–v4 缓存兼容、导出启动，以及原有筛选、分组、流程节点、人数守恒、播放和低动态分支。处理器替身不代替真实浏览器验收；本次浏览器验证结果见 `docs/history/changes/2026-10-28-frontend-bundle-publish-catalog.md`。JavaScript 检查目前手动执行，未宣称已纳入 CI。
+测试覆盖四域导航、活动深链、编辑校验、API 失败、受众禁删、v1–v4 受众缓存兼容、导出启动，以及原有筛选、分组、流程节点、人数守恒、播放和低动态分支。真实 HTTP 脚本覆盖活动与投放项写入、错误体、占用变化；浏览器脚本覆盖界面主路径。JavaScript 检查目前手动执行，未宣称已纳入 CI。
 
 真实渠道、生产性能、跨浏览器全矩阵不在范围。回滚本次前端文件即可；遗留缓存可忽略或仅移除该命名空间，不涉及业务数据。

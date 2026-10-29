@@ -12,22 +12,28 @@ test('standalone export embeds the actual modules, has no external assets, and b
   const output=join(dir,'demo.html');
   execFileSync(process.execPath,[new URL('./export.mjs',import.meta.url).pathname,output]);
   const html=await readFile(output,'utf8');
-  assert.doesNotMatch(html,/<script[^>]+src=|<link[^>]+stylesheet|https?:\/\//i);
+  assert.doesNotMatch(html,/<script[^>]+src=|<link[^>]+stylesheet/i);
+  assert.match(html,/离线单文件.*不能读取或保存活动/);
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   assert.doesNotMatch(script,/^import |^export /m);
   const elements=new Map();
   const element=id=>{if(!elements.has(id))elements.set(id,{value:'',checked:false,style:{},dataset:{},classList:{toggle(){},add(){},remove(){}},setAttribute(){},addEventListener(){}});return elements.get(id);};
   const document={getElementById:element,querySelector:element,querySelectorAll:()=>[],addEventListener(){}};
-  const window={location:{hash:'#campaign/activities/campaign-branch'},listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}};
-  new Script(script).runInNewContext({document,window,matchMedia:()=>({matches:false,addEventListener(){}}),requestAnimationFrame:()=>1,cancelAnimationFrame(){},fetch(){throw new Error('Network forbidden');}});
+  const window={location:{hash:'#campaign/activities/campaign-branch',protocol:'file:',origin:'null'},listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}};
+  let fetchCalls=0;
+  new Script(script).runInNewContext({document,window,matchMedia:()=>({matches:false,addEventListener(){}}),requestAnimationFrame:()=>1,cancelAnimationFrame(){},fetch(){fetchCalls++;throw new Error('Network forbidden');}});
   assert.equal(element('total').textContent,192);
   assert.ok(element('audience-list').innerHTML.includes('墨西哥'));
   assert.ok(element('storage-warning').textContent.includes('存储不可用'));
-  assert.ok(element('campaign-detail').innerHTML.includes('treatment-rcs'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(element('campaign-detail').innerHTML.includes('离线单文件没有同源 HTTP 服务'));
+  assert.equal(fetchCalls,0);
   window.location.hash='#campaign/activities';window.listeners.hashchange();
-  assert.ok(element('campaign-activities').innerHTML.includes('campaign-branch'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(element('campaign-activities').innerHTML.includes('无法读取活动管理 API'));
   window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
-  assert.ok(element('campaign-detail').innerHTML.includes('treatment-rcs'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(element('campaign-detail').innerHTML.includes('无法读取活动管理 API'));
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 

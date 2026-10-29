@@ -122,7 +122,7 @@ function nextId(values, prefix) {
   while (values.some(value => value.id === `${prefix}-${serial}`)) serial++;
   return `${prefix}-${serial}`;
 }
-const groupIdOf = id => id === 'aud-mx-dormant' ? 'group-recall' : id === 'aud-whitelist-new' ? 'group-new' : `group-${id}`;
+export const groupIdOf = id => id === 'aud-mx-dormant' ? 'group-recall' : id === 'aud-whitelist-new' ? 'group-new' : `group-${id}`;
 const experimentState = experiment => ({ id: experiment.id, name: experiment.name.trim(), runtimeStatus: experiment.runtimeStatus ?? 'stopped', generation: experiment.generation ?? 0 });
 function validateBundle(bundle, definitions, experiments, bundles) {
   if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) return ['实验人群包无效。'];
