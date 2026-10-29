@@ -4,7 +4,7 @@
 
 ## 背景
 
-原页面按「人群管理 → 运营沙盘」组织入口，实验管理散落在受众编辑和沙盘中，容易把演示顺序误读为 `audience`、`experimentation`、`campaign` 三个子项目的职责划分。本次把各域对象放回各自页面，跨域引用和播放集中到最后的组合页。
+原页面按「人群管理 → 运营沙盘」组织入口，实验管理散落在受众编辑和沙盘中，容易把演示顺序误读为 `audience`、`experimentation`、`campaign` 的职责划分。本次把各域对象放回各自页面，跨域引用和播放集中到最后的组合页。
 
 ## 关键实现
 
@@ -15,7 +15,7 @@
 
 ## 关键文件
 
-- `frontend/demos/operations-flow/index.html`、`style.css`、`app.mjs`：四域页面、响应式导航及路由。
+- `frontend/demos/operations-flow/index.html`、`style.css`、`app.mjs`：受众、实验、运营与组合页面，响应式导航及路由。
 - `frontend/demos/operations-flow/experiment-ui.mjs`、`audience-ui.mjs`、`audience.mjs`：实验管理、人群引用与删除边界。
 - `frontend/demos/operations-flow/export.mjs`：离线页面模块打包。
 - `frontend/demos/operations-flow/*.test.mjs`：导航、CRUD、引用、缓存、播放与导出回归。
@@ -25,11 +25,11 @@
 
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
-| `node --test frontend/demos/operations-flow/*.test.mjs` | 通过 | 43/43，包括旧缓存、被引用实验删除保护、组合引用清理与离线导出 |
-| 改动 JS 模块及测试逐个 `node --check` | 通过 | 退出码 0 |
-| `python3 test/docs/consistency_check.py` | 通过 | 10 项文档检查 |
-| `python3 test/docs/consistency_check_test.py` | 通过 | 19 个变异用例 |
-| `git diff --check` | 通过 | 退出码 0 |
+| `node --test frontend/demos/operations-flow/*.test.mjs` | 退出码 0 | 覆盖旧缓存、被引用实验删除保护、组合引用清理与离线导出 |
+| 改动 JS 模块及测试逐个 `node --check` | 退出码 0 | 语法检查无诊断 |
+| `python3 test/docs/consistency_check.py` | 退出码 0 | 文档一致性门禁 |
+| `python3 test/docs/consistency_check_test.py` | 退出码 0 | 覆盖空断言、事实引用、编号、文档归类、设计文档结构、色板与对比度、相对链接的变异 |
+| `git diff --check` | 退出码 0 | 无空白错误 |
 | Chrome 页面走查 | 部分通过 | 实际页面完成实验创建与删除；独立评估器核对 1280px 和约 500px 截图 |
 | PR head 的 CI | 通过 | 以 PR checks 关联的当前 head 为准，不在版本化文档固定 run ID |
 
