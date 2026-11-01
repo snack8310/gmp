@@ -57,6 +57,8 @@ await import('./app.mjs');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const fire = (id,event,data={}) => element(id).listeners[event](data);
 const pointer = (id, extra={}) => ({pointerType:'mouse',button:0,clientX:100,clientY:100,pointerId:1,target:{closest:()=>id?{dataset:{node:id}}:null},...extra});
+const controllerVersion = id => Number(element(id).innerHTML.match(/data-controller-version="(\d+)"/)?.[1]);
+const formTarget = id => ({id,dataset:{controllerVersion:String(controllerVersion('campaign-editor'))},querySelector:()=>({disabled:false})});
 
 test('app requests the campaign API from the page origin by default', async () => {
  await settle();
@@ -289,18 +291,38 @@ test('the activity list is the outer navigation and shared assets survive activi
  assert.ok([...browserStorage.keys()].every(key=>key===STORAGE_KEY));
 });
 
-test('activity changes immediately clear an old operation editor while the activity list request is pending',async()=>{
+test('activity changes invalidate old operation forms before the next activity list request completes',async()=>{
  window.location.hash='#activities/campaign-branch/campaign';window.listeners.hashchange();await settle();
  assert.equal(element('campaign-detail').hidden,false);
+ window.location.hash='#activities/campaign-branch/campaign/edit';window.listeners.hashchange();await settle();
+ element('campaign-name').value='迟到的旧表单';
+ const staleForm=formTarget('campaign-form');
+ const beforeWrites=writes, beforeActivities=apiCampaigns.length;
  deferCampaignList=true;
  window.location.hash='#activities/campaign-empty/audience';window.listeners.hashchange();
  assert.equal(element('campaign-section').hidden,true);
  assert.equal(element('campaign-detail').hidden,true);
  assert.equal(element('activity-route-loading').hidden,false);
+ await fire('campaign-section','submit',{target:staleForm,preventDefault(){}});
+ assert.equal(writes,beforeWrites);
+ assert.equal(apiCampaigns.length,beforeActivities);
+ assert.equal(window.location.hash,'#activities/campaign-empty/audience');
  releaseCampaignList();await settle();
  assert.equal(element('activity-context-name').textContent,'待装配活动');
  assert.equal(element('audience-section').hidden,false);
  assert.equal(element('nav-audience').attributes['aria-current'],'page');
+});
+
+test('a stale activity delete control cannot delete after its controller is cleared',async()=>{
+ window.location.hash='#activities/campaign-branch/campaign';window.listeners.hashchange();await settle();
+ const staleDelete={dataset:{controllerVersion:String(controllerVersion('campaign-detail')),deleteActivity:'campaign-branch'},hasAttribute:()=>false};
+ const before=apiCampaigns.length;
+ window.confirm=()=>true;
+ window.location.hash='#activities/campaign-empty/audience';window.listeners.hashchange();await settle();
+ await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?staleDelete:null}});
+ assert.equal(apiCampaigns.length,before);
+ assert.ok(apiCampaigns.some(item=>item.id==='campaign-branch'));
+ assert.equal(window.location.hash,'#activities/campaign-empty/audience');
 });
 
 test('encoded activity IDs round trip through list links and deep routes',async()=>{
@@ -370,7 +392,7 @@ test('deleting a free audience updates composition while referenced groups stay 
 test('campaign writes follow API success, while 4xx and cancel keep server state',async()=>{
  window.location.hash='#activities/new';window.listeners.hashchange();await settle();
  element('campaign-name').value='接口创建活动';
- const form={id:'campaign-form',querySelector:()=>({disabled:false})};
+ const form=formTarget('campaign-form');
  const before=writes;
  nextFailure=true;
  await fire('campaign-section','submit',{target:form,preventDefault(){}});
@@ -382,20 +404,21 @@ test('campaign writes follow API success, while 4xx and cancel keep server state
  assert.match(id,/^campaign-test-/);
  assert.match(element('campaign-detail').innerHTML,/接口创建活动/);
  window.location.hash+= '/edit';window.listeners.hashchange();await settle();
+ const editForm=formTarget('campaign-form');
  nextFailure=true;
- await fire('campaign-section','submit',{target:form,preventDefault(){}});
+ await fire('campaign-section','submit',{target:editForm,preventDefault(){}});
  assert.doesNotMatch(element('campaign-status').textContent,/已保存/);
  element('campaign-name').value='未保存改名';
  const savedWrites=writes;
- fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{},hasAttribute:name=>name==='data-cancel-campaign'}:null}});
+ fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{controllerVersion:String(controllerVersion('campaign-editor'))},hasAttribute:name=>name==='data-cancel-campaign'}:null}});
  assert.equal(writes,savedWrites);
  assert.equal(apiCampaigns.find(item=>item.id===id).name,'接口创建活动');
  window.location.hash=`#campaign/activities/${id}/edit`;window.listeners.hashchange();await settle();
  element('campaign-name').value='接口已改名';
- await fire('campaign-section','submit',{target:form,preventDefault(){}});await settle();
+ await fire('campaign-section','submit',{target:formTarget('campaign-form'),preventDefault(){}});await settle();
  assert.equal(apiCampaigns.find(item=>item.id===id).name,'接口已改名');
  window.confirm=()=>true;
- await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{deleteActivity:id},hasAttribute:()=>false}:null}});await settle();
+ await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{controllerVersion:String(controllerVersion('campaign-detail')),deleteActivity:id},hasAttribute:()=>false}:null}});await settle();
  assert.ok(!apiCampaigns.some(item=>item.id===id));
  window.location.hash=`#campaign/activities/${id}`;window.listeners.hashchange();await settle();
  assert.equal(element('activity-not-found-title').textContent,'未找到该活动');
@@ -405,7 +428,7 @@ test('treatment add, edit and delete use API state and reject failed writes',asy
  window.location.hash='#campaign/activities/campaign-empty/treatments/new';window.listeners.hashchange();await settle();
  assert.match(element('campaign-editor').innerHTML,/新增投放项/);
  element('treatment-name').value='短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
- const form={id:'treatment-form',querySelector:()=>({disabled:false})};
+ const form=formTarget('treatment-form');
  nextFailure=true;
  await fire('campaign-section','submit',{target:form,preventDefault(){}});
  assert.match(element('campaign-error').textContent,/服务端拒绝保存/);
@@ -416,10 +439,10 @@ test('treatment add, edit and delete use API state and reject failed writes',asy
  assert.match(element('campaign-detail').innerHTML,/短信/);
  window.location.hash=`#campaign/activities/campaign-empty/treatments/${added.id}/edit`;window.listeners.hashchange();await settle();
  element('treatment-name').value='短信已改名';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
- await fire('campaign-section','submit',{target:form,preventDefault(){}});await settle();
+ await fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});await settle();
  assert.equal(apiCampaigns.find(item=>item.id==='campaign-empty').treatments[0].name,'短信已改名');
  window.confirm=()=>true;
- await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{deleteTreatment:added.id},hasAttribute:()=>false}:null}});await settle();
+ await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?{dataset:{controllerVersion:String(controllerVersion('campaign-detail')),deleteTreatment:added.id},hasAttribute:()=>false}:null}});await settle();
  assert.equal(apiCampaigns.find(item=>item.id==='campaign-empty').treatments.length,0);
  assert.match(element('campaign-detail').innerHTML,/暂无投放项/);
 });
@@ -445,7 +468,7 @@ test('treatment completion refreshes usages after navigating away during HTTP wr
  element('treatment-name').value='慢请求短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
  const before=usageCalls;
  deferTreatment=true;
- const saving=fire('campaign-section','submit',{target:{id:'treatment-form',querySelector:()=>({disabled:false})},preventDefault(){}});
+ const saving=fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});
  await settle();
  window.location.hash='#campaign/activities';window.listeners.hashchange();await settle();
  releaseTreatment();
@@ -460,7 +483,7 @@ test('treatment completion keeps another domain open after HTTP write',async()=>
  element('treatment-name').value='跨域切换短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
  const before=usageCalls;
  deferTreatment=true;
- const saving=fire('campaign-section','submit',{target:{id:'treatment-form',querySelector:()=>({disabled:false})},preventDefault(){}});
+ const saving=fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});
  await settle();
  window.location.hash='#activities/campaign-branch/audience';window.listeners.hashchange();await settle();
  releaseTreatment();

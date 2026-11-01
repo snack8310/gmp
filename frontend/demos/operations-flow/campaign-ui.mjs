@@ -24,10 +24,10 @@ function audienceLabel(ref, catalog, serverRefs = null) {
  return `<span class="campaign-ref-kind">${kind}</span> ${label} <small>· ${ids}</small>${available ? '' : ` ${unavailable}`}`;
 }
 
-function renderTreatments(treatments, catalog, editable = false, actions = REFERENCE_CATALOG.actions, serverRefs = null, activityId = '') {
+function renderTreatments(treatments, catalog, editable = false, actions = REFERENCE_CATALOG.actions, serverRefs = null, activityId = '', controllerVersion = '') {
  if (!treatments.length) return '<p class="campaign-empty">暂无投放项</p>';
  const activityBase = activityRoute(activityId, 'campaign');
- const rows = treatments.map(treatment => { const action = actions.find(item => item.id === treatment.actionId); const valid = treatment.actionRef ? actionAvailable(treatment.actionRef) : Boolean(action?.available); return `<tr><th scope="row">${safe(treatment.name)} <small>· ${safe(treatment.id)}</small></th><td>${safe(treatment.actionRef?.name || action?.name || treatment.actionId)} <small>· ${safe(treatment.actionRef?.id || treatment.actionId)}</small>${valid ? '' : ` ${unavailable}`}</td><td>${audienceLabel(treatment.audienceRef, catalog, serverRefs)}</td><td>${treatment.slotId ? safe(treatment.slotId) : '—'}</td>${editable ? `<td><a href="#${activityBase}/treatments/${safe(encodeURIComponent(treatment.id))}/edit">编辑</a> <button type="button" data-delete-treatment="${safe(treatment.id)}">删除</button></td>` : ''}</tr>`; }).join('');
+ const rows = treatments.map(treatment => { const action = actions.find(item => item.id === treatment.actionId); const valid = treatment.actionRef ? actionAvailable(treatment.actionRef) : Boolean(action?.available); return `<tr><th scope="row">${safe(treatment.name)} <small>· ${safe(treatment.id)}</small></th><td>${safe(treatment.actionRef?.name || action?.name || treatment.actionId)} <small>· ${safe(treatment.actionRef?.id || treatment.actionId)}</small>${valid ? '' : ` ${unavailable}`}</td><td>${audienceLabel(treatment.audienceRef, catalog, serverRefs)}</td><td>${treatment.slotId ? safe(treatment.slotId) : '—'}</td>${editable ? `<td><a href="#${activityBase}/treatments/${safe(encodeURIComponent(treatment.id))}/edit">编辑</a> <button type="button" data-controller-version="${controllerVersion}" data-delete-treatment="${safe(treatment.id)}">删除</button></td>` : ''}</tr>`; }).join('');
  return `<div class="campaign-table-scroll" tabindex="0" aria-label="投放项表格，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">投放项</th><th scope="col">动作</th><th scope="col">引用人群</th><th scope="col">展示位</th>${editable ? '<th scope="col">操作</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -44,12 +44,12 @@ function renderFlow(activity) {
  return `<p class="campaign-note">活动流程 · ${safe(flow.id)}。结果含义来自演示动作说明；边只展示回执关系，不在此求值或播放。</p><div class="campaign-table-scroll" tabindex="0" aria-label="活动流程关系表，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">起点 → 终点</th><th scope="col">回执条件</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES, catalog = DEFAULT_AUDIENCE_CATALOG, editable = false, actions = REFERENCE_CATALOG.actions, serverRefs = null) {
+export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES, catalog = DEFAULT_AUDIENCE_CATALOG, editable = false, actions = REFERENCE_CATALOG.actions, serverRefs = null, controllerVersion = '') {
  const back = '<a class="campaign-back" href="#activities">← 返回活动列表</a>';
  const activity = activities.find(item => item.id === id);
  if (!activity) return `${back}<div class="section-heading"><div><h2>未找到该演示活动</h2></div></div>`;
  const base = activityRoute(id, 'campaign');
- return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a href="#${base}/edit">编辑活动</a><button type="button" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id)}<p class="campaign-note">运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
+ return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a href="#${base}/edit">编辑活动</a><button type="button" data-controller-version="${controllerVersion}" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id, controllerVersion)}<p class="campaign-note">运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
 }
 
 export function validateTreatmentDraft(value, actions, references, others) {
