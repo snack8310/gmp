@@ -149,11 +149,20 @@ func runSharedArmCampaigns(t *testing.T, stack *scenarios.Stack, assignment expe
 	var campaigns []campaign.Campaign
 	for i, share := range []int{2, 3, 2} {
 		group, _ := bundle.Group(arms[share-1].Share)
-		treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: campaign.TreatmentID(fmt.Sprintf("send-%d", i)), Who: group, Call: call})
+		treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: campaign.TreatmentID(fmt.Sprintf("send-%d", i)), Call: call})
 		if err != nil {
 			t.Fatal(err)
 		}
-		built, err := campaign.NewCampaign(campaign.CampaignSpec{ID: campaign.CampaignID(fmt.Sprintf("activity-%d", i)), Priority: campaign.NewPriority(1), Treatments: []campaign.Treatment{treatment}})
+		flow, err := campaign.NewFlow(campaign.FlowSpec{ID: campaign.FlowID(fmt.Sprintf("activity-%d-flow", i)), Entries: []campaign.EntrySpec{{
+			Group: group.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{treatment.ID()},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		built, err := campaign.NewCampaign(campaign.CampaignSpec{
+			ID: campaign.CampaignID(fmt.Sprintf("activity-%d", i)), Priority: campaign.NewPriority(1),
+			Audience: audience.SelectGroup(group), Treatments: []campaign.Treatment{treatment}, Flow: flow,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -172,7 +181,7 @@ func runSharedArmCampaigns(t *testing.T, stack *scenarios.Stack, assignment expe
 			}
 		}
 	}
-	if campaigns[0].Treatments()[0].Audience().ID() != campaigns[2].Treatments()[0].Audience().ID() {
+	if campaigns[0].Audience().Groups()[0].ID() != campaigns[2].Audience().Groups()[0].ID() {
 		t.Fatal("shared arm was copied instead of reused")
 	}
 	return runner, campaigns
@@ -189,11 +198,7 @@ func addSharedArmDisplay(t *testing.T, stack *scenarios.Stack, bundle audience.B
 		t.Fatal(err)
 	}
 	group, _ := bundle.Group(arms[1].Share)
-	everyone, err := stack.Definition("display-anyone")
-	if err != nil {
-		t.Fatal(err)
-	}
-	display, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "shared-banner", Slot: scenarios.BannerSlot, Who: audience.Single(everyone), Call: displayCall})
+	display, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "shared-banner", Slot: scenarios.BannerSlot, Call: displayCall})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +206,16 @@ func addSharedArmDisplay(t *testing.T, stack *scenarios.Stack, bundle audience.B
 	if err != nil {
 		t.Fatal(err)
 	}
-	activity, err := campaign.NewCampaign(campaign.CampaignSpec{ID: "display-activity", Priority: campaign.NewPriority(1), Treatments: []campaign.Treatment{display}, Tables: []campaign.DecisionTable{table}})
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "display-activity-flow", Entries: []campaign.EntrySpec{{
+		Group: group.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{display.ID()},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "display-activity", Priority: campaign.NewPriority(1), Audience: audience.SelectGroup(group),
+		Treatments: []campaign.Treatment{display}, Tables: []campaign.DecisionTable{table}, Flow: flow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,11 +323,21 @@ func TestUnregisteredShareCannotAttach(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "arm", Slot: scenarios.BannerSlot, Who: audience.Single(definition), Call: call})
+	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "arm", Slot: scenarios.BannerSlot, Call: call})
 	if err != nil {
 		t.Fatal(err)
 	}
-	activity, err := campaign.NewCampaign(campaign.CampaignSpec{ID: "unregistered-activity", Priority: campaign.NewPriority(1), Treatments: []campaign.Treatment{treatment}})
+	group := audience.Single(definition)
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "unregistered-activity-flow", Entries: []campaign.EntrySpec{{
+		Group: group.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{treatment.ID()},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "unregistered-activity", Priority: campaign.NewPriority(1), Audience: audience.SelectGroup(group),
+		Treatments: []campaign.Treatment{treatment}, Flow: flow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

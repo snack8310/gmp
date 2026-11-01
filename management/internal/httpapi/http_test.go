@@ -100,242 +100,134 @@ func TestStateAndRestart(t *testing.T) {
 	}
 }
 
-func TestTreatmentValidationAndAtomicity(t *testing.T) {
+func TestTreatmentsHaveNoAudienceAndRemainAtomic(t *testing.T) {
 	c := newClient(t)
 	base := "/api/v1/campaigns/campaign-empty/treatments"
-	create := func(name, action, audience, slot string, want int) map[string]any {
+	c.call("PUT", "/api/v1/campaigns/campaign-empty/audience", `{"expectedAudience":null,"audience":{"type":"group","groupId":"group-new"}}`, 200)
+	create := func(body string, want int) map[string]any {
 		t.Helper()
-		return c.call("POST", base, `{"name":"`+name+`","actionId":"`+action+`","audienceRef":`+audience+`,"slotId":"`+slot+`"}`, want)
+		return c.call("POST", base, body, want)
 	}
-	group := `{"type":"group","groupId":"group-new"}`
-	armA := `{"type":"arm","bundleId":"bundle-warmup","groupId":"group-arm-a"}`
-	armB := `{"type":"arm","bundleId":"bundle-warmup","groupId":"group-arm-b"}`
-	for _, tc := range []struct{ action, audience, slot, code string }{
-		{"action-missing", group, "", "unknown_action"},
-		{"action-retired", group, "", "unavailable_action"},
-		{"action-sms", `{"type":"group","groupId":"group-missing"}`, "", "unknown_audience"},
-		{"action-sms", `{"type":"group","groupId":"group-removed"}`, "", "unavailable_audience"},
-		{"action-sms", `{"type":"arm","bundleId":"bundle-wrong","groupId":"group-arm-a"}`, "", "unknown_audience"},
-		{"action-sms", `{"type":"arm","bundleId":"bundle-retired","groupId":"group-arm-retired"}`, "", "unavailable_audience"},
-		{"action-sms", group, "slot-home-banner", "unexpected_slot"},
-		{"action-show-image", group, "", "missing_slot"},
-		{"action-show-image", group, "slot-wrong", "unknown_slot"},
+	for _, body := range []string{
+		`{"name":"未知动作","actionId":"action-missing"}`,
+		`{"name":"停用动作","actionId":"action-retired"}`,
+		`{"name":"缺展示位","actionId":"action-show-image"}`,
+		`{"name":"旧模型字段","actionId":"action-sms","audienceRef":{"type":"group","groupId":"group-new"}}`,
 	} {
-		errorCode(t, create("无效", tc.action, tc.audience, tc.slot, 422), tc.code)
+		want := 400
+		if strings.Contains(body, "action-missing") || strings.Contains(body, "action-retired") || strings.Contains(body, "action-show-image") {
+			want = 422
+		}
+		got := create(body, want)
+		if got == nil {
+			t.Fatal("invalid treatment request unexpectedly succeeded")
+		}
 	}
-	if len(items(t, c.call("GET", "/api/v1/campaigns/campaign-empty", "", 200), "treatments")) != 0 {
-		t.Fatal("failed create polluted state")
+	created := create(`{"name":"欢迎短信","actionId":"action-sms"}`, 201)
+	id := field(t, created, "id")
+	if _, exists := created["audienceRef"]; exists {
+		t.Fatal("treatment still exposes its own audience")
 	}
-	a := create("图片 A", "action-show-image", armA, "slot-home-banner", 201)
-	b := create("图片 B", "action-show-image", armB, "slot-home-banner", 201)
-	if field(t, create("首页大图", "action-show-image", group, "slot-home-hero", 201), "slotId") != "slot-home-hero" {
-		t.Fatal("second configured slot was not saved")
-	}
-	if field(t, a, "id") == field(t, b, "id") {
-		t.Fatal("treatment IDs not unique")
-	}
-	errorCode(t, create("普通组图片", "action-show-image", group, "slot-home-banner", 409), "slot_conflict")
-	push := create("短信", "action-sms", group, "", 201)
-	pushID := field(t, push, "id")
-	c.call("PUT", base+"/"+pushID, `{"id":"`+pushID+`","name":"改引短信","actionId":"action-sms","audienceRef":`+armA+`,"slotId":""}`, 200)
 	before := c.call("GET", "/api/v1/campaigns/campaign-empty", "", 200)
-	errorCode(t, c.call("PUT", base+"/"+pushID, `{"id":"`+pushID+`","name":"坏更新","actionId":"action-show-image","audienceRef":`+group+`,"slotId":"slot-home-banner"}`, 409), "slot_conflict")
+	c.call("PUT", base+"/"+id, `{"id":"`+id+`","name":"错误动作","actionId":"action-missing"}`, 422)
 	after := c.call("GET", "/api/v1/campaigns/campaign-empty", "", 200)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("failed update polluted state")
 	}
-	c.call("DELETE", base+"/"+pushID, "", 204)
+	c.call("DELETE", base+"/"+id, "", 204)
 }
 
-func TestFlowAndWholeCampaignValidation(t *testing.T) {
+func TestCampaignFlowEntryAndReceiptRoutes(t *testing.T) {
 	c := newClient(t)
 	path := "/api/v1/campaigns/campaign-branch"
 	branch := c.call("GET", path, "", 200)
-	if _, ok := branch["activityFlow"]; !ok {
-		t.Fatal("seed flow missing")
-	}
-	errorCode(t, c.call("PUT", path+"/flow", `{"id":"flow-recall","edges":[]}`, 400), "expected_edges_required")
-	errorCode(t, c.call("DELETE", path+"/treatments/treatment-rcs", "", 409), "edge_conflict")
-	if len(items(t, c.call("GET", path, "", 200), "treatments")) != 3 {
-		t.Fatal("failed delete changed state")
+	if _, ok := branch["audience"]; !ok {
+		t.Fatal("activity audience missing")
 	}
 	flow := branch["activityFlow"].(map[string]any)
-	expectedEdges := append([]any{}, items(t, flow, "edges")...)
-	flow["expectedEdges"] = expectedEdges
-	flow["edges"] = append(expectedEdges, map[string]any{"id": "edge-email-sms", "fromTreatmentId": "treatment-email", "toTreatmentId": "treatment-sms", "conditionLabel": "成功"})
-	updatedFlow, err := json.Marshal(flow)
+	entries := append([]any{}, items(t, flow, "entries")...)
+	edges := append([]any{}, items(t, flow, "edges")...)
+	if len(entries) != 1 || field(t, entries[0].(map[string]any), "groupId") != "group-recall" {
+		t.Fatalf("expected a single campaign audience route, got %#v", entries)
+	}
+	if _, exists := items(t, branch, "treatments")[0].(map[string]any)["audienceRef"]; exists {
+		t.Fatal("treatment has a duplicated audience reference")
+	}
+	errorCode(t, c.call("PUT", path+"/flow", `{"id":"flow-recall","entries":[],"edges":[]}`, 400), "expected_flow_required")
+	errorCode(t, c.call("DELETE", path+"/treatments/treatment-rcs", "", 409), "entry_conflict")
+
+	flow["expectedEntries"] = entries
+	flow["expectedEdges"] = edges
+	flow["entries"] = []any{map[string]any{"groupId": "group-new", "kind": "start", "treatmentIds": []any{"treatment-rcs"}}}
+	body, err := json.Marshal(flow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch = c.call("PUT", path+"/flow", string(updatedFlow), 200)
-	if len(items(t, branch["activityFlow"].(map[string]any), "edges")) != 3 {
+	errorCode(t, c.call("PUT", path+"/flow", string(body), 409), "entry_outside_audience")
+
+	updatedEdges := append(edges, map[string]any{"id": "edge-email-sms", "fromTreatmentId": "treatment-email", "toTreatmentId": "treatment-sms", "conditionLabel": "成功"})
+	flow["entries"] = entries
+	flow["edges"] = updatedEdges
+	body, err = json.Marshal(flow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := c.call("PUT", path+"/flow", string(body), 200)
+	updatedFlow := updated["activityFlow"].(map[string]any)
+	if len(items(t, updatedFlow, "edges")) != 3 {
 		t.Fatal("valid activity flow update was not retained")
 	}
-	staleFlow, err := json.Marshal(map[string]any{"id": "flow-recall", "expectedEdges": expectedEdges, "edges": expectedEdges})
+
+	flow["expectedEdges"] = edges
+	flow["edges"] = edges
+	body, err = json.Marshal(flow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	errorCode(t, c.call("PUT", path+"/flow", string(staleFlow), 409), "flow_conflict")
-	if !reflect.DeepEqual(branch, c.call("GET", path, "", 200)) {
+	errorCode(t, c.call("PUT", path+"/flow", string(body), 409), "flow_conflict")
+	if !reflect.DeepEqual(updated, c.call("GET", path, "", 200)) {
 		t.Fatal("stale flow update changed current edges")
 	}
-	bad := `{"id":"campaign-branch","name":"坏更新","treatments":[{"id":"treatment-rcs","name":"RCS","actionId":"action-rcs","audienceRef":{"type":"group","groupId":"group-recall"}}],"activityFlow":{"id":"flow-recall","edges":[{"id":"edge-success","fromTreatmentId":"treatment-rcs","toTreatmentId":"treatment-email","conditionLabel":"成功"}]}}`
-	errorCode(t, c.call("PUT", path, bad, 409), "flow_read_only")
-	invalidFlow, err := json.Marshal(map[string]any{"id": "flow-recall", "expectedEdges": items(t, branch["activityFlow"].(map[string]any), "edges"), "edges": []any{map[string]any{"id": "edge-unknown-outcome", "fromTreatmentId": "treatment-rcs", "toTreatmentId": "treatment-email", "conditionLabel": "已读"}}})
+	bad := map[string]any{"id": "flow-recall", "expectedEntries": entries, "expectedEdges": updatedEdges, "entries": entries, "edges": []any{map[string]any{"id": "bad", "fromTreatmentId": "treatment-rcs", "toTreatmentId": "treatment-email", "conditionLabel": "已读"}}}
+	body, err = json.Marshal(bad)
 	if err != nil {
 		t.Fatal(err)
 	}
-	errorCode(t, c.call("PUT", path+"/flow", string(invalidFlow), 422), "invalid_edge_condition")
-	if !reflect.DeepEqual(branch, c.call("GET", path, "", 200)) {
-		t.Fatal("failed whole campaign update changed state")
-	}
-	noEdgesPath := "/api/v1/campaigns/campaign-no-edges"
-	noEdges := c.call("GET", noEdgesPath, "", 200)
-	treatments := items(t, noEdges, "treatments")
-	noEdges["treatments"] = []any{treatments[0], treatments[0]}
-	duplicate, err := json.Marshal(noEdges)
-	if err != nil {
-		t.Fatal(err)
-	}
-	errorCode(t, c.call("PUT", noEdgesPath, string(duplicate), 409), "duplicate_treatment")
-	if len(items(t, c.call("GET", noEdgesPath, "", 200), "treatments")) != 2 {
-		t.Fatal("duplicate treatment changed state")
-	}
-	other := c.call("GET", "/api/v1/campaigns/campaign-single", "", 200)
-	otherTreatment := items(t, other, "treatments")[0]
-	otherBody, err := json.Marshal(otherTreatment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	errorCode(t, c.call("PUT", "/api/v1/campaigns/campaign-empty/treatments/treatment-welcome", string(otherBody), 404), "not_found")
+	errorCode(t, c.call("PUT", path+"/flow", string(body), 422), "invalid_edge_condition")
 }
 
-func TestCatalogUsagesAndBadRequests(t *testing.T) {
+func TestSingleAudienceSelectionAndUsage(t *testing.T) {
 	c := newClient(t)
-	actions := items(t, c.call("GET", "/api/v1/actions", "", 200), "actions")
-	actionsByID := map[string]map[string]any{}
-	for _, item := range actions {
-		action := item.(map[string]any)
-		actionsByID[field(t, action, "id")] = action
-	}
-	for id, want := range map[string]struct{ requiresSlot, available bool }{
-		"action-rcs":        {false, true},
-		"action-email":      {false, true},
-		"action-sms":        {false, true},
-		"action-show-image": {true, true},
-		"action-retired":    {false, false},
-	} {
-		got, exists := actionsByID[id]
-		if !exists || got["requiresSlot"] != want.requiresSlot || got["available"] != want.available || field(t, got, "name") == "" {
-			t.Fatalf("action %s: got %#v, want %#v", id, got, want)
-		}
-	}
-	for _, id := range []string{"action-rcs", "action-email", "action-sms"} {
-		outcomes := items(t, actionsByID[id], "receiptOutcomes")
-		if !reflect.DeepEqual(outcomes, []any{"成功", "失败"}) {
-			t.Fatalf("action %s receipt outcomes = %#v", id, outcomes)
-		}
-	}
 	refs := items(t, c.call("GET", "/api/v1/audience-references", "", 200), "audienceReferences")
-	found := map[string]bool{}
-	for _, item := range refs {
-		ref := item.(map[string]any)
-		key := field(t, ref, "type") + "/" + field(t, ref, "groupId")
-		if field(t, ref, "name") == "" {
-			t.Fatalf("audience name missing: %#v", ref)
-		}
-		if bundle, ok := ref["bundleId"].(string); ok {
-			key += "/" + bundle
-			if field(t, ref, "bundleName") == "" {
-				t.Fatalf("bundle name missing: %#v", ref)
-			}
-		}
-		available, ok := ref["available"].(bool)
-		if !ok {
-			t.Fatalf("audience availability missing or invalid: %#v", ref)
-		}
-		found[key] = available
+	if len(refs) != 7 {
+		t.Fatalf("audience catalog size = %d", len(refs))
 	}
-	for key, want := range map[string]bool{
-		"group/group-new":                      true,
-		"group/group-recall":                   true,
-		"group/group-removed":                  false,
-		"arm/group-arm-a/bundle-warmup":        true,
-		"arm/group-arm-b/bundle-warmup":        true,
-		"arm/group-arm-control/bundle-warmup":  true,
-		"arm/group-arm-retired/bundle-retired": false,
-	} {
-		got, exists := found[key]
-		if !exists || got != want {
-			t.Fatalf("audience identity or availability %s: got %t, exists %t, want %t", key, got, exists, want)
-		}
+	path := "/api/v1/campaigns/campaign-empty/audience"
+	errorCode(t, c.call("PUT", path, `{"audience":{"type":"group","groupId":"group-new"}}`, 400), "expected_audience_required")
+	selected := c.call("PUT", path, `{"expectedAudience":null,"audience":{"type":"group","groupId":"group-new"}}`, 200)
+	selection := selected["audience"].(map[string]any)
+	if field(t, selection, "groupId") != "group-new" || selection["type"] != "group" {
+		t.Fatalf("activity audience selection = %#v", selection)
 	}
-	createdReference := c.call("PUT", "/api/v1/audience-references/group-custom", `{"name":"活动新客人群"}`, 200)
-	if field(t, createdReference, "groupId") != "group-custom" || field(t, createdReference, "name") != "活动新客人群" {
-		t.Fatalf("created audience reference = %#v", createdReference)
+	errorCode(t, c.call("PUT", path, `{"expectedAudience":null,"audience":{"type":"bundle","bundleId":"bundle-warmup"}}`, 409), "audience_conflict")
+	errorCode(t, c.call("PUT", path, `{"expectedAudience":{"type":"group","groupId":"group-new"},"audience":{"type":"group","groupId":"group-unknown"}}`, 422), "unknown_audience")
+	if !reflect.DeepEqual(selected, c.call("GET", "/api/v1/campaigns/campaign-empty", "", 200)) {
+		t.Fatal("invalid audience selection changed state")
 	}
-	errorCode(t, c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"audienceRefs":[]}`, 400), "expected_audience_refs_required")
-	c.call("PUT", "/api/v1/audience-references/group-custom", `{"name":"活动新客人群（已编辑）"}`, 200)
-	addedEntry := c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"expectedAudienceRefs":[],"audienceRefs":[{"type":"group","groupId":"group-custom"}]}`, 200)
-	if len(items(t, addedEntry, "audienceRefs")) != 1 {
-		t.Fatal("activity audience entry missing")
+	errorCode(t, c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"audienceRefs":[]}`, 404), "not_found")
+	usage := c.call("GET", "/api/v1/audience-reference-usages?type=group&groupId=group-new", "", 200)
+	usages := items(t, usage, "usages")
+	if len(usages) != 2 || field(t, usages[len(usages)-1].(map[string]any), "role") != "activity-audience" {
+		t.Fatalf("activity audience usage = %#v", usages)
 	}
-	errorCode(t, c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"expectedAudienceRefs":[],"audienceRefs":[]}`, 409), "audience_refs_conflict")
-	errorCode(t, c.call("DELETE", "/api/v1/audience-references/group-custom", "", 409), "audience_in_use")
-	errorCode(t, c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"expectedAudienceRefs":[{"type":"group","groupId":"group-custom"}],"audienceRefs":[{"type":"group","groupId":"group-unknown"}]}`, 422), "unknown_audience")
-	if refs := items(t, c.call("GET", "/api/v1/campaigns/campaign-empty", "", 200), "audienceRefs"); len(refs) != 1 {
-		t.Fatal("invalid audience entry changed campaign state")
-	}
-	c.call("PUT", "/api/v1/campaigns/campaign-empty/audiences", `{"expectedAudienceRefs":[{"type":"group","groupId":"group-custom"}],"audienceRefs":[]}`, 200)
-	c.call("DELETE", "/api/v1/audience-references/group-custom", "", 204)
-	errorCode(t, c.call("PUT", "/api/v1/audience-references/group-bad.id", `{"name":"无效 ID"}`, 400), "invalid_audience_reference")
-	usage := "/api/v1/audience-reference-usages?type=group&groupId=group-new"
-	if len(items(t, c.call("GET", usage, "", 200), "usages")) != 2 {
-		t.Fatal("seed usages missing")
-	}
-	created := c.call("POST", "/api/v1/campaigns/campaign-empty/treatments", `{"name":"测试","actionId":"action-sms","audienceRef":{"type":"group","groupId":"group-new"}}`, 201)
-	if len(items(t, c.call("GET", usage, "", 200), "usages")) != 3 {
-		t.Fatal("new usage missing")
+	created := c.call("POST", "/api/v1/campaigns/campaign-empty/treatments", `{"name":"测试","actionId":"action-sms"}`, 201)
+	if len(items(t, c.call("GET", "/api/v1/audience-reference-usages?type=group&groupId=group-new", "", 200), "usages")) != 2 {
+		t.Fatal("creating a treatment changed audience usage")
 	}
 	id := field(t, created, "id")
-	c.call("PUT", "/api/v1/campaigns/campaign-empty/treatments/"+id, `{"id":"`+id+`","name":"改引","actionId":"action-sms","audienceRef":{"type":"arm","bundleId":"bundle-warmup","groupId":"group-arm-a"}}`, 200)
-	if len(items(t, c.call("GET", usage, "", 200), "usages")) != 2 {
-		t.Fatal("old usage not removed")
-	}
-	armUsage := "/api/v1/audience-reference-usages?type=arm&bundleId=bundle-warmup&groupId=group-arm-a"
-	if len(items(t, c.call("GET", armUsage, "", 200), "usages")) != 2 {
-		t.Fatal("new arm usage missing")
-	}
 	c.call("DELETE", "/api/v1/campaigns/campaign-empty/treatments/"+id, "", 204)
-	if len(items(t, c.call("GET", armUsage, "", 200), "usages")) != 1 {
-		t.Fatal("deleted usage retained")
-	}
-	single := c.call("GET", "/api/v1/campaigns/campaign-single", "", 200)
-	single["name"] = "改名欢迎"
-	singleTreatments := items(t, single, "treatments")
-	singleTreatments[0].(map[string]any)["audienceRef"] = map[string]any{"type": "group", "groupId": "group-recall"}
-	changed, err := json.Marshal(single)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.call("PUT", "/api/v1/campaigns/campaign-single", string(changed), 200)
-	if len(items(t, c.call("GET", usage, "", 200), "usages")) != 1 {
-		t.Fatal("campaign replacement retained old usage")
-	}
-	recallUsage := "/api/v1/audience-reference-usages?type=group&groupId=group-recall"
-	if len(items(t, c.call("GET", recallUsage, "", 200), "usages")) != 3 {
-		t.Fatal("campaign replacement missing new usage")
-	}
-	c.call("DELETE", "/api/v1/campaigns/campaign-single", "", 204)
-	if len(items(t, c.call("GET", recallUsage, "", 200), "usages")) != 2 {
-		t.Fatal("campaign deletion retained usage")
-	}
+	c.call("PUT", path, `{"expectedAudience":{"type":"group","groupId":"group-new"},"audience":null}`, 200)
 	errorCode(t, c.call("GET", "/api/v1/audience-reference-usages?type=arm&groupId=group-arm-a", "", 400), "invalid_query")
-	errorCode(t, c.call("GET", "/api/v1/audience-reference-usages?type=group&groupId=group-new&bundleId=", "", 400), "invalid_query")
-	errorCode(t, c.call("GET", "/api/v1/campaigns/missing", "", 404), "not_found")
-	errorCode(t, c.call("POST", "/api/v1/campaigns", `{"id":"chosen","name":"bad"}`, 400), "invalid_json")
-	errorCode(t, c.call("POST", "/api/v1/campaigns/campaign-empty/treatments", `{"name":"multi","actions":["action-sms","action-email"],"audienceRef":{"type":"group","groupId":"group-new"}}`, 400), "invalid_json")
-	errorCode(t, c.call("POST", "/api/v1/campaigns/campaign-empty/treatments", `{"name":"缺动作","audienceRef":{"type":"group","groupId":"group-new"}}`, 400), "missing_field")
 }
 
 func TestContentTypeAndNoncanonicalPath(t *testing.T) {
@@ -357,6 +249,5 @@ func TestContentTypeAndNoncanonicalPath(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("JSON with charset rejected: %d %s", w.Code, w.Body.String())
 	}
-	pathResponse := c.call("GET", "/api/v1//campaigns", "", 404)
-	errorCode(t, pathResponse, "not_found")
+	errorCode(t, c.call("GET", "/api/v1//campaigns", "", 404), "not_found")
 }

@@ -36,7 +36,7 @@ func TestEqualPrioritiesAreRefusedRatherThanGuessed(t *testing.T) {
 func TestCampaignNeedsAPriority(t *testing.T) {
 	w := newWorld(t, 10)
 	everyone := w.definition("anyone")
-	_, err := campaign.NewCampaign(campaign.CampaignSpec{
+	_, err := w.build(campaign.CampaignSpec{
 		ID:         "unranked",
 		Treatments: []campaign.Treatment{w.treatment("banner", everyone, "x.png")},
 	})
@@ -54,7 +54,7 @@ func TestTwoTreatmentsOnOneSlotNeedSeparating(t *testing.T) {
 
 	// These two look disjoint to a reader. They are not provably disjoint, and
 	// "looks exclusive" is exactly how two treatments reach one person.
-	_, err := campaign.NewCampaign(campaign.CampaignSpec{
+	_, err := w.build(campaign.CampaignSpec{
 		ID:       "unseparated",
 		Priority: campaign.NewPriority(10),
 		Treatments: []campaign.Treatment{
@@ -70,13 +70,34 @@ func TestTwoTreatmentsOnOneSlotNeedSeparating(t *testing.T) {
 	assignment := w.assignment("banner-split", 2, false)
 	armOne := w.definition("arm-one", w.condition(audience.Share(assignment, w.share(1))))
 	armTwo := w.definition("arm-two", w.condition(audience.Share(assignment, w.share(2))))
-	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID:       "separated-by-shares",
-		Priority: campaign.NewPriority(10),
-		Treatments: []campaign.Treatment{
-			w.treatment("arm-one-banner", armOne, "a.png"),
-			w.treatment("arm-two-banner", armTwo, "b.png"),
+	first := w.treatment("arm-one-banner", armOne, "a.png")
+	second := w.treatment("arm-two-banner", armTwo, "b.png")
+	armOneShare, armTwoShare := w.share(1), w.share(2)
+	bundle, err := audience.NewBundle(audience.BundleSpec{
+		ID: "banner-split-audience", Source: sourceID, Assignment: assignment,
+		Arms: []audience.BundleArm{
+			{ID: "banner-arm-one", Share: armOneShare, Definition: armOne},
+			{ID: "banner-arm-two", Share: armTwoShare, Definition: armTwo},
 		},
+	})
+	if err != nil {
+		t.Fatalf("building the bundle: %v", err)
+	}
+	if err := w.audiences.Publish(bundle); err != nil {
+		t.Fatalf("publishing the bundle: %v", err)
+	}
+	groupOne, _ := bundle.Group(armOneShare)
+	groupTwo, _ := bundle.Group(armTwoShare)
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "separated-flow", Entries: []campaign.EntrySpec{
+		{Group: groupOne.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{first.ID()}},
+		{Group: groupTwo.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{second.ID()}},
+	}})
+	if err != nil {
+		t.Fatalf("building the split entry routes: %v", err)
+	}
+	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "separated-by-shares", Priority: campaign.NewPriority(10), Audience: audience.SelectBundle(bundle),
+		Treatments: []campaign.Treatment{first, second}, Flow: flow,
 	}); err != nil {
 		t.Fatalf("treatments on different shares of one assignment should be accepted, got %v", err)
 	}
@@ -96,13 +117,93 @@ func TestTwoTreatmentsOnOneSlotNeedSeparating(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the decision table: %v", err)
 	}
-	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
+	if _, err := w.build(campaign.CampaignSpec{
 		ID:         "separated-by-table",
 		Priority:   campaign.NewPriority(10),
 		Treatments: []campaign.Treatment{forNew, forReturning},
 		Tables:     []campaign.DecisionTable{table},
 	}); err != nil {
 		t.Fatalf("treatments ordered by a table should be accepted, got %v", err)
+	}
+}
+
+// A decision table may describe treatments for several experiment arms, but
+// each person can only be routed to treatments attached to their own arm.
+func TestDecisionTableCannotRouteAcrossExperimentArms(t *testing.T) {
+	w := newWorld(t, 400)
+	assignment := w.assignment("table-arms", 2, false)
+	shareOne, shareTwo := w.share(1), w.share(2)
+	armOne := w.definition("table-arm-one", w.condition(audience.Share(assignment, shareOne)))
+	armTwo := w.definition("table-arm-two", w.condition(audience.Share(assignment, shareTwo)))
+	bundle, err := audience.NewBundle(audience.BundleSpec{
+		ID: "table-arm-bundle", Source: sourceID, Assignment: assignment,
+		Arms: []audience.BundleArm{
+			{ID: "table-arm-a", Share: shareOne, Definition: armOne},
+			{ID: "table-arm-b", Share: shareTwo, Definition: armTwo},
+		},
+	})
+	if err != nil {
+		t.Fatalf("building the experiment bundle: %v", err)
+	}
+	if err := w.audiences.Publish(bundle); err != nil {
+		t.Fatalf("publishing the experiment bundle: %v", err)
+	}
+	groupOne, _ := bundle.Group(shareOne)
+	groupTwo, _ := bundle.Group(shareTwo)
+	first := w.treatment("table-arm-one-banner", armOne, "a.png")
+	second := w.treatment("table-arm-two-banner", armTwo, "b.png")
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "table-arm-flow", Entries: []campaign.EntrySpec{
+		{Group: groupOne.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{first.ID()}},
+		{Group: groupTwo.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{second.ID()}},
+	}})
+	if err != nil {
+		t.Fatalf("building experiment entry routes: %v", err)
+	}
+	flagged := w.definition("table-flagged", w.condition(audience.Attribute("flagged", "yes")))
+	newcomers := w.definition("table-newcomers", w.condition(audience.Attribute("tier", "new")))
+	table, err := campaign.NewDecisionTable(campaign.TableSpec{
+		Slot: bannerID,
+		Rows: []campaign.Row{
+			{When: audience.Single(flagged), Then: first.ID()},
+			{When: audience.Single(newcomers), Then: second.ID()},
+		},
+		Fallback: campaign.RouteNowhere(),
+	})
+	if err != nil {
+		t.Fatalf("building the decision table: %v", err)
+	}
+	w.add(campaign.CampaignSpec{
+		ID: "arm-scoped-table", Priority: campaign.NewPriority(10),
+		Audience:   audience.SelectBundle(bundle),
+		Treatments: []campaign.Treatment{first, second}, Flow: flow,
+		Tables: []campaign.DecisionTable{table},
+	})
+
+	uidForNewUnflagged := func(group audience.Group) audience.UID {
+		t.Helper()
+		for _, person := range w.people {
+			if person.Attributes["tier"] != "new" || person.Attributes["flagged"] == "yes" {
+				continue
+			}
+			in, err := w.audiences.DecideGroup(group, audience.Live(), person.UID)
+			if err != nil {
+				t.Fatalf("checking experiment arm membership: %v", err)
+			}
+			if in {
+				return person.UID
+			}
+		}
+		t.Fatalf("no new, unflagged person found in arm %s", group.ID())
+		return ""
+	}
+
+	armOnePerson := w.decide(uidForNewUnflagged(groupOne), audience.Live())
+	if armOnePerson.Won {
+		t.Fatalf("arm one was routed to another arm's table row: %+v", armOnePerson.Award)
+	}
+	armTwoPerson := w.decide(uidForNewUnflagged(groupTwo), audience.Live())
+	if !armTwoPerson.Won || armTwoPerson.Award.Treatment != second.ID() {
+		t.Fatalf("arm two should follow its own matching row, got %+v", armTwoPerson)
 	}
 }
 
@@ -147,39 +248,78 @@ func TestRolloutGatesTheWholeCampaign(t *testing.T) {
 	armSplit := w.assignment("arms", 2, false)
 	armOne := w.definition("arm-one", w.condition(audience.Share(armSplit, w.share(1))))
 	armTwo := w.definition("arm-two", w.condition(audience.Share(armSplit, w.share(2))))
+	armOneShare, armTwoShare := w.share(1), w.share(2)
+	bundle, err := audience.NewBundle(audience.BundleSpec{
+		ID: "rollout-arms", Source: sourceID, Assignment: armSplit,
+		Arms: []audience.BundleArm{
+			{ID: "rollout-arm-one", Share: armOneShare, Definition: armOne},
+			{ID: "rollout-arm-two", Share: armTwoShare, Definition: armTwo},
+		},
+	})
+	if err != nil {
+		t.Fatalf("building the rollout bundle: %v", err)
+	}
+	if err := w.audiences.Publish(bundle); err != nil {
+		t.Fatalf("publishing the rollout bundle: %v", err)
+	}
+	groupOne, _ := bundle.Group(armOneShare)
+	groupTwo, _ := bundle.Group(armTwoShare)
+	first := w.treatment("arm-one-banner", armOne, "a.png")
+	second := w.treatment("arm-two-banner", armTwo, "b.png")
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "gradual-flow", Entries: []campaign.EntrySpec{
+		{Group: groupOne.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{first.ID()}},
+		{Group: groupTwo.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{second.ID()}},
+	}})
+	if err != nil {
+		t.Fatalf("building the rollout flow: %v", err)
+	}
 
 	w.add(campaign.CampaignSpec{
-		ID:       "gradual",
-		Priority: campaign.NewPriority(10),
-		Rollout:  audience.Single(admitted),
-		Treatments: []campaign.Treatment{
-			w.treatment("arm-one-banner", armOne, "a.png"),
-			w.treatment("arm-two-banner", armTwo, "b.png"),
-		},
+		ID:         "gradual",
+		Priority:   campaign.NewPriority(10),
+		Audience:   audience.SelectBundle(bundle),
+		Rollout:    audience.Single(admitted),
+		Treatments: []campaign.Treatment{first, second}, Flow: flow,
 	})
 
 	var inside, outside int
 	for _, person := range w.people {
+		inOne, err := w.audiences.DecideGroup(groupOne, audience.Live(), person.UID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inTwo, err := w.audiences.DecideGroup(groupTwo, audience.Live(), person.UID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var expected campaign.TreatmentID
+		switch {
+		case inOne && !inTwo:
+			expected = first.ID()
+		case inTwo && !inOne:
+			expected = second.ID()
+		default:
+			t.Fatalf("%q belongs to arm one=%v and arm two=%v", person.UID, inOne, inTwo)
+		}
+		withinRollout, err := w.audiences.DecideGroup(audience.Single(admitted), audience.Live(), person.UID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		decision := w.decide(person.UID, audience.Live())
-		if decision.Won {
+		if withinRollout {
+			if !decision.Won || decision.Award.Treatment != expected {
+				t.Fatalf("%q in rollout got %+v, want treatment %s", person.UID, decision, expected)
+			}
 			inside++
 			continue
 		}
+		if decision.Won {
+			t.Fatalf("%q outside rollout won with %+v", person.UID, decision.Award)
+		}
 		outside++
 		losses := w.lossesFor(decision, "gradual")
-		if len(losses) == 0 {
-			t.Fatalf("%q is outside the rollout but nothing was recorded", person.UID)
-		}
-		// Both treatments are gated together, not one at a time.
-		seen := map[campaign.TreatmentID]bool{}
-		for _, loss := range losses {
-			if loss.Reason != campaign.LossOutsideRollout {
-				t.Fatalf("%q: recorded %q, expected being outside the rollout", person.UID, loss.Reason)
-			}
-			seen[loss.Treatment] = true
-		}
-		if !seen["arm-one-banner"] || !seen["arm-two-banner"] {
-			t.Fatalf("%q: the rollout gated %v, expected both arms together", person.UID, seen)
+		if len(losses) != 1 || losses[0].Treatment != expected || losses[0].Reason != campaign.LossOutsideRollout {
+			t.Fatalf("%q outside rollout was gated as %+v, want only %s", person.UID, losses, expected)
 		}
 	}
 	if inside == 0 || outside == 0 {
@@ -241,14 +381,13 @@ func TestDecideRefusesWhatItCannotResolve(t *testing.T) {
 // a campaign that simply never wins.
 func TestCampaignNeedsItsSlotsRegistered(t *testing.T) {
 	w := newWorld(t, 10)
-	everyone := w.definition("anyone")
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "elsewhere", Slot: "unregistered-slot", Who: audience.Single(everyone), Call: w.call("x.png"),
+		ID: "elsewhere", Slot: "unregistered-slot", Call: w.call("x.png"),
 	})
 	if err != nil {
 		t.Fatalf("building the treatment: %v", err)
 	}
-	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+	built, err := w.build(campaign.CampaignSpec{
 		ID: "stray", Priority: campaign.NewPriority(1), Treatments: []campaign.Treatment{treatment},
 	})
 	if err != nil {
@@ -285,7 +424,7 @@ func TestTableMustRouteWithinItsCampaign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the table: %v", err)
 	}
-	if _, err := campaign.NewCampaign(campaign.CampaignSpec{
+	if _, err := w.build(campaign.CampaignSpec{
 		ID: "stray-route", Priority: campaign.NewPriority(1),
 		Treatments: []campaign.Treatment{held}, Tables: []campaign.DecisionTable{table},
 	}); !errors.Is(err, campaign.ErrRowTreatmentNotInCampaign) {

@@ -23,6 +23,7 @@ type world struct {
 	source      audience.Source
 	people      []audience.Record
 	show        campaign.Action
+	entryGroups map[campaign.TreatmentID]audience.Group
 }
 
 // newWorld wires the three layers together the way a real caller would: an
@@ -95,6 +96,7 @@ func newWorld(t *testing.T, population int) *world {
 	return &world{
 		t: t, audiences: audiences, experiments: experiments, campaigns: campaigns,
 		colouring: store, source: source, people: people, show: show,
+		entryGroups: make(map[campaign.TreatmentID]audience.Group),
 	}
 }
 
@@ -133,12 +135,12 @@ func (w *world) treatment(id string, who audience.Definition, image string) camp
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
 		ID:   campaign.TreatmentID(id),
 		Slot: bannerID,
-		Who:  audience.Single(who),
 		Call: w.call(image),
 	})
 	if err != nil {
 		w.t.Fatalf("building treatment %q: %v", id, err)
 	}
+	w.entryGroups[treatment.ID()] = audience.Single(who)
 	return treatment
 }
 
@@ -178,7 +180,7 @@ func (w *world) share(n int) experimentation.BucketNumber {
 
 func (w *world) add(spec campaign.CampaignSpec) campaign.Campaign {
 	w.t.Helper()
-	built, err := campaign.NewCampaign(spec)
+	built, err := w.build(spec)
 	if err != nil {
 		w.t.Fatalf("building campaign %q: %v", spec.ID, err)
 	}
@@ -186,6 +188,89 @@ func (w *world) add(spec campaign.CampaignSpec) campaign.Campaign {
 		w.t.Fatalf("putting campaign %q into service: %v", spec.ID, err)
 	}
 	return built
+}
+
+func (w *world) build(spec campaign.CampaignSpec) (campaign.Campaign, error) {
+	if len(spec.Audience.Groups()) == 0 {
+		spec.Audience = w.inferredAudience(spec)
+	}
+	if spec.Flow.ID() == "" {
+		spec.Flow = campaign.Flow{}
+	}
+	if len(spec.Flow.EntryRoutes()) == 0 {
+		spec.Flow = w.flowWithInferredEntries(spec)
+	}
+	return campaign.NewCampaign(spec)
+}
+
+func (w *world) inferredAudience(spec campaign.CampaignSpec) audience.Selection {
+	if len(spec.Tables) == 0 {
+		var selected audience.Group
+		for _, treatment := range spec.Treatments {
+			group := w.entryGroups[treatment.ID()]
+			if group.ID() == "" {
+				continue
+			}
+			if selected.ID() == "" {
+				selected = group
+				continue
+			}
+			if selected.ID() != group.ID() {
+				selected = audience.Group{}
+				break
+			}
+		}
+		if selected.ID() != "" {
+			return audience.SelectGroup(selected)
+		}
+	}
+	definition := w.definition(fmt.Sprintf("campaign-entry-%s", spec.ID))
+	return audience.SelectGroup(audience.Single(definition))
+}
+
+func (w *world) flowWithInferredEntries(spec campaign.CampaignSpec) campaign.Flow {
+	flowID := spec.Flow.ID()
+	if flowID == "" {
+		flowID = campaign.FlowID(fmt.Sprintf("%s-flow", spec.ID))
+	}
+	edges := spec.Flow.Edges()
+	receiptTargets := make(map[campaign.TreatmentID]bool)
+	edgeSpecs := make([]campaign.EdgeSpec, len(edges))
+	for i, edge := range edges {
+		edgeSpecs[i] = campaign.EdgeSpec{From: edge.From(), To: edge.To(), Kind: edge.Kind(), When: edge.When()}
+		if edge.Kind() == campaign.EdgeOnReceipt {
+			receiptTargets[edge.To()] = true
+		}
+	}
+	groups := spec.Audience.Groups()
+	entries := make([]campaign.EntrySpec, 0, len(groups))
+	for _, group := range groups {
+		var ids []campaign.TreatmentID
+		for _, treatment := range spec.Treatments {
+			if receiptTargets[treatment.ID()] {
+				continue
+			}
+			if spec.Audience.IsBundle() {
+				if w.entryGroups[treatment.ID()].ID() == group.ID() {
+					ids = append(ids, treatment.ID())
+				}
+			} else {
+				ids = append(ids, treatment.ID())
+			}
+		}
+		kind := campaign.EntryStart
+		if len(ids) == 0 && spec.Audience.IsBundle() {
+			kind = campaign.EntryControl
+		} else if len(ids) == 0 {
+			continue
+		}
+		entries = append(entries, campaign.EntrySpec{Group: group.ID(), Kind: kind, Treatments: ids})
+	}
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: flowID, Entries: entries, Edges: edgeSpecs})
+	if err != nil {
+		w.t.Fatalf("building flow %q: %v", flowID, err)
+	}
+	return flow
 }
 
 func (w *world) decide(uid audience.UID, mode audience.Mode) campaign.Decision {

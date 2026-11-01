@@ -41,8 +41,8 @@ export class CampaignApi {
  create(value) { return this.call('POST', '/campaigns', value); }
  get(id) { return this.call('GET', `/campaigns/${encodeURIComponent(id)}`); }
  update(id, value) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}`, value); }
- updateFlow(id, value, expectedEdges) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/flow`, { ...value, expectedEdges }); }
- updateAudiences(id, audienceRefs, expectedAudienceRefs) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/audiences`, { audienceRefs, expectedAudienceRefs }); }
+ updateFlow(id, value, expectedEntries, expectedEdges) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/flow`, { ...value, expectedEntries, expectedEdges }); }
+ updateAudience(id, audience, expectedAudience) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/audience`, { audience, expectedAudience }); }
  delete(id) { return this.call('DELETE', `/campaigns/${encodeURIComponent(id)}`); }
  createTreatment(id, value) { return this.call('POST', `/campaigns/${encodeURIComponent(id)}/treatments`, value); }
  updateTreatment(id, treatmentId, value) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/treatments/${encodeURIComponent(treatmentId)}`, value); }

@@ -68,15 +68,15 @@ func showReceiptSerial(out *os.File, stack *scenarios.Stack, serial scenarios.Re
 	fmt.Fprintf(out, "    入口投递 %d 人；回执成功 %d、失败 %d；下一步 %s 投递 %d 人\n",
 		len(report.Executions), success, failure, serial.Next, mailN)
 
-	next, ok := treatmentByID(serial.Campaign, serial.Next)
-	if !ok {
-		return fmt.Errorf("gmp-demo: serial campaign has no %s", serial.Next)
+	entryGroups := serial.Campaign.Audience().Groups()
+	if len(entryGroups) != 1 {
+		return fmt.Errorf("gmp-demo: serial campaign should select one audience, got %d", len(entryGroups))
 	}
-	nextN, err := memberCount(stack, next.Audience())
+	entryN, err := memberCount(stack, entryGroups[0])
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "    下一步自己的人群有 %d 人，下一步实际投递 %d 人\n", nextN, mailN)
+	fmt.Fprintf(out, "    活动入口人群有 %d 人；下一步由回执边推进，实际投递 %d 人\n", entryN, mailN)
 	return nil
 }
 
@@ -145,25 +145,17 @@ func showReceiptParallel(out *os.File, stack *scenarios.Stack, parallel scenario
 	if err != nil {
 		return err
 	}
-	left, ok := treatmentByID(parallel.Campaign, parallel.Left)
-	if !ok {
-		return fmt.Errorf("gmp-demo: parallel campaign has no %s", parallel.Left)
+	entryGroups := parallel.Campaign.Audience().Groups()
+	if len(entryGroups) != 1 {
+		return fmt.Errorf("gmp-demo: parallel campaign should select one audience, got %d", len(entryGroups))
 	}
-	right, ok := treatmentByID(parallel.Campaign, parallel.Right)
-	if !ok {
-		return fmt.Errorf("gmp-demo: parallel campaign has no %s", parallel.Right)
-	}
-	leftN, err := memberCount(stack, left.Audience())
+	entryN, err := memberCount(stack, entryGroups[0])
 	if err != nil {
 		return err
 	}
-	rightN, err := memberCount(stack, right.Audience())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "    再跑 %s：%d 人。两边执行 %d 与 %d，各自的人群 %d 与 %d\n",
+	fmt.Fprintf(out, "    再跑 %s：%d 人。两边使用同一个活动入口人群（%d 人），执行 %d 与 %d\n",
 		parallel.Right, len(rightReport.Executions),
-		len(leftReport.Executions), len(rightReport.Executions), leftN, rightN)
+		entryN, len(leftReport.Executions), len(rightReport.Executions))
 	return nil
 }
 

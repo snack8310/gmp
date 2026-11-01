@@ -23,7 +23,7 @@ socket.onmessage = event => {
  if (message.method === 'Network.requestWillBeSent') {
   networkRequests.push(message.params.request.url);
   if (message.params.request.method === 'PUT' && new URL(message.params.request.url).pathname.endsWith('/flow')) flowWriteRequests.push(message.params.request.url);
-  if (message.params.request.method === 'PUT' && new URL(message.params.request.url).pathname.endsWith('/audiences')) audienceWriteRequests.push(message.params.request.url);
+  if (message.params.request.method === 'PUT' && new URL(message.params.request.url).pathname.endsWith('/audience')) audienceWriteRequests.push(message.params.request.url);
  }
  if (message.method === 'Fetch.requestPaused') {
   const path = new URL(message.params.request.url).pathname;
@@ -55,16 +55,15 @@ async function checkDetail(id, step) {
  assert.equal(state.activity.id, id);
  assert.equal(state.heading, state.activity.name);
  assert.ok(state.text.includes(`活动 ID · ${id}`));
- assert.ok(state.activity.treatments.some(item => item.audienceRef.groupId === 'group-recall'));
+ assert.deepEqual(state.activity.audience, { type: 'group', groupId: 'group-recall' });
+ assert.ok(state.activity.treatments.every(item => !Object.hasOwn(item, 'audienceRef')));
  assert.equal(state.rows.length, state.activity.treatments.length);
  for (const treatment of state.activity.treatments) {
   const row = state.rows.find(text => text.includes(treatment.id));
   assert.ok(row, `treatment ${treatment.id} missing`);
-  assert.ok(row.includes(treatment.audienceRef.groupId));
-  if (treatment.audienceRef.bundleId) assert.ok(row.includes(treatment.audienceRef.bundleId));
  }
  log(step, { apiStatus: state.status, activityId: id, name: state.activity.name,
-  references: state.activity.treatments.map(item => item.audienceRef) });
+  audience: state.activity.audience, treatmentCount: state.activity.treatments.length });
 }
 async function mobileCheck(step, selector) {
  const state = await evaluate(`(() => {
@@ -87,7 +86,7 @@ try {
  await until("document.querySelector('#activity-list a[href=\"#activities/campaign-branch/campaign\"]')");
  await evaluate("location.hash='#activities/new'");
  await until("document.querySelector('#campaign-form')");
- await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(desktopName)}; document.querySelector('#campaign-form').requestSubmit()`);
+ await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(desktopName)}; document.querySelector('#campaign-audience').value='group:group-recall'; document.querySelector('#campaign-form').requestSubmit()`);
  await until(`location.hash.startsWith('#activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(desktopName)})`);
  desktopId = await evaluate("location.hash.slice('#activities/'.length).split('/')[0]");
  log('create_activity', { activityId: desktopId });
@@ -97,7 +96,7 @@ try {
  log('audience_delete_blocked_by_browser_usage_read');
  await evaluate(`location.hash=${JSON.stringify(`#activities/${desktopId}/campaign/treatments/new`)}`);
  await until("document.querySelector('#treatment-form')");
- await evaluate("document.querySelector('#treatment-name').value='浏览器短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-audience').value='group:group-new'; document.querySelector('#treatment-form').requestSubmit()");
+ await evaluate("document.querySelector('#treatment-name').value='浏览器短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-form').requestSubmit()");
  await until("document.querySelector('#campaign-detail').textContent.includes('浏览器短信')");
  log('add_treatment');
 
@@ -110,7 +109,7 @@ try {
  const renamed = await evaluate(`(async () => {
   const response = await fetch(${JSON.stringify(`/api/v1/campaigns/${encodeURIComponent(desktopId)}`)});
   const activity = await response.json();
-  const update = await fetch(${JSON.stringify(`/api/v1/campaigns/${encodeURIComponent(desktopId)}`)}, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...activity, name:'历史栈 API 最新名称', treatments:activity.treatments.map(item => ({...item, audienceRef:{type:'group', groupId:'group-recall'}}))})});
+  const update = await fetch(${JSON.stringify(`/api/v1/campaigns/${encodeURIComponent(desktopId)}`)}, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...activity, name:'历史栈 API 最新名称'})});
   return update.status;
  })()`);
  assert.equal(renamed, 200);
@@ -193,45 +192,56 @@ try {
  })()`);
  assert.equal(synchronizedReference.name, '画布入口验收人群');
  await evaluate("document.querySelector('#asset-return-link').click()");
- await until("location.hash==='#activities/campaign-empty/campaign' && document.querySelector('#activity-flow-canvas [data-flow-add-audience]')");
+ await until("location.hash==='#activities/campaign-empty/campaign' && document.querySelector('#activity-flow-canvas [data-flow-config-entry]')");
  await command('Network.enable');
+ await evaluate("location.hash='#activities/campaign-empty/campaign/edit'");
+ await until("document.querySelector('#campaign-form')");
  const audienceWriteStart = audienceWriteRequests.length;
- await evaluate(`document.querySelector('#activity-flow-canvas [data-flow-add-audience]').click(); const form=document.querySelector('#activity-audience-form'); form.elements.audienceRef.value=${JSON.stringify(`group:${newGroupId}`)}; const submit=new SubmitEvent('submit',{bubbles:true,cancelable:true}); form.dispatchEvent(submit); form.dispatchEvent(new SubmitEvent('submit',{bubbles:true,cancelable:true}));`);
- await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='1'");
- const concurrentAudienceWrites = audienceWriteRequests.length - audienceWriteStart;
- assert.equal(concurrentAudienceWrites, 1);
+ await evaluate(`document.querySelector('#campaign-audience').value=${JSON.stringify(`group:${newGroupId}`)}; document.querySelector('#campaign-form').requestSubmit()`);
+ await until(`location.hash==='#activities/campaign-empty/campaign' && document.querySelector('#activity-flow-canvas [data-flow-config-entry]')`);
+ const audienceWrites = audienceWriteRequests.length - audienceWriteStart;
+ assert.equal(audienceWrites, 1);
  const selectedAudience = await evaluate(`(async () => {
   const response = await fetch('/api/v1/campaigns/campaign-empty');
   const campaign = await response.json();
-  return { entries: campaign.audienceRefs, nodes: document.querySelectorAll('#activity-flow-canvas [data-flow-node]').length,
+  return { audience: campaign.audience, entries: campaign.activityFlow?.entries || [], nodes: document.querySelectorAll('#activity-flow-canvas [data-flow-node]').length,
    addTreatment: document.querySelector('#activity-flow-canvas a[href*="/treatments/new"]')?.textContent };
  })()`);
- assert.deepEqual(selectedAudience.entries, [{ type: 'group', groupId: newGroupId }]);
+ assert.deepEqual(selectedAudience.audience, { type: 'group', groupId: newGroupId });
+ assert.deepEqual(selectedAudience.entries, []);
  assert.ok(selectedAudience.nodes > 0 && selectedAudience.addTreatment.includes('添加投放项'));
- log('activity_flow_audience_entry', { ...selectedAudience, concurrentSubmits: 2, serializedWrites: concurrentAudienceWrites });
+ log('activity_flow_audience_selection', { ...selectedAudience, serializedWrites: audienceWrites });
  const staleAudienceWrite = await evaluate(`(async () => {
-  const response=await fetch('/api/v1/campaigns/campaign-empty/audiences',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedAudienceRefs:[],audienceRefs:[]})});
+  const response=await fetch('/api/v1/campaigns/campaign-empty/audience',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedAudience:null,audience:null})});
   const body=await response.json(); const current=await (await fetch('/api/v1/campaigns/campaign-empty')).json();
-  return { status:response.status, code:body.error?.code, audienceRefs:current.audienceRefs };
+  return { status:response.status, code:body.error?.code, audience:current.audience };
  })()`);
  assert.equal(staleAudienceWrite.status, 409);
- assert.equal(staleAudienceWrite.code, 'audience_refs_conflict');
- assert.deepEqual(staleAudienceWrite.audienceRefs, [{ type: 'group', groupId: newGroupId }]);
+ assert.equal(staleAudienceWrite.code, 'audience_conflict');
+ assert.deepEqual(staleAudienceWrite.audience, { type: 'group', groupId: newGroupId });
  log('stale_activity_audience_write_rejected', staleAudienceWrite);
  await evaluate(`document.querySelector("#activity-flow-canvas a[href*='/treatments/new']").click()`);
  await until("document.querySelector('#treatment-form')");
- const selectedByDefault = await evaluate(`document.querySelector('#treatment-audience').value`);
- assert.equal(selectedByDefault, `group:${newGroupId}`);
  await evaluate(`document.querySelector('#treatment-name').value='画布短信投放项'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-form').requestSubmit();`);
- await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='3'");
- await evaluate("document.querySelector('#activity-flow-canvas [data-select-node]').click()");
- assert.equal(await evaluate("Boolean(document.querySelector('#activity-flow-canvas [data-edge-detail] [data-remove-audience-entry]'))"), false);
- await evaluate("window.confirm=()=>true; document.querySelector('#campaign-detail [data-delete-treatment]').click()");
- await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='1'");
- await evaluate("document.querySelector('#activity-flow-canvas [data-select-node]').click(); document.querySelector('#activity-flow-canvas [data-edge-detail] [data-remove-audience-entry]').click();");
- await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='0'");
- assert.deepEqual(await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-empty')).json()).audienceRefs)()"), []);
- log('activity_flow_audience_entry_removed');
+ await until("document.querySelector('#campaign-detail').textContent.includes('画布短信投放项')");
+ const newTreatmentId = await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-empty')).json()).treatments[0].id)()");
+ await evaluate("document.querySelector('#activity-flow-canvas [data-flow-config-entry]').click()");
+ await until("document.querySelector('#activity-entry-form select[data-entry-group]')");
+ await evaluate(`(() => { const form=document.querySelector('#activity-entry-form'); const select=form.querySelector('[data-entry-group]'); select.value=${JSON.stringify(newTreatmentId)}; form.requestSubmit(); })()`);
+ await until(`(async () => { const activity=await (await fetch('/api/v1/campaigns/campaign-empty')).json(); return activity.activityFlow?.entries?.some(entry=>entry.groupId===${JSON.stringify(newGroupId)} && entry.treatmentIds.includes(${JSON.stringify(newTreatmentId)})); })()`);
+ const configuredActivity = await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-empty')).json()) )()");
+ assert.deepEqual(configuredActivity.activityFlow.entries, [{ groupId: newGroupId, kind: 'start', treatmentIds: [newTreatmentId] }]);
+ assert.equal(configuredActivity.treatments.every(item => !Object.hasOwn(item, 'audienceRef')), true);
+ log('activity_flow_entry_routed', { audience: configuredActivity.audience, entry: configuredActivity.activityFlow.entries[0] });
+ await evaluate("location.hash='#activities/campaign-empty/campaign/edit'");
+ await until("document.querySelector('#campaign-form')");
+ await evaluate("document.querySelector('#campaign-audience').value='group:group-new'; document.querySelector('#campaign-form').requestSubmit()");
+ await until("location.hash==='#activities/campaign-empty/campaign' && document.querySelector('#activity-flow-canvas [data-flow-config-entry]')");
+ const resetActivity = await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-empty')).json()) )()");
+ assert.deepEqual(resetActivity.audience, { type: 'group', groupId: 'group-new' });
+ assert.deepEqual(resetActivity.activityFlow.entries, []);
+ assert.equal(await evaluate("document.querySelectorAll('#activity-flow-canvas [data-flow-node]').length > 0"), true);
+ log('audience_change_clears_only_incompatible_entries', { audience: resetActivity.audience, entries: resetActivity.activityFlow.entries, edges: resetActivity.activityFlow.edges });
 
  await evaluate("location.hash='#activities/campaign-branch/campaign'");
  await until("document.querySelector('#activity-flow-canvas [data-flow-play]') && document.querySelector('#campaign-detail h2')?.textContent==='跨境召回'");
@@ -283,9 +293,11 @@ try {
   { id: 'edge-success', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-email', conditionLabel: '成功' },
   { id: 'edge-failed', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-sms', conditionLabel: '失败' },
  ];
+ const seedEntries = [{ groupId: 'group-recall', kind: 'start', treatmentIds: ['treatment-rcs'] }];
  const staleFlowWrite = await evaluate(`(async () => {
+  const expectedEntries=${JSON.stringify(seedEntries)};
   const expectedEdges=${JSON.stringify(seedEdges)};
-  const response=await fetch('/api/v1/campaigns/campaign-branch/flow',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'flow-recall',expectedEdges,edges:expectedEdges})});
+  const response=await fetch('/api/v1/campaigns/campaign-branch/flow',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'flow-recall',expectedEntries,expectedEdges,entries:expectedEntries,edges:expectedEdges})});
   const body=await response.json(); const current=await (await fetch('/api/v1/campaigns/campaign-branch')).json();
   return { status:response.status, code:body.error?.code, edges:current.activityFlow.edges };
  })()`);
@@ -335,14 +347,14 @@ try {
  await evaluate("document.querySelector('#campaign-activities .primary-link').click()");
  await until("document.querySelector('#campaign-form')");
  await mobileCheck('mobile_new_form', '#campaign-form');
- await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(mobileName)}; document.querySelector('#campaign-form').requestSubmit()`);
+ await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(mobileName)}; document.querySelector('#campaign-audience').value='group:group-new'; document.querySelector('#campaign-form').requestSubmit()`);
  await until(`location.hash.startsWith('#activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(mobileName)})`);
  mobileId = await evaluate("location.hash.slice('#activities/'.length).split('/')[0]");
  await mobileCheck('mobile_created_detail', '#campaign-detail');
  await evaluate(`document.querySelector(${JSON.stringify(`#campaign-detail a[href="#activities/${mobileId}/campaign/treatments/new"]`)}).click()`);
  await until("document.querySelector('#treatment-form')");
  await mobileCheck('mobile_treatment_form', '#treatment-form');
- await evaluate("document.querySelector('#treatment-name').value='窄屏短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-audience').value='group:group-new'; document.querySelector('#treatment-form').requestSubmit()");
+ await evaluate("document.querySelector('#treatment-name').value='窄屏短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-form').requestSubmit()");
  await until("document.querySelector('#campaign-detail').textContent.includes('窄屏短信')");
  await mobileCheck('mobile_added_treatment', '#campaign-detail section[aria-label="投放项清单"]');
  if (screenshotDir) {

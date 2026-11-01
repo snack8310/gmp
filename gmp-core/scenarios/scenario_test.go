@@ -242,13 +242,21 @@ func TestRehearsalCrossesAllThreeLayersWithoutColouring(t *testing.T) {
 		t.Fatalf("filling in the action: %v", err)
 	}
 	banner, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coloured-arm-banner", Slot: scenarios.BannerSlot, Who: audience.Single(armOne), Call: call,
+		ID: "coloured-arm-banner", Slot: scenarios.BannerSlot, Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building the treatment: %v", err)
 	}
+	entryGroup := audience.Single(armOne)
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "coloured-flow", Entries: []campaign.EntrySpec{{
+		Group: entryGroup.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{banner.ID()},
+	}}})
+	if err != nil {
+		t.Fatalf("building the flow: %v", err)
+	}
 	built, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID: "coloured", Priority: campaign.NewPriority(10), Treatments: []campaign.Treatment{banner},
+		ID: "coloured", Priority: campaign.NewPriority(10), Audience: audience.SelectGroup(entryGroup),
+		Treatments: []campaign.Treatment{banner}, Flow: flow,
 	})
 	if err != nil {
 		t.Fatalf("building the campaign: %v", err)

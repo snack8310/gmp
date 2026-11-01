@@ -3,6 +3,8 @@ package campaign
 import (
 	"errors"
 	"fmt"
+
+	"github.com/snack8310/gmp/gmp-core/audience"
 )
 
 var (
@@ -53,6 +55,12 @@ var (
 	// this person. There is no settled meaning for that, so it is refused
 	// rather than discovered by sending again.
 	ErrFlowCycle = errors.New("campaign: receipt edges form a cycle")
+	// ErrMissingEntryRoutes is returned when a flow declares no audience entry.
+	ErrMissingEntryRoutes = errors.New("campaign: flow has no entry routes")
+	// ErrInvalidEntryRoute is returned when an entry route is incomplete or inconsistent.
+	ErrInvalidEntryRoute = errors.New("campaign: invalid flow entry route")
+	// ErrEntryTreatmentDuplicate is returned when a treatment starts from more than one group.
+	ErrEntryTreatmentDuplicate = errors.New("campaign: treatment appears in more than one entry route")
 	// ErrNotAnEntry is returned when a batch run is asked to enumerate a
 	// treatment that a receipt edge points at.
 	//
@@ -85,6 +93,10 @@ type FlowID string
 // treatments are started together.
 type EdgeKind string
 
+// EntryKind says whether an audience partition starts treatments or is an
+// explicit control with no treatment.
+type EntryKind string
+
 const (
 	// EdgeOnReceipt waits for one outcome of the source action's contract and
 	// then runs the target for the person that receipt is about.
@@ -92,7 +104,40 @@ const (
 	// EdgeParallel records that the two treatments are entries. It does not
 	// wait, and running one does not start the other.
 	EdgeParallel EdgeKind = "parallel"
+	// EntryStart starts the treatments listed on an entry route.
+	EntryStart EntryKind = "start"
+	// EntryControl identifies a control arm that deliberately starts no treatment.
+	EntryControl EntryKind = "control"
 )
+
+// EntryRoute is one selected audience partition's starting route.
+type EntryRoute struct {
+	group      audience.GroupID
+	kind       EntryKind
+	treatments []TreatmentID
+}
+
+// Group reports which selected group or experimental arm this route starts.
+func (r EntryRoute) Group() audience.GroupID { return r.group }
+
+// Kind reports whether this route starts treatments or is a control arm.
+func (r EntryRoute) Kind() EntryKind { return r.kind }
+
+// Treatments reports the route's starting treatment candidates.
+func (r EntryRoute) Treatments() []TreatmentID {
+	return append([]TreatmentID(nil), r.treatments...)
+}
+
+// EntrySpec describes one audience partition and its starting treatment set.
+type EntrySpec struct {
+	// Group is the selected ordinary group or one arm in the selected bundle.
+	Group audience.GroupID
+	// Kind is required: a control arm must be stated explicitly.
+	Kind EntryKind
+	// Treatments are the starting candidates for this group. A control route
+	// must have none; a start route must have at least one.
+	Treatments []TreatmentID
+}
 
 // Edge is a directed link (边) from one treatment to another.
 //
@@ -140,16 +185,19 @@ type EdgeSpec struct {
 // on a treatment. Nodes are treatments. A separate product-facing English
 // name for this object is still unset; Flow is the name this package uses.
 type Flow struct {
-	id    FlowID
-	edges []Edge
+	id      FlowID
+	entries []EntryRoute
+	edges   []Edge
 }
 
 // FlowSpec is the input to building a flow.
 type FlowSpec struct {
 	// ID identifies the flow.
 	ID FlowID
-	// Edges connect treatments. None means every treatment of the campaign is
-	// an entry.
+	// Entries map every selected audience partition to its starting path.
+	Entries []EntrySpec
+	// Edges connect treatments. Treatments not listed as entries are reached
+	// from receipt edges.
 	Edges []EdgeSpec
 }
 
@@ -169,6 +217,35 @@ func NewFlow(spec FlowSpec) (Flow, error) {
 	if spec.ID == "" {
 		return Flow{}, ErrMissingFlowID
 	}
+	entries := make([]EntryRoute, 0, len(spec.Entries))
+	seenGroups := make(map[audience.GroupID]bool, len(spec.Entries))
+	seenTreatments := make(map[TreatmentID]bool)
+	for _, entry := range spec.Entries {
+		if entry.Group == "" || seenGroups[entry.Group] {
+			return Flow{}, fmt.Errorf("%w: group %q in flow %q", ErrInvalidEntryRoute, entry.Group, spec.ID)
+		}
+		seenGroups[entry.Group] = true
+		switch entry.Kind {
+		case EntryStart:
+			if len(entry.Treatments) == 0 {
+				return Flow{}, fmt.Errorf("%w: start route for group %q has no treatments", ErrInvalidEntryRoute, entry.Group)
+			}
+		case EntryControl:
+			if len(entry.Treatments) != 0 {
+				return Flow{}, fmt.Errorf("%w: control route for group %q names treatments", ErrInvalidEntryRoute, entry.Group)
+			}
+		default:
+			return Flow{}, fmt.Errorf("%w: route for group %q has kind %q", ErrInvalidEntryRoute, entry.Group, entry.Kind)
+		}
+		owned := append([]TreatmentID(nil), entry.Treatments...)
+		for _, id := range owned {
+			if id == "" || seenTreatments[id] {
+				return Flow{}, fmt.Errorf("%w: treatment %q in flow %q", ErrEntryTreatmentDuplicate, id, spec.ID)
+			}
+			seenTreatments[id] = true
+		}
+		entries = append(entries, EntryRoute{group: entry.Group, kind: entry.Kind, treatments: owned})
+	}
 	edges := make([]Edge, 0, len(spec.Edges))
 	seen := make(map[edgeKey]bool, len(spec.Edges))
 	for _, specEdge := range spec.Edges {
@@ -183,7 +260,7 @@ func NewFlow(spec FlowSpec) (Flow, error) {
 		seen[key] = true
 		edges = append(edges, edge)
 	}
-	return Flow{id: spec.ID, edges: edges}, nil
+	return Flow{id: spec.ID, entries: entries, edges: edges}, nil
 }
 
 func newEdge(flow FlowID, spec EdgeSpec) (Edge, error) {
@@ -211,6 +288,37 @@ func newEdge(flow FlowID, spec EdgeSpec) (Edge, error) {
 // ID reports which flow this is.
 func (f Flow) ID() FlowID { return f.id }
 
+// EntryRoutes reports the starting routes, in the order they were given.
+func (f Flow) EntryRoutes() []EntryRoute {
+	out := make([]EntryRoute, len(f.entries))
+	for i, entry := range f.entries {
+		out[i] = EntryRoute{group: entry.group, kind: entry.kind, treatments: append([]TreatmentID(nil), entry.treatments...)}
+	}
+	return out
+}
+
+// RouteForTreatment reports the unique entry route that starts treatment id.
+func (f Flow) RouteForTreatment(id TreatmentID) (EntryRoute, bool) {
+	for _, entry := range f.entries {
+		for _, treatment := range entry.treatments {
+			if treatment == id {
+				return EntryRoute{group: entry.group, kind: entry.kind, treatments: append([]TreatmentID(nil), entry.treatments...)}, true
+			}
+		}
+	}
+	return EntryRoute{}, false
+}
+
+// RouteForGroup reports the selected partition's route.
+func (f Flow) RouteForGroup(id audience.GroupID) (EntryRoute, bool) {
+	for _, entry := range f.entries {
+		if entry.group == id {
+			return EntryRoute{group: entry.group, kind: entry.kind, treatments: append([]TreatmentID(nil), entry.treatments...)}, true
+		}
+	}
+	return EntryRoute{}, false
+}
+
 // Edges reports the links, in the order they were given.
 func (f Flow) Edges() []Edge {
 	out := make([]Edge, len(f.edges))
@@ -218,7 +326,41 @@ func (f Flow) Edges() []Edge {
 	return out
 }
 
-func validateFlow(campaign CampaignID, flow Flow, treatments map[TreatmentID]Treatment) error {
+func validateFlow(campaign CampaignID, flow Flow, treatments map[TreatmentID]Treatment, selected audience.Selection) error {
+	if receiptCycle(flow.edges) {
+		return fmt.Errorf("%w: campaign %q", ErrFlowCycle, campaign)
+	}
+	if len(flow.entries) == 0 {
+		return fmt.Errorf("%w: flow %q", ErrMissingEntryRoutes, flow.id)
+	}
+	selectedGroups := make(map[audience.GroupID]audience.Group)
+	for _, group := range selected.Groups() {
+		selectedGroups[group.ID()] = group
+	}
+	if len(flow.entries) != len(selectedGroups) {
+		return fmt.Errorf("%w: flow %q must route every selected audience group", ErrInvalidEntryRoute, flow.id)
+	}
+	entryTreatments := make(map[TreatmentID]bool)
+	for _, route := range flow.entries {
+		if _, held := selectedGroups[route.group]; !held {
+			return fmt.Errorf("%w: group %q is outside the selected campaign audience", ErrInvalidEntryRoute, route.group)
+		}
+		if route.kind == EntryControl && !selected.IsBundle() {
+			return fmt.Errorf("%w: ordinary group %q cannot be a control arm", ErrInvalidEntryRoute, route.group)
+		}
+		for _, id := range route.treatments {
+			if _, held := treatments[id]; !held {
+				return fmt.Errorf("%w: entry route for group %q names treatment %q outside campaign %q", ErrInvalidEntryRoute, route.group, id, campaign)
+			}
+			entryTreatments[id] = true
+		}
+	}
+	for id := range selectedGroups {
+		if _, routed := flow.RouteForGroup(id); !routed {
+			return fmt.Errorf("%w: selected group %q has no route in campaign %q", ErrInvalidEntryRoute, id, campaign)
+		}
+	}
+
 	gated := map[TreatmentID]bool{}
 	parallelTarget := map[TreatmentID]bool{}
 	for _, edge := range flow.edges {
@@ -250,9 +392,14 @@ func validateFlow(campaign CampaignID, flow Flow, treatments map[TreatmentID]Tre
 		if parallelTarget[id] {
 			return fmt.Errorf("%w: %q in campaign %q", ErrEdgeConflict, id, campaign)
 		}
+		if entryTreatments[id] {
+			return fmt.Errorf("%w: treatment %q is both an entry and a receipt target in campaign %q", ErrEdgeConflict, id, campaign)
+		}
 	}
-	if receiptCycle(flow.edges) {
-		return fmt.Errorf("%w: campaign %q", ErrFlowCycle, campaign)
+	for id := range treatments {
+		if !entryTreatments[id] && !gated[id] {
+			return fmt.Errorf("%w: %q in campaign %q", ErrTreatmentUnreachable, id, campaign)
+		}
 	}
 	return nil
 }
@@ -309,21 +456,17 @@ func (c Campaign) Flow() (Flow, bool) {
 	return c.flow, true
 }
 
-// Entries reports the treatments a batch run may enumerate.
-//
-// A treatment is an entry when no receipt edge points at it. With no flow,
-// every treatment is an entry, which is what a campaign of independent
-// treatments already was. The order is the campaign's treatment order.
+// Entries reports the treatments the flow explicitly exposes as start candidates.
 func (c Campaign) Entries() []Treatment {
-	gated := map[TreatmentID]bool{}
-	for _, edge := range c.flow.edges {
-		if edge.kind == EdgeOnReceipt {
-			gated[edge.to] = true
+	entryIDs := map[TreatmentID]bool{}
+	for _, route := range c.flow.entries {
+		for _, id := range route.treatments {
+			entryIDs[id] = true
 		}
 	}
 	out := make([]Treatment, 0, len(c.treatments))
 	for _, treatment := range c.treatments {
-		if !gated[treatment.id] {
+		if entryIDs[treatment.id] {
 			out = append(out, treatment)
 		}
 	}
@@ -331,12 +474,8 @@ func (c Campaign) Entries() []Treatment {
 }
 
 func (c Campaign) isEntry(id TreatmentID) bool {
-	for _, treatment := range c.Entries() {
-		if treatment.id == id {
-			return true
-		}
-	}
-	return false
+	_, ok := c.flow.RouteForTreatment(id)
+	return !c.isZero() && ok
 }
 
 func (c Campaign) treatment(id TreatmentID) (Treatment, bool) {

@@ -41,7 +41,6 @@ func NewStore() *Store {
 		slots: map[string]bool{"slot-home-banner": true, "slot-home-hero": true},
 	}
 	for _, c := range campaignSeeds() {
-		ensureEntryAudienceRefs(&c)
 		if p := validateCampaign(c, s.actions, s.references, s.slots); p != nil {
 			panic(p)
 		}
@@ -95,7 +94,7 @@ func (s *Store) CreateCampaign(name string) (Campaign, *Problem) {
 			break
 		}
 	}
-	c := Campaign{ID: id, Name: name, AudienceRefs: []AudienceRef{}, Treatments: []Treatment{}}
+	c := Campaign{ID: id, Name: name, Treatments: []Treatment{}}
 	if p := s.validate(c); p != nil {
 		return Campaign{}, p
 	}
@@ -120,10 +119,9 @@ func (s *Store) UpdateCampaign(id string, next Campaign) (Campaign, *Problem) {
 	if !sameTreatmentIDs(previous.Treatments, next.Treatments) {
 		return Campaign{}, problem(http.StatusConflict, "treatment_set_conflict", "请通过投放项资源创建或删除投放项")
 	}
-	if next.AudienceRefs == nil {
-		next.AudienceRefs = append([]AudienceRef{}, previous.AudienceRefs...)
+	if next.Audience == nil {
+		next.Audience = previous.Audience
 	}
-	ensureEntryAudienceRefs(&next)
 	if p := s.validate(next); p != nil {
 		return Campaign{}, p
 	}
@@ -131,26 +129,31 @@ func (s *Store) UpdateCampaign(id string, next Campaign) (Campaign, *Problem) {
 	return next.clone(), nil
 }
 
-func (s *Store) UpdateFlow(campaignID string, expectedEdges []Edge, flow Flow) (Campaign, *Problem) {
+func (s *Store) UpdateFlow(campaignID string, expectedEntries []EntryRoute, expectedEdges []Edge, flow Flow) (Campaign, *Problem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	campaign, ok := s.campaigns[campaignID]
 	if !ok {
 		return Campaign{}, problem(http.StatusNotFound, "not_found", "活动不存在")
 	}
-	currentEdges := []Edge{}
+	currentEntries, currentEdges := []EntryRoute{}, []Edge{}
 	if campaign.ActivityFlow != nil {
+		currentEntries = campaign.ActivityFlow.Entries
 		currentEdges = campaign.ActivityFlow.Edges
 	}
-	if !sameEdges(currentEdges, expectedEdges) {
-		return Campaign{}, problem(http.StatusConflict, "flow_conflict", "活动流程已被其他页面修改，请刷新活动后重试")
+	if !sameEntryRoutes(currentEntries, expectedEntries) || !sameEdges(currentEdges, expectedEdges) {
+		return Campaign{}, problem(http.StatusConflict, "flow_conflict", "活动流程入口或回执边已被其他页面修改，请刷新活动后重试")
 	}
 	if campaign.ActivityFlow != nil && flow.ID != campaign.ActivityFlow.ID {
 		return Campaign{}, problem(http.StatusConflict, "flow_id_conflict", "活动流程 ID 不可修改")
 	}
 	next := campaign.clone()
+	flow.Entries = append([]EntryRoute{}, flow.Entries...)
+	for i := range flow.Entries {
+		flow.Entries[i].TreatmentIDs = append([]string{}, flow.Entries[i].TreatmentIDs...)
+	}
+	flow.Edges = append([]Edge{}, flow.Edges...)
 	next.ActivityFlow = &flow
-	ensureEntryAudienceRefs(&next)
 	if p := s.validate(next); p != nil {
 		return Campaign{}, p
 	}
@@ -158,18 +161,26 @@ func (s *Store) UpdateFlow(campaignID string, expectedEdges []Edge, flow Flow) (
 	return next.clone(), nil
 }
 
-func (s *Store) UpdateAudienceRefs(campaignID string, expectedRefs, refs []AudienceRef) (Campaign, *Problem) {
+func (s *Store) UpdateAudienceSelection(campaignID string, expected, nextSelection *AudienceSelection) (Campaign, *Problem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	campaign, ok := s.campaigns[campaignID]
 	if !ok {
 		return Campaign{}, problem(http.StatusNotFound, "not_found", "活动不存在")
 	}
-	if !sameAudienceRefs(campaign.AudienceRefs, expectedRefs) {
-		return Campaign{}, problem(http.StatusConflict, "audience_refs_conflict", "活动受众入口已被其他页面修改，请刷新活动后重试")
+	if !sameSelection(campaign.Audience, expected) {
+		return Campaign{}, problem(http.StatusConflict, "audience_conflict", "活动受众已被其他页面修改，请刷新活动后重试")
 	}
 	next := campaign.clone()
-	next.AudienceRefs = append([]AudienceRef{}, refs...)
+	if !sameSelection(campaign.Audience, nextSelection) && next.ActivityFlow != nil {
+		next.ActivityFlow.Entries = []EntryRoute{}
+	}
+	if nextSelection == nil {
+		next.Audience = nil
+	} else {
+		selection := *nextSelection
+		next.Audience = &selection
+	}
 	if p := s.validate(next); p != nil {
 		return Campaign{}, p
 	}
@@ -189,12 +200,12 @@ func sameEdges(a, b []Edge) bool {
 	return true
 }
 
-func sameAudienceRefs(a, b []AudienceRef) bool {
+func sameEntryRoutes(a, b []EntryRoute) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for index := range a {
-		if !sameRef(a[index], b[index]) {
+		if a[index].GroupID != b[index].GroupID || a[index].Kind != b[index].Kind || !reflect.DeepEqual(a[index].TreatmentIDs, b[index].TreatmentIDs) {
 			return false
 		}
 	}
@@ -244,7 +255,6 @@ func (s *Store) CreateTreatment(campaignID string, t Treatment) (Treatment, *Pro
 	}
 	next := c.clone()
 	next.Treatments = append(next.Treatments, t)
-	ensureEntryAudienceRefs(&next)
 	if p := s.validate(next); p != nil {
 		return Treatment{}, p
 	}
@@ -280,7 +290,6 @@ func (s *Store) UpdateTreatment(campaignID, treatmentID string, t Treatment) (Tr
 	}
 	next := c.clone()
 	next.Treatments[index] = t
-	ensureEntryAudienceRefs(&next)
 	if p := s.validate(next); p != nil {
 		return Treatment{}, p
 	}
@@ -300,6 +309,13 @@ func (s *Store) DeleteTreatment(campaignID, treatmentID string) *Problem {
 		return problem(http.StatusNotFound, "not_found", "投放项不在该活动中")
 	}
 	if c.ActivityFlow != nil {
+		for _, entry := range c.ActivityFlow.Entries {
+			for _, id := range entry.TreatmentIDs {
+				if id == treatmentID {
+					return problem(http.StatusConflict, "entry_conflict", fmt.Sprintf("投放项 %s 被活动流程入口引用", treatmentID))
+				}
+			}
+		}
 		for _, edge := range c.ActivityFlow.Edges {
 			if edge.FromTreatmentID == treatmentID || edge.ToTreatmentID == treatmentID {
 				return problem(http.StatusConflict, "edge_conflict", fmt.Sprintf("投放项 %s 被活动流程边 %s 引用", treatmentID, edge.ID))
@@ -308,7 +324,6 @@ func (s *Store) DeleteTreatment(campaignID, treatmentID string) *Problem {
 	}
 	next := c.clone()
 	next.Treatments = append(next.Treatments[:index], next.Treatments[index+1:]...)
-	ensureEntryAudienceRefs(&next)
 	if p := s.validate(next); p != nil {
 		return p
 	}
@@ -375,26 +390,19 @@ func (s *Store) DeleteGroupAudienceReference(groupID string) *Problem {
 		return nil
 	}
 	for _, campaign := range s.campaigns {
-		for _, ref := range campaign.AudienceRefs {
-			if ref.Type == "group" && ref.GroupID == groupID {
-				return problem(http.StatusConflict, "audience_in_use", fmt.Sprintf("普通人群引用 %s 已被活动入口使用", groupID))
-			}
+		if campaign.Audience != nil && campaign.Audience.Type == "group" && campaign.Audience.GroupID == groupID {
+			return problem(http.StatusConflict, "audience_in_use", fmt.Sprintf("普通人群引用 %s 已被活动使用", groupID))
 		}
-		for _, treatment := range campaign.Treatments {
-			if treatment.AudienceRef.Type == "group" && treatment.AudienceRef.GroupID == groupID {
-				return problem(http.StatusConflict, "audience_in_use", fmt.Sprintf("普通人群引用 %s 已被投放项使用", groupID))
+		if campaign.ActivityFlow != nil {
+			for _, entry := range campaign.ActivityFlow.Entries {
+				if entry.GroupID == groupID {
+					return problem(http.StatusConflict, "audience_in_use", fmt.Sprintf("普通人群引用 %s 已被活动流程入口使用", groupID))
+				}
 			}
 		}
 	}
 	s.references = append(s.references[:index], s.references[index+1:]...)
 	return nil
-}
-
-type Usage struct {
-	CampaignID    string `json:"campaignId"`
-	CampaignName  string `json:"campaignName"`
-	TreatmentID   string `json:"treatmentId"`
-	TreatmentName string `json:"treatmentName"`
 }
 
 func (s *Store) Usages(ref AudienceRef) ([]Usage, *Problem) {
@@ -405,16 +413,28 @@ func (s *Store) Usages(ref AudienceRef) ([]Usage, *Problem) {
 	defer s.mu.RUnlock()
 	out := []Usage{}
 	for _, c := range s.campaigns {
-		for _, t := range c.Treatments {
-			if sameRef(ref, t.AudienceRef) {
-				out = append(out, Usage{c.ID, c.Name, t.ID, t.Name})
+		role := ""
+		if c.Audience != nil {
+			if c.Audience.Type == "group" && ref.Type == "group" && c.Audience.GroupID == ref.GroupID {
+				role = "activity-audience"
 			}
+			if c.Audience.Type == "bundle" && ref.Type == "arm" && c.Audience.BundleID == ref.BundleID {
+				role = "experiment-audience"
+			}
+		}
+		if role == "" && c.ActivityFlow != nil {
+			for _, entry := range c.ActivityFlow.Entries {
+				if entry.GroupID == ref.GroupID {
+					role = "flow-entry"
+					break
+				}
+			}
+		}
+		if role != "" {
+			out = append(out, Usage{CampaignID: c.ID, CampaignName: c.Name, Role: role})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].CampaignID == out[j].CampaignID {
-			return out[i].TreatmentID < out[j].TreatmentID
-		}
 		return out[i].CampaignID < out[j].CampaignID
 	})
 	return out, nil

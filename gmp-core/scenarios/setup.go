@@ -33,11 +33,11 @@ func (s *Stack) BannerContest() (*BannerContest, error) {
 		return nil, err
 	}
 
-	promoA, err := treatment("promo-image-a", newcomers, "promo-a.png")
+	promoA, err := treatment("promo-image-a", "promo-a.png")
 	if err != nil {
 		return nil, err
 	}
-	promoB, err := treatment("promo-image-b", returning, "promo-b.png")
+	promoB, err := treatment("promo-image-b", "promo-b.png")
 	if err != nil {
 		return nil, err
 	}
@@ -55,25 +55,27 @@ func (s *Stack) BannerContest() (*BannerContest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the promotion's decision table: %w", err)
 	}
+	promotionFlow, err := singleEntryFlow("double-eleven-flow", audience.Single(everyone), []campaign.TreatmentID{promoA.ID(), promoB.ID()}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the promotion flow: %w", err)
+	}
 	promotion, err := campaign.NewCampaign(campaign.CampaignSpec{
 		ID:         "double-eleven",
 		Priority:   campaign.NewPriority(100),
+		Audience:   audience.SelectGroup(audience.Single(everyone)),
 		Treatments: []campaign.Treatment{promoA, promoB},
 		Tables:     []campaign.DecisionTable{table},
+		Flow:       promotionFlow,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the promotion: %w", err)
 	}
 
-	winbackBanner, err := treatment("winback-banner", everyone, "winback.png")
+	winbackBanner, err := treatment("winback-banner", "winback.png")
 	if err != nil {
 		return nil, err
 	}
-	winback, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID:         "member-winback",
-		Priority:   campaign.NewPriority(50),
-		Treatments: []campaign.Treatment{winbackBanner},
-	})
+	winback, err := singleTreatmentCampaign("member-winback", 50, audience.Single(everyone), winbackBanner)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the win-back: %w", err)
 	}
@@ -120,15 +122,17 @@ func (s *Stack) RolloutAdmitting(upTo int) (*campaign.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	banner, err := treatment("new-mechanism-banner", everyone, "new-mechanism.png")
+	banner, err := treatment("new-mechanism-banner", "new-mechanism.png")
 	if err != nil {
 		return nil, err
 	}
+	gradualFlow, err := singleEntryFlow("gradual-launch-flow", audience.Single(everyone), []campaign.TreatmentID{banner.ID()}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the gradual launch flow: %w", err)
+	}
 	gradual, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID:         "gradual-launch",
-		Priority:   campaign.NewPriority(10),
-		Rollout:    audience.Single(inRollout),
-		Treatments: []campaign.Treatment{banner},
+		ID: "gradual-launch", Priority: campaign.NewPriority(10), Audience: audience.SelectGroup(audience.Single(everyone)),
+		Rollout: audience.Single(inRollout), Treatments: []campaign.Treatment{banner}, Flow: gradualFlow,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the gradual launch: %w", err)
@@ -146,7 +150,8 @@ func (s *Stack) RolloutAdmitting(upTo int) (*campaign.Service, error) {
 // ExperimentArms is scenario 2's grouping: everyone who added to cart, carved
 // into four arms, the first of which does nothing.
 type ExperimentArms struct {
-	Base audience.Definition
+	Base       audience.Definition
+	Assignment experimentation.Definition
 	// Order is the arm names in share order, so the control arm is first.
 	Order []string
 	Arms  map[string]audience.Definition
@@ -187,7 +192,7 @@ func (s *Stack) ExperimentArms() (*ExperimentArms, error) {
 		}
 		arms[name] = definition
 	}
-	return &ExperimentArms{Base: base, Order: order, Arms: arms, Control: order[0]}, nil
+	return &ExperimentArms{Base: base, Assignment: assignment, Order: order, Arms: arms, Control: order[0]}, nil
 }
 
 func (s *Stack) activate(assignment experimentation.Definition) error {
@@ -212,7 +217,7 @@ func mustAttribute(name, value string) audience.Condition {
 	return condition
 }
 
-func treatment(id string, who audience.Definition, image string) (campaign.Treatment, error) {
+func treatment(id string, image string) (campaign.Treatment, error) {
 	action, err := campaign.RegisterAction(campaign.ActionSpec{
 		ID: "show-image", Direction: campaign.DirectionPull, RequiresSlot: true, Required: []string{"image"},
 	})
@@ -226,7 +231,6 @@ func treatment(id string, who audience.Definition, image string) (campaign.Treat
 	return campaign.NewTreatment(campaign.TreatmentSpec{
 		ID:   campaign.TreatmentID(id),
 		Slot: BannerSlot,
-		Who:  audience.Single(who),
 		Call: call,
 	})
 }
@@ -252,7 +256,7 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 	if arm < 1 || arm > len(arms.Order) {
 		return nil, fmt.Errorf("scenarios: arm %d is outside the experiment", arm)
 	}
-	who := arms.Arms[arms.Order[arm-1]]
+	who := audience.Single(arms.Arms[arms.Order[arm-1]])
 
 	action, err := campaign.RegisterAction(campaign.ActionSpec{
 		ID: SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
@@ -265,16 +269,12 @@ func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
 		return nil, fmt.Errorf("scenarios: filling in the action: %w", err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms", Who: audience.Single(who), Call: call,
+		ID: "warmup-sms", Call: call,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the treatment: %w", err)
 	}
-	built, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID:         "double-eleven-delivery",
-		Priority:   campaign.NewPriority(100),
-		Treatments: []campaign.Treatment{treatment},
-	})
+	built, err := singleTreatmentCampaign("double-eleven-delivery", 100, who, treatment)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the campaign: %w", err)
 	}
@@ -352,10 +352,56 @@ func (s *Stack) ArmCampaign() (*ArmCampaign, error) {
 	if err != nil {
 		return nil, err
 	}
+	entryRoutes := make([]campaign.EntrySpec, 0, len(arms.Order))
+	groupByName := make(map[string]audience.Group, len(arms.Order))
+	bundleArms := make([]audience.BundleArm, 0, len(arms.Order))
+	for index, name := range arms.Order {
+		share, err := Share(index + 1)
+		if err != nil {
+			return nil, err
+		}
+		groupID := audience.GroupID(fmt.Sprintf("double-eleven-arm-%d", index+1))
+		bundleArms = append(bundleArms, audience.BundleArm{ID: groupID, Share: share, Definition: arms.Arms[name]})
+	}
+	bundle, err := audience.NewBundle(audience.BundleSpec{
+		ID: "double-eleven-experiment-audience", Source: SourceID,
+		Assignment: arms.Assignment, Arms: bundleArms,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the experiment audience: %w", err)
+	}
+	if err := s.Audiences.Publish(bundle); err != nil {
+		return nil, fmt.Errorf("scenarios: publishing the experiment audience: %w", err)
+	}
+	for index, name := range arms.Order {
+		share, _ := Share(index + 1)
+		group, ok := bundle.Group(share)
+		if !ok {
+			return nil, fmt.Errorf("scenarios: experiment audience has no group for arm %q", name)
+		}
+		groupByName[name] = group
+	}
+	byArm := make(map[string][]campaign.TreatmentID)
+	for _, item := range described {
+		byArm[item.Arm] = append(byArm[item.Arm], item.ID)
+	}
+	for _, name := range arms.Order {
+		kind := campaign.EntryStart
+		if name == arms.Control {
+			kind = campaign.EntryControl
+		}
+		entryRoutes = append(entryRoutes, campaign.EntrySpec{Group: groupByName[name].ID(), Kind: kind, Treatments: byArm[name]})
+	}
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "double-eleven-experiment-flow", Entries: entryRoutes})
+	if err != nil {
+		return nil, fmt.Errorf("scenarios: building the experiment flow: %w", err)
+	}
 	built, err := campaign.NewCampaign(campaign.CampaignSpec{
 		ID:         "double-eleven-experiment",
 		Priority:   campaign.NewPriority(100),
+		Audience:   audience.SelectBundle(bundle),
 		Treatments: treatments,
+		Flow:       flow,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the experiment campaign: %w", err)
@@ -412,12 +458,12 @@ func buildArmTreatments(arms *ExperimentArms, smsCall, couponCall campaign.Call)
 	treatments := make([]campaign.Treatment, 0, len(planned))
 	described := make([]ArmTreatment, 0, len(planned))
 	for _, p := range planned {
-		who, held := arms.Arms[p.arm]
+		_, held := arms.Arms[p.arm]
 		if !held {
 			return nil, nil, fmt.Errorf("scenarios: treatment %q names arm %q, which is not in the experiment", p.id, p.arm)
 		}
 		built, err := campaign.NewTreatment(campaign.TreatmentSpec{
-			ID: p.id, Who: audience.Single(who), Call: p.call,
+			ID: p.id, Call: p.call,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("scenarios: building treatment %q: %w", p.id, err)
