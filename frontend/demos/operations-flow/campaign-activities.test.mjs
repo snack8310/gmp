@@ -29,6 +29,7 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(list, /href="#activities\/campaign-branch\/campaign"/);
  assert.match(list, /跨境召回/);
  const detail = renderActivityDetail('campaign-branch');
+ const editableDetail = renderActivityDetail('campaign-branch', undefined, undefined, true);
  assert.match(detail, /RCS 投放项/);
  assert.match(detail, /预热实验人群包 \/ A 臂/);
  assert.match(detail, /treatment-rcs/);
@@ -41,6 +42,8 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /实验人群包臂/);
  assert.match(detail, /运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。/);
  assert.doesNotMatch(detail, /投放箱|<button|contenteditable|draggable/);
+ assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/edit">编辑活动<\/a>/);
+ assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/treatments\/new">＋ 添加投放项<\/a>/);
 });
 
 test('empty and unavailable states stay explicit without replacing references', () => {
