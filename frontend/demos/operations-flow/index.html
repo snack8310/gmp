@@ -5,13 +5,29 @@
 <meta name="description" content="GMP 领域演示：使用构造数据展示受众、实验、运营与组合，不连接真实渠道。">
 <title>GMP · 领域演示</title>
 <link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="./activity-navigation.css">
 <script type="module" src="./app.mjs"></script>
 </head>
 <body>
 <header class="topbar"><a class="brand" href="./" aria-label="GMP 演示首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5v10l-10 5-10-5V7zm0 0v10m10-5-10 5L2 7m10 5v10"/></svg>GMP <span>GROWTH PLATFORM</span></a><span class="topnav">领域演示</span><span class="demo-badge"><span></span>模拟数据 · 不会真实触达</span></header>
 <main>
-<div class="lab-shell"><nav class="domain-nav" aria-label="领域导航"><a id="nav-audience" href="#audience" aria-current="page"><strong>受众</strong><span>这个人是谁</span></a><a id="nav-experimentation" href="#experimentation"><strong>实验</strong><span>落在第几份</span></a><a id="nav-campaign" href="#campaign"><strong>运营</strong><span>要对这些人做什么</span></a><a id="nav-compose" href="#compose"><strong>组合</strong><span>三域挂在一起跑</span></a></nav><div class="lab-content">
-<section class="intro"><div><p class="eyebrow">GMP / DOMAIN LAB</p><h1>从领域对象，到组合演示。</h1><p class="subtitle">分别查看受众、实验与运营的职责，再到组合页引用对象并播放。所有数据均为虚构。</p></div></section>
+<div class="workspace-shell">
+<aside class="activity-sidebar" aria-label="活动工作区">
+<div class="activity-sidebar-heading"><h2>活动列表</h2><a class="activity-create" href="#activities/new">＋ 新建</a></div>
+<nav id="activity-list" class="activity-list" aria-label="活动列表"></nav>
+<p id="activity-nav-status" class="activity-nav-status" role="status" aria-live="polite"></p>
+</aside>
+<div class="workspace-main">
+<section id="activity-landing" class="activity-landing">
+<div class="intro"><div><p class="eyebrow">GMP / ACTIVITY WORKSPACE</p><h1>先选活动，再进入工作区。</h1><p class="subtitle">每个活动下可查看受众、实验、运营与组合。受众和实验定义仍是可跨活动复用的共享资产。</p></div></div>
+<div id="campaign-activities" hidden></div>
+</section>
+<section id="activity-not-found" class="activity-not-found" hidden role="alert"><h1 id="activity-not-found-title">无法打开活动</h1><p id="activity-not-found-message"></p><a href="#activities">返回活动列表</a></section>
+<p id="campaign-status" class="campaign-global-status" role="status" aria-live="polite"></p>
+<p id="activity-route-loading" class="activity-route-loading" role="status" aria-live="polite" hidden>正在切换活动工作区…</p>
+<div id="lab-shell" class="lab-shell" hidden><nav id="domain-nav" class="domain-nav" aria-label="活动工作区"><a id="nav-audience" href="#activities" aria-current="page"><strong>受众</strong><span>这个人是谁</span></a><a id="nav-experimentation" href="#activities"><strong>实验</strong><span>落在第几份</span></a><a id="nav-campaign" href="#activities"><strong>运营</strong><span>要对这些人做什么</span></a><a id="nav-compose" href="#activities"><strong>组合</strong><span>三域挂在一起跑</span></a></nav><div class="lab-content">
+<section id="activity-context" class="activity-context"><div><p class="eyebrow">当前活动</p><h1 id="activity-context-name"></h1><p id="activity-context-id" class="activity-context-id"></p></div></section>
+<p id="shared-asset-note" class="shared-asset-note" hidden>此处维护跨活动共享的受众与实验资产；活动通过稳定引用使用这些定义。</p>
 
 <section id="audience-section" aria-label="受众">
 <div id="audience-browse">
@@ -49,19 +65,17 @@
 <form id="experiment-form" class="experiment-form" hidden><label for="experiment-name">实验名称</label><input id="experiment-name" maxlength="48" autocomplete="off" placeholder="输入实验名称"><p class="field-help">保存后可由受众与组合引用；比例固定，仅供演示。</p><p id="experiment-error" class="inline-error" role="alert"></p><div class="card-actions"><button type="submit" class="primary">保存实验</button><button id="cancel-experiment" type="button">取消</button></div></form>
 <div id="experiment-list" class="domain-cards"></div><p id="experiment-status" role="status" aria-live="polite"></p><p id="experiment-storage-warning" class="storage-warning" role="status"></p>
 <div class="domain-cards domain-explain"><article class="domain-card"><h3>染色 · 只读说明</h3><p>真实分配结果会被持久化；这里仅对构造 ID 作稳定示意，不写生产染色记录。</p></article><article class="domain-card"><h3>放量 · 只读说明</h3><p>放量也使用稳定分份，但不等同于有指标与结论的实验。本 Demo 不提供放量配置。</p></article></div>
-<p class="domain-link"><a href="#audience">前往受众引用实验 ↗</a></p>
+<p class="domain-link"><a id="experiment-audience-link" href="#activities">前往受众引用实验 ↗</a></p>
 </section>
 <section id="campaign-section" hidden aria-label="运营">
 <div id="campaign-overview">
 <div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIONS & EDGES</p><h2>运营</h2><p>运营域决定对这些人做什么。以下是领域概念说明，不在本页装配或播放。</p></div></div>
 <div class="domain-cards"><article class="domain-card"><span class="eyebrow">CAMPAIGN · #44</span><h3>活动</h3><p>一个活动可挂同一次实验的多个臂人群组；各臂可以引用不同投放项，对照组可以不触达。</p></article><article class="domain-card"><span class="eyebrow">TREATMENT</span><h3>投放项 · 一动作</h3><p>一个投放项只引用一个动作。多动作使用多个投放项，动作的结果由其契约定义。</p></article><article class="domain-card"><span class="eyebrow">CAMPAIGN FLOW · #55</span><h3>活动流程边</h3><p>活动流程用边连接投放项：可串行，可按动作回执分支；同入口多个投放项无边相连时可并行。</p></article></div>
 <p class="domain-footnote">#55 的跨层执行证据在 <code>gmp-core/scenarios/</code>；此处只展示关系，不替代核心回归用例。</p>
-<p class="campaign-entry"><a class="primary-link" href="#campaign/activities">管理活动 →</a><span>活动由本机管理 API 保存；重启 API 恢复构造种子</span></p>
+<p class="campaign-entry"><a class="primary-link" href="#activities">返回活动列表 →</a><span>活动由本机管理 API 保存；重启 API 恢复构造种子</span></p>
 </div>
-<div id="campaign-activities" hidden></div>
 <div id="campaign-detail" hidden></div>
 <div id="campaign-editor" hidden></div>
-<p id="campaign-status" role="status" aria-live="polite"></p>
 </section>
 <section id="flow-section" hidden aria-label="组合">
 <div class="section-heading"><div><p class="eyebrow">COMPOSE / SIMULATION</p><h2>组合</h2><p>引用已保存受众与实验，在沙盘中查看模拟流程、统计与场景。</p></div></div>
@@ -79,7 +93,7 @@
 </section>
 <section class="transport" aria-label="模拟播放控制"><div class="play-controls"><button id="play" class="primary">开始模拟</button><button id="reset" aria-label="重置模拟">重置</button></div><div class="timeline"><div><span>模拟时间 <strong id="time">00:00.0</strong></span><span id="duration">01:00.2</span></div><input id="timeline" type="range" min="0" max="60.24" step="any" value="0" aria-label="模拟时间位置"></div><label class="speed">速度<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><span class="motion-note" id="motion-note">SVG 立体投影<br>无需 WebGL</span></section>
 <footer><span>GMP / DOMAIN LAB</span><span>仅作方案演示 · 无生产连接 · 仅本地保存演示定义</span><span id="status-message" role="status" aria-live="polite">准备就绪，点击开始模拟。</span></footer></section>
-</div></div>
+</div></div></div></div>
 </main>
 <noscript>此演示需要 JavaScript。它仅在浏览器内计算模拟数据，不连接任何外部渠道。</noscript>
 </body>

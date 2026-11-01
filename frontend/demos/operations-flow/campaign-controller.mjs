@@ -14,10 +14,10 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
  });
  const status = message => { el('campaign-status').textContent = message; };
  const error = message => { const target = el('campaign-error'); if (target) target.textContent = message; else status(message); };
- const detailRoute = () => `campaign/activities/${url(activity.id)}`;
+ const detailRoute = () => `activities/${url(activity.id)}/campaign`;
 
  function activityEditor() {
-  el('campaign-editor').innerHTML = `<a class="campaign-back" href="${activity ? `#${detailRoute()}` : '#campaign/activities'}">← 返回</a><div class="section-heading"><div><h2>${activity ? '编辑活动' : '新建活动'}</h2><p>${activity ? `稳定 ID · ${safe(activity.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="campaign-form" class="campaign-form"><label>活动名称<input id="campaign-name" value="${safe(activity?.name)}" maxlength="48" required></label><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存活动</button><button type="button" data-cancel-campaign>取消</button></div></form>`;
+  el('campaign-editor').innerHTML = `<a class="campaign-back" href="${activity ? `#${detailRoute()}` : '#activities'}">← 返回</a><div class="section-heading"><div><h2>${activity ? '编辑活动' : '新建活动'}</h2><p>${activity ? `稳定 ID · ${safe(activity.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="campaign-form" class="campaign-form"><label>活动名称<input id="campaign-name" value="${safe(activity?.name)}" maxlength="48" required></label><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存活动</button><button type="button" data-cancel-campaign>取消</button></div></form>`;
  }
 
  function treatmentEditor() {
@@ -72,6 +72,13 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
   }
  }
 
+ function clear() {
+  serial++;
+  activity = null; treatment = null;
+  for (const id of ['campaign-overview', 'campaign-activities', 'campaign-detail', 'campaign-editor']) el(id).hidden = true;
+  status('');
+ }
+
  async function changed(message, route, version) {
   try { await onChanged(); if (serial === version) status(message); }
   catch (failure) { if (serial === version) status(`${message} 受众占用刷新失败：${failure.message}`); }
@@ -81,11 +88,11 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
  section.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button) return;
-  if (button.hasAttribute('data-cancel-campaign')) { onNavigate(activity ? detailRoute() : 'campaign/activities'); return; }
+   if (button.hasAttribute('data-cancel-campaign')) { onNavigate(activity ? detailRoute() : 'activities'); return; }
   if (button.dataset.deleteActivity) {
    if (!window.confirm('删除整项活动及其投放项、活动流程边？')) return;
    const version = serial;
-   try { await api.delete(button.dataset.deleteActivity); await changed('活动已删除。', 'campaign/activities', version); }
+   try { await api.delete(button.dataset.deleteActivity); await changed('活动已删除。', 'activities', version); }
    catch (failure) { if (serial === version) status(`删除失败：${failure.message}`); }
   }
   if (button.dataset.deleteTreatment && activity) {
@@ -107,7 +114,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
     const name = el('campaign-name').value.trim();
     if (!name) throw Error('活动名称必填。');
     const saved = activity ? await api.update(activity.id, { ...activity, name }) : await api.create({ name });
-    await changed('活动已保存。', `campaign/activities/${url(saved.id)}`, version);
+    await changed('活动已保存。', `activities/${url(saved.id)}/campaign`, version);
    } else {
     const key = el('treatment-audience').value;
     const ref = references().find(item => referenceKey(item) === key && item.available);
@@ -124,5 +131,5 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
   } catch (failure) { if (serial === version) error(failure.message); }
   finally { if (button) button.disabled = false; }
  });
- return { render };
+ return { render, clear };
 }

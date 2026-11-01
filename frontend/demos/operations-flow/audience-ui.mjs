@@ -25,7 +25,7 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   return work;
  }
  let editing = null;
- const picker=mountExperimentPicker({rootId:'audience-experiment-picker',store,onChange:()=>preview()});
+ const picker=mountExperimentPicker({rootId:'audience-experiment-picker',store,onChange:()=>preview(),onNavigate});
  const lifecycleLabel = {new:'新用户',active:'活跃用户',dormant:'沉睡用户'};
  function renderCatalog() {
   const rows = store.catalog().map(item => `<tr><th scope="row">${escapeHTML(item.type === 'arm' ? `${item.bundleName} / ${item.armName}` : item.groupName)}</th><td>${item.type === 'arm' ? '实验人群包臂' : '普通人群组'}</td><td>${item.type === 'arm' ? `${escapeHTML(item.bundleId)} / ` : ''}${escapeHTML(item.groupId)}</td><td>${item.available ? '可用' : '<span class="campaign-unavailable">不可用</span>'}</td></tr>`).join('');

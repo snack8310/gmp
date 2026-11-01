@@ -3,6 +3,8 @@ import { mountAudiences } from './audience-ui.mjs';
 import { mountExperimentPicker, mountExperiments, escapeHTML } from './experiment-ui.mjs';
 import { CampaignApi, browserCampaignApiBase } from './campaign-api-client.mjs';
 import { mountCampaigns } from './campaign-controller.mjs';
+import { mountActivityNavigation } from './activity-navigation.mjs';
+import { activityRoute, parseActivityRoute } from './activity-routing.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -229,16 +231,61 @@ function applyAudience(item,preserveExtra=false){
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
 function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(extraConfig&&!audienceUI.store.experiments().some(item=>item.id===extraConfig.experimentId))extraConfig=null;if(currentAudience)applyAudience(currentAudience,true);}
 const domains={audience:'audience-section',experimentation:'experimentation-section',campaign:'campaign-section',compose:'flow-section'};
-function renderDomain(){
- const route=window.location.hash.slice(1);
- const domain=route==='campaign'||route.startsWith('campaign/')?'campaign':Object.hasOwn(domains,route)?route:'audience';
- for(const [key,section] of Object.entries(domains)){$(section).hidden=key!==domain;$(`nav-${key}`).setAttribute('aria-current',key===domain?'page':'false');}
- campaignUI.render(route);
- if(domain!=='compose')clock.pause();
+let renderSerial=0, activityNavigation;
+async function renderDomain(){
+ const version=++renderSerial, route=parseActivityRoute(window.location.hash);
+ if(route.screen!=='workspace'||route.domain!=='compose')clock.pause();
+ const landing=$('activity-landing'),notFound=$('activity-not-found'),workspace=$('lab-shell'),domainNav=$('domain-nav');
+ landing.hidden=route.screen!=='list';
+ notFound.hidden=true;workspace.hidden=true;domainNav.hidden=true;$('activity-context').hidden=true;$('shared-asset-note').hidden=true;
+ $('activity-route-loading').hidden=route.screen==='list';
+ for(const [key,section] of Object.entries(domains)){$(section).hidden=true;$(`nav-${key}`).setAttribute('aria-current','false');}
+ campaignUI.clear();
+ const activityResult=await activityNavigation.refresh(route.activityId);
+ if(version!==renderSerial)return;
+ $('activity-route-loading').hidden=true;
+ const selected=activityResult.selected;
+ if(route.screen==='list'){
+  campaignUI.render('campaign/activities');
+  clock.pause();
+  return;
+ }
+ if(route.screen==='new'){
+  workspace.hidden=false;
+  $('campaign-section').hidden=false;
+  campaignUI.render('campaign/activities/new');
+  clock.pause();
+  return;
+ }
+ if(route.screen==='invalid'||activityResult.error||!selected){
+  notFound.hidden=false;
+  $('activity-not-found-title').textContent=activityResult.error?'无法读取活动上下文':'未找到该活动';
+  $('activity-not-found-message').textContent=activityResult.error?activityResult.error.message:'活动 ID「'+(route.activityId||'')+'」不在当前管理 API 活动列表中。';
+  clock.pause();
+  return;
+ }
+ workspace.hidden=false;domainNav.hidden=false;$('activity-context').hidden=false;
+ for(const key of Object.keys(domains)){
+  const link=$('nav-'+key),current=key===route.domain;
+  link.href='#'+activityRoute(selected.id,key);
+  link.setAttribute('aria-current',current?'page':'false');
+  $(domains[key]).hidden=!current;
+ }
+ $('shared-asset-note').hidden=!['audience','experimentation'].includes(route.domain);
+ $('experiment-audience-link').href='#'+activityRoute(selected.id,'audience');
+ if(route.domain==='campaign')await campaignUI.render(route.campaignRoute);
+ if(route.domain!=='compose')clock.pause();
 }
-function navigate(domain){window.location.hash=`#${domain}`;renderDomain();}
+function navigate(route){
+ const current=parseActivityRoute(window.location.hash);
+ const next=['audience','experimentation','campaign','compose'].includes(route)
+  ?current.activityId?activityRoute(current.activityId,route):'activities'
+  :route;
+ window.location.hash='#'+next;renderDomain();
+}
 window.addEventListener('hashchange',renderDomain);
 const campaignApi=new CampaignApi(browserCampaignApiBase(window.location, window.CAMPAIGN_API_BASE));
+activityNavigation=mountActivityNavigation({api:campaignApi});
 const audienceUI=mountAudiences({api:campaignApi,onUse:item=>applyAudience(item),onSaved:(saved,items)=>{refreshAudienceOptions(items);if(!currentAudience||saved.id===currentAudience.id)applyAudience(saved);else $('flow-audience').value=currentAudience.id;},onDeleted:(id,items)=>{refreshAudienceOptions(items);if(currentAudience?.id===id)applyAudience(items[0]||null);else $('flow-audience').value=currentAudience?.id||'';},onNavigate:navigate});
 const campaignUI=mountCampaigns({api:campaignApi,audienceStore:audienceUI.store,onNavigate:navigate,onChanged:()=>audienceUI.refreshProtection()});
 mountExperiments({store:audienceUI.store,onChanged:refreshExperiments});
@@ -249,7 +296,7 @@ function addFlowNode(branch){
  $('status-message').textContent=`已在${branch==='direct'?'普通出口':branch.toUpperCase()+' 分支'}后插入流程实验节点，可在检查器更换引用；入口未改变。`;
 }
 function changeFlowNode(){if(!extraConfig)return;const experimentId=canvasPicker.getValue();if(!experimentId)return;extraConfig={...extraConfig,experimentId};applyAudience(currentAudience,true);selectNode('flowExperiment');}
-canvasPicker=mountExperimentPicker({rootId:'flow-node-picker',store:audienceUI.store,onChange:changeFlowNode});
+canvasPicker=mountExperimentPicker({rootId:'flow-node-picker',store:audienceUI.store,onChange:changeFlowNode,onNavigate:navigate});
 $('flow-path-actions').addEventListener('click',event=>{const add=event.target.closest('[data-add-branch]');if(add)addFlowNode(add.dataset.addBranch);else if(event.target.closest('[data-inspect-flow-node]'))selectNode('flowExperiment');});
 $('remove-flow-node').addEventListener('click',()=>{if(!extraConfig)return;extraConfig=null;applyAudience(currentAudience,true);$('status-message').textContent='已删除进入后的流程实验节点，入口人群和继承实验未改变。';});
 refreshAudienceOptions(audienceUI.list());applyAudience(audienceUI.list()[0]||null);

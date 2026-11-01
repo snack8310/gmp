@@ -26,7 +26,7 @@ test('normal activities keep unique identities and same-activity flow references
 
 test('list and detail expose stable links, distinct audience types and receipt edges', () => {
  const list = renderActivitiesList();
- assert.match(list, /href="#campaign\/activities\/campaign-branch"/);
+ assert.match(list, /href="#activities\/campaign-branch\/campaign"/);
  assert.match(list, /跨境召回/);
  const detail = renderActivityDetail('campaign-branch');
  assert.match(detail, /RCS 投放项/);
@@ -55,7 +55,7 @@ test('empty and unavailable states stay explicit without replacing references', 
  assert.match(invalid, /构造引用/);
  const missing = renderActivityDetail('missing-id');
  assert.match(missing, /未找到该演示活动/);
- assert.match(missing, /href="#campaign\/activities"/);
+ assert.match(missing, /href="#activities"/);
  assert.doesNotMatch(missing, /跨境召回/);
 });
 

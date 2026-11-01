@@ -1,6 +1,6 @@
 # 领域演示：受众、实验、运营与组合
 
-独立前端展示 Demo：受众、实验和组合仍在浏览器中演示；活动与投放项经本机 #69 管理 REST API 读写。全部为构造数据，不接生产服务，不依赖 `gmp-core`、WebGL、框架、CDN 或第三方资产。
+独立前端展示 Demo：最外层先选择活动，再进入该活动的受众、实验、运营或组合工作区。活动与投放项经本机 #69 管理 REST API 读写；受众、实验和组合仍在浏览器中演示。受众定义、实验定义和实验人群包继续作为可跨活动复用的共享资产。全部为构造数据，不接生产服务，不依赖 `gmp-core`、WebGL、框架、CDN 或第三方资产。
 
 ## 运行与导出
 
@@ -19,9 +19,15 @@ node frontend/demos/operations-flow/serve.mjs 8081 8082
 node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 ```
 
-生成器内联同版本样式与模块，不上传、不部署；HTML 可离线打开。受众、实验和组合可离线演示；`file://` 没有 HTTP/HTTPS 同源基址，活动页默认明确提示 API 不可用，不会读取或保存活动。Node 用于演示服务、测试与导出。
+生成器内联同版本样式与模块，不上传、不部署；HTML 可离线打开。`file://` 没有 HTTP/HTTPS 同源基址，无法加载活动列表，所以不能进入活动工作区；页面明确提示这一限制，不会用静态活动种子冒充管理 API。通过本机 HTTP 服务访问时，活动列表和活动工作区可正常加载。Node 用于演示服务、测试与导出。
 
 ## 操作
+
+### 活动工作区
+
+- 最左侧活动列表从管理 API 读取。选择活动后，工作区显示「受众、实验、运营、组合」四个页签；新建活动入口位于活动列表标题旁。
+- 哈希路由形如 `#activities/{activityId}/{audience|experimentation|campaign|compose}`；活动 ID 按路径段编码。刷新、原生前进/后退和复制链接会恢复当前活动与页签。旧的 `#campaign/activities/{id}` 活动详情链接仍映射到该活动的运营页；旧顶层领域链接回到活动列表，要求先选择活动。
+- 受众与实验页管理跨活动共享资产，切换活动不会复制或隔离数据。编辑共享资产会影响所有引用它的活动。
 
 ### 受众
 
@@ -38,7 +44,7 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 
 ### 运营
 
-- `#campaign` 保留概念卡；活动列表从 `GET /api/v1/campaigns` 读取，详情使用稳定 ID 深链。可创建、改名、删除活动，增删改投放项；取消编辑不写 API。活动与投放项 ID 均由服务端分配，删除整活动同时删除其活动流程边；被边引用的投放项删除会收到冲突提示。活动流程只读展示。
+- 运营页直接展示当前工作区活动详情；活动列表从 `GET /api/v1/campaigns` 读取，活动与投放项详情使用稳定 ID 深链。可创建、改名、删除活动，增删改投放项；取消编辑不写 API。活动与投放项 ID 均由服务端分配，删除整活动同时删除其活动流程边；被边引用的投放项删除会收到冲突提示。活动流程只读展示。
 - 每个投放项选一个 API 动作和一个 `store.catalog()` 人群，保存前同时核对 API 引用目录；展示动作须选择展示位，推送不得带展示位。同一活动同展示位仅同包不同臂可证互斥。服务端仍会对每次写入重校验，非 2xx 或网络错误留在编辑页显示，不能冒充保存成功。
 - 普通组按组 ID、包臂按包 ID 与组 ID 识别。缺失或不可用引用保留服务端 ID，以本地或 API 目录已知名称显示并标不可用，编辑时须改选可用引用。浏览器本地新增的人群不自动进入 #69 的构造目录，故不能直接用于活动保存；后续需单独解决目录同步。
 - `campaign-activities.mjs` 的静态构造活动只保留给旧只读渲染测试作对照，运行时活动列表和详情均不读取它。#69 进程重启会恢复构造种子，编辑结果不持久化到磁盘。
@@ -46,7 +52,7 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-audience-demo.html
 
 ### 组合
 
-- 组合页引用已保存人群并提供场景、SVG 沙盘、播放、暂停、重播、时间轴、倍速、节点详情和统计。切页或页面隐藏时暂停；切换人群、场景或流程实验节点会重置并暂停。
+- 组合页位于当前活动工作区内，继续引用已保存共享人群并提供场景、SVG 沙盘、播放、暂停、重播、时间轴、倍速、节点详情和统计。该演示沙盘仍使用自己的构造模拟配置，不会读取活动投放项生成流程或写回活动。切页或页面隐藏时暂停；切换人群、场景或流程实验节点会重置并暂停。
 - 继承的人群实验只读。普通出口或继承 A/B 路径可添加一个进入后的流程实验节点，选择实验域已有项；主对照不触达、不能添加。节点只保存在当前会话，不写回人群。相同实验在继承和流程节点中复用时沿用原分配。
 - 流程实验节点支持路径点选、检查器改引用及删除；沙盘不提供通用 Flow 图编辑。减少动态效果偏好下不绘制流动小人，主动播放仍更新统计。窄屏可通过按钮调整视角并横向选择节点。
 
@@ -72,6 +78,8 @@ node --check frontend/demos/operations-flow/experiment-ui.mjs
 node --check frontend/demos/operations-flow/model.mjs
 node --check frontend/demos/operations-flow/campaign-activities.mjs
 node --check frontend/demos/operations-flow/campaign-ui.mjs
+node --check frontend/demos/operations-flow/activity-routing.mjs
+node --check frontend/demos/operations-flow/activity-navigation.mjs
 node --check frontend/demos/operations-flow/app.mjs
 node --check frontend/demos/operations-flow/export.mjs
 node --check frontend/demos/operations-flow/browser-check.mjs

@@ -62,29 +62,29 @@ let mobileId;
 let mobileViewport = false;
 try {
  await until("document.querySelector('#audience-catalog table')");
- await evaluate("location.hash='#campaign/activities'");
- await until("document.querySelector('#campaign-activities').textContent.includes('campaign-branch')");
- await evaluate("location.hash='#campaign/activities/new'");
+ await evaluate("location.hash='#activities'");
+ await until("document.querySelector('#activity-list').textContent.includes('campaign-branch')");
+ await evaluate("location.hash='#activities/new'");
  await until("document.querySelector('#campaign-form')");
  await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(desktopName)}; document.querySelector('#campaign-form').requestSubmit()`);
- await until(`location.hash.startsWith('#campaign/activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(desktopName)})`);
- desktopId = await evaluate("location.hash.slice('#campaign/activities/'.length)");
+ await until(`location.hash.startsWith('#activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(desktopName)})`);
+ desktopId = await evaluate("location.hash.slice('#activities/'.length).split('/')[0]");
  log('create_activity', { activityId: desktopId });
 
  await evaluate("document.querySelector('[data-delete-audience=\"aud-mx-dormant\"]').click()");
  await until("document.querySelector('#audience-status').textContent.includes('不能删除')");
  log('audience_delete_blocked_by_browser_usage_read');
- await evaluate(`location.hash=${JSON.stringify(`#campaign/activities/${desktopId}/treatments/new`)}`);
+ await evaluate(`location.hash=${JSON.stringify(`#activities/${desktopId}/campaign/treatments/new`)}`);
  await until("document.querySelector('#treatment-form')");
  await evaluate("document.querySelector('#treatment-name').value='浏览器短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-audience').value='group:group-new'; document.querySelector('#treatment-form').requestSubmit()");
  await until("document.querySelector('#campaign-detail').textContent.includes('浏览器短信')");
  log('add_treatment');
 
- await evaluate("location.hash='#campaign/activities'");
+ await evaluate("location.hash='#activities'");
  await until(`document.querySelector(${JSON.stringify(`#campaign-activities a[href*="${desktopId}"]`)})`);
- await evaluate(`document.querySelector(${JSON.stringify(`#campaign-activities a[href="#campaign/activities/${desktopId}"]`)}).click()`);
- await until(`location.hash===${JSON.stringify(`#campaign/activities/${desktopId}`)} && document.querySelector('#campaign-detail h2')`);
- await evaluate(`document.querySelector(${JSON.stringify(`#campaign-detail a[href="#campaign/activities/${desktopId}/edit"]`)}).click()`);
+ await evaluate(`document.querySelector(${JSON.stringify(`#campaign-activities a[href="#activities/${desktopId}/campaign"]`)}).click()`);
+ await until(`location.hash===${JSON.stringify(`#activities/${desktopId}/campaign`)} && document.querySelector('#campaign-detail h2')`);
+ await evaluate(`document.querySelector(${JSON.stringify(`#campaign-detail a[href="#activities/${desktopId}/campaign/edit"]`)}).click()`);
  await until("document.querySelector('#campaign-form')");
  const renamed = await evaluate(`(async () => {
   const response = await fetch(${JSON.stringify(`/api/v1/campaigns/${encodeURIComponent(desktopId)}`)});
@@ -95,13 +95,13 @@ try {
  assert.equal(renamed, 200);
  log('history_api_rename', { expected: 200, actual: renamed });
  await evaluate('history.back()');
- await until(`location.hash===${JSON.stringify(`#campaign/activities/${desktopId}`)} && document.querySelector('#campaign-detail h2')?.textContent==='历史栈 API 最新名称'`);
+ await until(`location.hash===${JSON.stringify(`#activities/${desktopId}/campaign`)} && document.querySelector('#campaign-detail h2')?.textContent==='历史栈 API 最新名称'`);
  await checkDetail(desktopId, 'history_back_detail');
  await evaluate('history.forward()');
- await until(`location.hash===${JSON.stringify(`#campaign/activities/${desktopId}/edit`)} && document.querySelector('#campaign-form')`);
+ await until(`location.hash===${JSON.stringify(`#activities/${desktopId}/campaign/edit`)} && document.querySelector('#campaign-form')`);
  log('history_forward_edit', { activityId: desktopId });
  await evaluate('history.back()');
- await until(`location.hash===${JSON.stringify(`#campaign/activities/${desktopId}`)} && document.querySelector('#campaign-detail h2')?.textContent==='历史栈 API 最新名称'`);
+ await until(`location.hash===${JSON.stringify(`#activities/${desktopId}/campaign`)} && document.querySelector('#campaign-detail h2')?.textContent==='历史栈 API 最新名称'`);
  await checkDetail(desktopId, 'history_back_again');
 
  await evaluate("location.hash += '/edit'");
@@ -111,28 +111,28 @@ try {
  await evaluate("window.confirm=()=>true; document.querySelector('[data-delete-treatment]').click()");
  await until("document.querySelector('#campaign-detail').textContent.includes('暂无投放项')");
  await evaluate("document.querySelector('[data-delete-activity]').click()");
- await until("location.hash==='#campaign/activities' && !document.querySelector('#campaign-activities').textContent.includes('浏览器验收已改名')");
+ await until("location.hash==='#activities' && !document.querySelector('#campaign-activities').textContent.includes('浏览器验收已改名')");
  desktopId = undefined;
  log('edit_and_delete');
 
  await command('Page.reload', { ignoreCache: true });
- await until("document.querySelector('#campaign-activities').textContent.includes('campaign-branch')");
+ await until("document.querySelector('#activity-list').textContent.includes('campaign-branch')");
  assert.equal(await evaluate("document.querySelector('#campaign-activities').textContent.includes('浏览器验收已改名')"), false);
  log('reload_without_deleted_activity');
 
  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
  mobileViewport = true;
- await evaluate("location.hash='#campaign/activities'");
+ await evaluate("location.hash='#activities'");
  await until("document.querySelector('#campaign-activities .primary-link')");
  await mobileCheck('mobile_list', '#campaign-activities .primary-link');
  await evaluate("document.querySelector('#campaign-activities .primary-link').click()");
  await until("document.querySelector('#campaign-form')");
  await mobileCheck('mobile_new_form', '#campaign-form');
  await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(mobileName)}; document.querySelector('#campaign-form').requestSubmit()`);
- await until(`location.hash.startsWith('#campaign/activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(mobileName)})`);
- mobileId = await evaluate("location.hash.slice('#campaign/activities/'.length)");
+ await until(`location.hash.startsWith('#activities/campaign-') && document.querySelector('#campaign-detail').textContent.includes(${JSON.stringify(mobileName)})`);
+ mobileId = await evaluate("location.hash.slice('#activities/'.length).split('/')[0]");
  await mobileCheck('mobile_created_detail', '#campaign-detail');
- await evaluate(`document.querySelector(${JSON.stringify(`#campaign-detail a[href="#campaign/activities/${mobileId}/treatments/new"]`)}).click()`);
+ await evaluate(`document.querySelector(${JSON.stringify(`#campaign-detail a[href="#activities/${mobileId}/campaign/treatments/new"]`)}).click()`);
  await until("document.querySelector('#treatment-form')");
  await mobileCheck('mobile_treatment_form', '#treatment-form');
  await evaluate("document.querySelector('#treatment-name').value='窄屏短信'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-audience').value='group:group-new'; document.querySelector('#treatment-form').requestSubmit()");
@@ -146,7 +146,7 @@ try {
   log('mobile_screenshot', { output });
  }
  await evaluate("window.confirm=()=>true; document.querySelector('[data-delete-activity]').click()");
- await until(`location.hash==='#campaign/activities' && !document.querySelector('#campaign-activities').textContent.includes(${JSON.stringify(mobileName)})`);
+ await until(`location.hash==='#activities' && !document.querySelector('#campaign-activities').textContent.includes(${JSON.stringify(mobileName)})`);
  mobileId = undefined;
  await mobileCheck('mobile_deleted_campaign', '#campaign-activities .primary-link');
 } finally {
