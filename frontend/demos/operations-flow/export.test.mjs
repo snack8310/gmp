@@ -23,7 +23,6 @@ test('standalone export embeds the actual modules, has no external assets, and b
   const window={location:{hash:'#campaign/activities/campaign-branch',protocol:'file:',origin:'null'},listeners:{},addEventListener(name,fn){this.listeners[name]=fn;}};
   let fetchCalls=0;
   new Script(script).runInNewContext({document,window,matchMedia:()=>({matches:false,addEventListener(){}}),requestAnimationFrame:()=>1,cancelAnimationFrame(){},fetch(){fetchCalls++;throw new Error('Network forbidden');}});
-  assert.equal(element('total').textContent,192);
   assert.ok(element('audience-list').innerHTML.includes('墨西哥'));
   assert.ok(element('storage-warning').textContent.includes('存储不可用'));
   await new Promise(resolve => setImmediate(resolve));
@@ -39,46 +38,30 @@ test('standalone export embeds the actual modules, has no external assets, and b
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
-test('entry configuration controls are confined to audience management, canvas only selects an audience', async()=>{
+test('entry configuration controls belong to audience management and no standalone sandbox remains', async()=>{
  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
- const start=html.indexOf('<section id="flow-section"');
- const audience=html.slice(0,start),canvas=html.slice(start);
  for(const id of ['entry-mode','batch-schedule','batch-time','event-type','rule-source']){
-  assert.ok(audience.includes(`id="${id}"`));assert.ok(!canvas.includes(`id="${id}"`));
+  assert.ok(html.includes(`id="${id}"`));
  }
- assert.ok(canvas.includes('id="flow-audience"'));
- for(const id of ['flow-entry-title','flow-entry-summary','flow-entry-boundary'])assert.ok(canvas.includes(`id="${id}"`));
+ assert.doesNotMatch(html,/flow-section|flow-audience|COMPOSE \/ SIMULATION|组合沙盘|组合页|触达模拟|开始模拟/);
+ assert.doesNotMatch(html,/id="play"|id="timeline"|id="scenario"/);
 });
 
-test('flow node tools are inside canvas paths and the inspector, not audience entry controls',async()=>{
+test('global navigation leads directly to activity details and asset lists', async () => {
  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
- assert.doesNotMatch(html,/canvas-experiment-enabled|canvas-experiment-branch|画布额外增加实验/);
- const workspace=html.indexOf('<section class="workspace">');
- assert.ok(html.indexOf('id="flow-path-actions"')>workspace);
- assert.ok(html.indexOf('id="flow-node-picker"')>html.indexOf('<aside class="detail-panel"'));
- assert.ok(html.indexOf('id="remove-flow-node"')>workspace);
-});
-
-test('domain navigation and sections are ordered and management stays in its domain', async () => {
- const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
- const nav=html.match(/<nav id="domain-nav"[\s\S]*?<\/nav>/)?.[0];
- assert.ok(nav);
- assert.deepEqual([...nav.matchAll(/id="nav-(campaign|compose)"/g)].map(match=>match[1]),['campaign','compose']);
+ assert.doesNotMatch(html,/domain-nav|nav-campaign|nav-compose/);
  const primary=html.match(/<nav class="primary-module-nav"[\s\S]*?<\/nav>/)?.[0];
  assert.ok(primary);
  assert.deepEqual([...primary.matchAll(/id="module-(activities|audience|experimentation)"/g)].map(match=>match[1]),['activities','audience','experimentation']);
  assert.match(html,/id="activity-list" class="activity-list"/);
- assert.ok(html.indexOf('id="activity-list"')<html.indexOf('id="domain-nav"'));
  assert.match(html,/id="lab-shell" class="lab-shell" hidden/);
  assert.match(html,/id="activity-route-loading" class="activity-route-loading"/);
  assert.match(html,/id="asset-return-link"/);
  const landing=html.slice(html.indexOf('id="activity-landing"'),html.indexOf('id="activity-not-found"'));
  assert.match(landing,/id="campaign-activities"/);
  assert.ok(html.indexOf('id="experimentation-section"')<html.indexOf('id="campaign-section"'));
- assert.ok(html.indexOf('id="campaign-section"')<html.indexOf('id="flow-section"'));
- const campaign=html.slice(html.indexOf('id="campaign-section"'),html.indexOf('id="flow-section"'));
- assert.match(campaign,/href="#activities"/);
+ const campaign=html.slice(html.indexOf('id="campaign-section"'));
  assert.match(campaign,/id="campaign-detail"/);
- assert.doesNotMatch(campaign,/id="play"|开始模拟/);
+ assert.match(campaign,/id="campaign-editor"/);
  assert.match(html,/模拟数据 · 不会真实触达/);
 });

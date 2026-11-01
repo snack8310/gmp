@@ -4,7 +4,7 @@ const root = new URL('./', import.meta.url);
 const html = await readFile(new URL('index.html',root),'utf8');
 const styles = await Promise.all(['style.css','activity-navigation.css'].map(name=>readFile(new URL(name,root),'utf8')));
 const css = styles.join('\n');
-const modules = await Promise.all(['audience.mjs','model.mjs','experiment-ui.mjs','activity-routing.mjs','activity-navigation.mjs','campaign-activities.mjs','campaign-ui.mjs','campaign-api-client.mjs','campaign-controller.mjs','audience-ui.mjs','app.mjs'].map(name=>readFile(new URL(name,root),'utf8')));
+const modules = await Promise.all(['audience.mjs','experiment-ui.mjs','activity-routing.mjs','activity-navigation.mjs','campaign-activities.mjs','campaign-ui.mjs','campaign-api-client.mjs','campaign-controller.mjs','audience-ui.mjs','app.mjs'].map(name=>readFile(new URL(name,root),'utf8')));
 const script = modules.map(source=>source.replace(/^import .* from ['"].*['"];\n/gm,'').replace(/^export /gm,'')).join('\n');
 if (/<\/script/i.test(script)||/<\/style/i.test(css)) throw new Error('Unsafe inline closing tag');
 const output = process.argv[2];

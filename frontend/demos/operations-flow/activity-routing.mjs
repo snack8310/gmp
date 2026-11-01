@@ -1,4 +1,4 @@
-export const ACTIVITY_DOMAINS = Object.freeze(['campaign', 'compose']);
+export const ACTIVITY_DOMAINS = Object.freeze(['campaign']);
 
 const decode = value => {
  try { return { value: decodeURIComponent(value), valid: true }; }
@@ -19,6 +19,7 @@ function validCampaignSuffix(parts) {
 function activityWorkspace(activitySegment, domain = 'campaign', suffix = []) {
  const decoded = decode(activitySegment);
  if (!decoded.valid || !decoded.value) return { screen: 'invalid', activityId: null, domain: null, campaignRoute: '' };
+ if (domain === 'compose') domain = 'campaign';
  if (!ACTIVITY_DOMAINS.includes(domain)) return { screen: 'invalid', activityId: decoded.value, domain: null, campaignRoute: '' };
  if (domain === 'campaign' && !validCampaignSuffix(suffix)) return { screen: 'invalid', activityId: decoded.value, domain: null, campaignRoute: '' };
  const campaignRoute = 'campaign/activities/' + activitySegment + (domain === 'campaign' && suffix.length ? '/' + suffix.join('/') : '');

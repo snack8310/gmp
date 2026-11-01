@@ -12,12 +12,15 @@ test('activity, audience and experimentation are independent top-level routes', 
  });
 });
 
-test('activity workspaces contain only operations and composition routes', () => {
+test('activity opens its content directly and old composition routes fall back to the activity', () => {
+ assert.deepEqual(parseActivityRoute('#activities/campaign-branch'), {
+  screen: 'workspace', activityId: 'campaign-branch', domain: 'campaign', campaignRoute: 'campaign/activities/campaign-branch',
+ });
  assert.deepEqual(parseActivityRoute('#activities/campaign-branch/compose'), {
-  screen: 'workspace', activityId: 'campaign-branch', domain: 'compose', campaignRoute: 'campaign/activities/campaign-branch',
+  screen: 'workspace', activityId: 'campaign-branch', domain: 'campaign', campaignRoute: 'campaign/activities/campaign-branch',
  });
  assert.equal(activityRoute('campaign-branch'), 'activities/campaign-branch/campaign');
- assert.equal(activityRoute('campaign-branch', 'compose'), 'activities/campaign-branch/compose');
+ assert.throws(() => activityRoute('campaign-branch', 'compose'), TypeError);
 });
 
 test('asset routes preserve a valid activity return path and reject other return targets', () => {
@@ -28,6 +31,7 @@ test('asset routes preserve a valid activity return path and reject other return
   screen: 'global', module: 'audience', returnTo: target, activityId: null, domain: null, campaignRoute: '',
  });
  assert.equal(parseActivityRoute('#audience?return=activities%2Fbad%2Funknown').returnTo, null);
+ assert.equal(assetRoute('audience', 'activities/campaign-branch/compose'), 'audience?return=activities%2Fcampaign-branch%2Fcampaign');
  assert.equal(assetRoute('experimentation', 'audience'), 'experimentation');
  assert.throws(() => assetRoute('activities'), TypeError);
 });

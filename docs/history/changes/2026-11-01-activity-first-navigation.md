@@ -1,49 +1,49 @@
-# 变更证据：活动、受众与实验的一级导航
+# 变更证据：活动承载投放项与共享资产入口
 
-关联 issue #74；分支 `feat/74-activity-first-navigation`。用户确认受众定义、实验定义和实验人群包继续作为跨活动共享资产。
+关联 issue #74；分支 `feat/74-activity-first-navigation`；现有 PR #75。此证据记录当前最新澄清后的实现。前一版评估通过的 SHA `ce63d74bd61dc583fdeee5d43c337f2e6fc07d85` 仍有活动内「组合」页签，已被用户后续澄清取代，不能作为本版验收结论。
 
-## 背景
+## 背景与范围
 
-operations-flow Demo 原先将受众、实验、运营和组合放在同一层，活动列表藏在运营域内。现调整为全局「活动、受众、实验」三个一级入口；活动工作区内只保留「运营、组合」。受众定义、实验定义和实验人群包继续作为跨活动共享资产。活动和投放项仍使用管理 API 的稳定 ID，未改变服务端契约和共享资产存储。
+最外层提供「活动、受众、实验」三个一级入口；受众、实验与实验人群包继续是可跨活动复用的共享资产。用户进一步澄清：活动本身代表一组能力，投放项是活动内容清单，不需要另设「组合」对象或组合页。当前实现以活动详情直接承载活动信息、投放项列表及已有活动流程边关系。活动和投放项继续由本机管理 API 管理；共享资产继续使用浏览器本地存储。本次不改服务端契约、核心领域模型、活动流程边语义、持久化格式或核心 `style.css`。
 
 ## 关键实现
 
-- 新增统一活动路由解析与导航模块，支持活动 ID 编码、深链、旧运营活动链接映射、未知活动提示及浏览器历史。
-- 新增独立 `activity-navigation.css`；核心 `style.css` 未修改。桌面侧栏提供活动、受众、实验入口，并在活动上下文显示活动列表与「运营、组合」页签；窄屏改为可横向访问的导航条。
-- 活动详情的「编辑活动」和「＋ 添加投放项」锚点复用核心 `style.css` 中既有的 `.primary-link` 样式；只补 class，不改核心样式表，锚点仍按链接导航。
-- 受众与实验一级列表复用原共享存储，活动详情和投放项编辑提供资产库入口；组合继续引用当前模拟资产，不新增活动关联。浏览器本地人群定义不会自动同步到管理 API 的统一引用目录，投放项只能选择该目录当前开放的引用。
-- 运营控制器根据路由活动 ID 读写活动与投放项。每次渲染生成版本号；切换路由时先使旧版本失效，旧表单提交、活动删除和投放项删除入口会拒绝过期事件。
-- README、离线导出和服务端静态文件白名单同步支持新的导航结构。
+- 保留全局「活动、受众、实验」一级导航；选择活动后直接进入活动详情。
+- 移除活动内页签、组合沙盘的 HTML、启动逻辑、模型模块及其专属测试，以及受众编辑驱动沙盘的联动；静态服务器白名单不再暴露该模块。旧 `compose` 深链映射到活动详情，旧 `#compose` 回到活动列表。活动流程边只在活动详情只读展示。
+- 活动详情继续展示可编辑的活动信息、投放项清单、共享资产入口和现有活动流程关系。投放项仍从管理 API 读取和写入。
+- 受众、实验与实验人群包保持原共享身份和存储键；活动与投放项表单继续通过统一人群目录引用，不新增活动到实验定义的直接关系。
+- 活动侧栏样式仍在独立 `activity-navigation.css`；核心 `style.css` 保持未修改。离线导出不再打包独立沙盘模型模块。
+- 路由版本和控制器版本保护仍阻止活动切换后过期读取、表单与删除操作覆盖当前活动。
 
 ## 关键文件
 
-- `frontend/demos/operations-flow/index.html`：全局一级导航和活动内工作区结构。
-- `frontend/demos/operations-flow/activity-routing.mjs`、`activity-navigation.mjs`：全局/活动路由及活动列表状态。
-- `frontend/demos/operations-flow/activity-navigation.css`：独立导航样式；核心 `style.css` 保持不变。
-- `frontend/demos/operations-flow/app.mjs`、`campaign-controller.mjs`、`campaign-ui.mjs`：活动上下文渲染和过期写控件保护。
-- `frontend/demos/operations-flow/app.test.mjs`、`activity-routing.test.mjs`、`activity-navigation.test.mjs`、`campaign-activities.test.mjs`：活动切换、共享资产、深链、过期控件及活动操作锚点样式回归。
-- `docs/ai-loop/task-cards/74-activity-first-navigation.md`：范围、验收、高风险和时间顺序记录。
+- `frontend/demos/operations-flow/index.html`、`app.mjs`：全局导航、活动详情入口与移除沙盘运行代码。
+- `frontend/demos/operations-flow/activity-routing.mjs`、`activity-navigation.mjs`、`activity-navigation.css`：活动深链、侧栏和独立导航样式。
+- `frontend/demos/operations-flow/campaign-ui.mjs`、`campaign-controller.mjs`：活动信息、投放项清单、流程边关系以及活动 CRUD。
+- `frontend/demos/operations-flow/audience-ui.mjs`、`experiment-ui.mjs`：共享资产管理和活动入口文案。
+- `frontend/demos/operations-flow/export.mjs`、`app.test.mjs`、`export.test.mjs`：离线导出和回归。
+- `frontend/demos/operations-flow/README.md`、`docs/ai-loop/task-cards/74-activity-first-navigation.md`：当前产品边界、操作与验证范围。
 
 ## 验证结果
 
+以下命令在当前最终候选内容上实际执行；提交后须在最终分支 SHA 上重跑。独立评估结论按仓库规则记录在 PR #75 正文，并绑定当时的 PR head SHA。
+
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
-| `node --test frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归无失败；覆盖路由、共享资产、CRUD、异步切换、过期提交/删除控件、活动操作锚点样式与离线导出。 |
-| 对 `frontend/demos/operations-flow/*.mjs` 执行 `node --check` | 通过 | Demo 模块语法检查无诊断。 |
-| `python3 test/docs/consistency_check.py` | 通过 | 文档一致性门禁通过；本次更正后重新执行。 |
-| `node frontend/demos/operations-flow/export.mjs /tmp/gmp-activity-navigation-final.html` 与导出内容检查 | 通过 | 生成单文件；包含内联活动导航、核心 `.primary-link` 样式和控件版本校验逻辑。 |
-| `git diff HEAD^ HEAD --check` 与范围检查 | 通过 | 无空白问题；未修改核心 `style.css`、`management/` 或 `gmp-core/`。 |
-| 主 Agent CUA 桌面、窄屏与活动详情预览 | 通过 | 全局活动/受众/实验入口、活动内运营/组合、窄屏布局及按钮式链接可见。 |
-| 主 Agent CUA 键盘焦点 | 通过 | Tab 顺序依次到达活动、受众、实验、新建活动和活动链接；每项均显示 `2px solid` 焦点轮廓。 |
-| 主 Agent CUA 浏览器历史 | 通过 | 从活动详情打开受众库后，后退回活动详情、前进回受众库；返回链接指向原活动详情。 |
-| 独立只读评估器第 1 轮 | `FAIL` | 固定 SHA `41acbb984c9583005d80018ffaeacd57384e845c`；阻断项为记录仍写旧的活动内四页签、旧 SHA 的 PASS 被误写为当前结论，以及缺少键盘焦点实测证据。后续提交已更正记录并补充键盘走查。 |
-| 独立只读评估器第 2 轮 | `NEEDS-EVIDENCE` | 固定 SHA `1d600820e581abe8c8e5d800ffd5a8c08b6b220a`；无阻断代码问题，但要求全量前端回归、模块语法和离线导出检查绑定送审 SHA。上述命令已在该固定 SHA 上重跑通过；最终裁决以 PR 中针对最终 SHA 的结果为准。 |
+| `node --test --test-reporter=spec frontend/demos/operations-flow/*.test.mjs` | 通过 | 64 项通过，0 失败；包含管理界面路由、共享资产、活动投放项、旧组合路由回退及离线导出检查。 |
+| `find frontend/demos/operations-flow -maxdepth 1 -name '*.mjs' -exec node --check {} +` | 通过 | Demo 目录所有模块语法检查无诊断。 |
+| `python3 test/docs/consistency_check.py` 与 `git diff --check` | 通过 | 文档一致性门禁 10 项通过，差异无空白错误。 |
+| 离线 HTML 导出与内容检查 | 通过 | 导出成功；确认保留活动详情和投放项清单，无独立沙盘 section、播放控件、模拟运行时代码或模型模块。 |
+| 本机 HTTP 静态服务 | 通过 | 首页返回 200；已删除的 `model.mjs` 返回 404。 |
+| 浏览器桌面、窄屏与键盘走查 | 通过 | 桌面和 390×844 窄屏下确认全局一级菜单、活动列表及活动内容；活动详情无组合入口；首个菜单项可见 `:focus-visible` 与 2px 焦点轮廓。 |
+| 资产库返回及浏览器历史 | 通过 | 活动详情→受众库的返回链接，以及浏览器后退/前进均回到预期页面。 |
+| 独立只读评估 | 待运行 | 对固定最终 SHA 审查；此前含组合页签的 SHA `ce63d74bd61dc583fdeee5d43c337f2e6fc07d85` 的 PASS 不可沿用。 |
 
 ## 风险与未覆盖项
 
-- 高风险标准 3 命中：活动路由与 CRUD 事件的并发/执行顺序控制。用户于 2026-11-01 确认按高风险继续。确认晚于首个实现提交；该流程偏差未伪记为事前确认。
-- 真实 Go 管理 API CRUD / HTTP 集成未运行：本机 Go 工具链版本低于项目要求，下载要求版本失败。浏览器预览使用本地只读模拟 API；不将其当作真实 API 验证。
-- 第 1 轮独立评估器未重放真实浏览器走查；评估器运行环境无法完成写临时目录的导出测试。主 Agent 提供的全量前端测试、导出和浏览器走查结果作为证据审查。后续评估结论以 PR 中针对最终固定 SHA 的裁决为准。
-- Safari、Firefox 与极窄屏设备未覆盖。程序化导航设置哈希后也主动渲染，可能重复发起只读活动列表请求；渲染版本阻止过期状态覆盖，重复读取次数未单独断言。
-- 没有新增抽象记忆：过期控件的版本校验已落在控制器接口和自动化回归测试中。
-- 回滚：撤回本分支 operations-flow Demo 前端改动即可恢复原导航；未改服务端、API 契约或持久化结构。
+- 通用高风险标准 3 命中：活动路由与 CRUD 异步切换顺序。用户确认按高风险继续，但确认晚于首次实现提交；该时间顺序偏差仍按事实记录，不得写成事前确认。
+- 管理 API 与浏览器/前端以外的生产环境未验证；演示不连接生产服务，不执行真实触达。
+- Safari、Firefox 和极窄屏设备未覆盖；本次浏览器走查范围以实测结果为准。
+- 旧组合沙盘模型和专属测试文件已删除；当前管理界面保留活动流程边关系的只读展示，不运行独立模拟。
+- 无新增持久化迁移，无 API、活动流程边、人群圈选或实验分桶语义变更。
+- 回滚：回退本分支前端和文档提交可恢复此前导航；未更改管理 API、领域模型或共享存储。

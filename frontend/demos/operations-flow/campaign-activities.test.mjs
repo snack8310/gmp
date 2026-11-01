@@ -40,7 +40,7 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /结果含义来自演示动作说明/);
  assert.match(detail, /普通人群组/);
  assert.match(detail, /实验人群包臂/);
- assert.match(detail, /运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。/);
+ assert.match(detail, /投放项引用受众统一目录中的人群组或实验人群包臂；分流定义由实验管理。/);
  assert.match(detail, /受众库 · 新建或管理/);
  assert.match(detail, /实验库 · 新建或管理/);
  assert.match(detail, /实验通过受众资产进入活动/);

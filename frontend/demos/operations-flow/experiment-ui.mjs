@@ -18,7 +18,7 @@ export function mountExperiments({store,onChanged}) {
  function refresh(){
   const experiments=store.experiments();
   el('experiment-count').textContent=experiments.length;
-  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10% · ${experiment.runtimeStatus === 'running' ? '运行中' : '已停用'}</p><div class="card-actions"><button type="button" data-toggle-experiment="${escapeHTML(experiment.id)}">${experiment.runtimeStatus === 'running' ? '停用分流' : '运行分流'}</button><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验，创建后即可被受众或组合引用。</p>';
+  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10% · ${experiment.runtimeStatus === 'running' ? '运行中' : '已停用'}</p><div class="card-actions"><button type="button" data-toggle-experiment="${escapeHTML(experiment.id)}">${experiment.runtimeStatus === 'running' ? '停用分流' : '运行分流'}</button><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验；实验运行后可由受众定义引用并发布实验人群包。</p>';
   el('experiment-storage-warning').textContent=store.warning;
  }
  function open(id=null){const experiment=store.experiments().find(value=>value.id===id);editingId=experiment?.id||null;el('experiment-name').value=experiment?.name||'';el('experiment-form').hidden=false;el('experiment-error').textContent='';el('experiment-name').focus?.();}
@@ -35,7 +35,7 @@ export function mountExperiments({store,onChanged}) {
   event.preventDefault();
   const definition={id:editingId||'',name:String(el('experiment-name').value)},errors=validateExperiment(definition);
   if(errors.length){el('experiment-error').textContent=errors.join('；');return;}
-  try{store.saveExperiment(definition);close();refresh();onChanged?.();el('experiment-status').textContent='实验已保存，可在受众和组合中引用。';}
+  try{store.saveExperiment(definition);close();refresh();onChanged?.();el('experiment-status').textContent='实验已保存，可由受众定义引用。';}
   catch(error){el('experiment-error').textContent=error.message;}
  });
  refresh();return {refresh};
