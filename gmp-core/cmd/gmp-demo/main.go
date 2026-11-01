@@ -43,10 +43,11 @@ func run(out *os.File) error {
 	if err := showArms(out, stack); err != nil {
 		return err
 	}
-	if err := showArmCampaign(out, stack); err != nil {
+	armCampaign, err := showArmCampaign(out, stack)
+	if err != nil {
 		return err
 	}
-	if err := showDelivery(out, stack); err != nil {
+	if err := showDelivery(out, armCampaign); err != nil {
 		return err
 	}
 	if err := showTwoStep(out); err != nil {
@@ -279,13 +280,13 @@ func why(reason campaign.LossReason) string {
 	}
 }
 
-func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
+func showArmCampaign(out *os.File, stack *scenarios.Stack) (*scenarios.ArmCampaign, error) {
 	section(out, "场景 ② · 一个活动，挂住各个实验臂",
-		"同一个活动下，每个臂是一个普通的人群定义，各自挂自己的投放项。对照组挂零个。")
+		"活动选择一个实验人群包，流程把各臂分别路由到起始投放项；对照组显式不投放。")
 
 	built, err := stack.ArmCampaign()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Fprintf(out, "  活动 %q，优先级穿透到下面所有投放项\n", built.Campaign.ID())
 	hangs := built.ByArm()
@@ -303,7 +304,7 @@ func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
 	for _, treatment := range built.Treatments {
 		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		fmt.Fprintf(out, "  投放项 %-16s → 人群 %-18s 动作 %-13s 投递 %d 人\n",
 			treatment.ID, treatment.Arm, treatment.Action, len(report.Executions))
@@ -316,7 +317,7 @@ func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
 	for _, name := range built.Arms.Order {
 		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(members) == 0 {
 			continue
@@ -329,7 +330,7 @@ func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
 		}
 		placements, err := stack.Audiences.Placements(built.Arms.Arms[name], audience.Live(), uid)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		where := ""
 		if len(placements) > 0 {
@@ -339,14 +340,14 @@ func showArmCampaign(out *os.File, stack *scenarios.Stack) error {
 	}
 	fmt.Fprintln(out, "  每条执行记录都同时带着投放项与份号 —— 少一样，就有一边算不出账。")
 	fmt.Fprintln(out, "  未覆盖：哪个臂更好、差异显不显著，归实验服务，尚未建设。")
-	return nil
+	return built, nil
 }
 
-func showDelivery(out *os.File, stack *scenarios.Stack) error {
+func showDelivery(out *os.File, built *scenarios.ArmCampaign) error {
 	section(out, "执行侧 · 幂等键贯穿三段",
 		"决策 → 投递 → 回执，三段带同一个键。断一节，那次执行就永远挂着，且不报错。")
 
-	delivery, err := stack.ArmDelivery(2)
+	delivery, err := built.Delivery(2)
 	if err != nil {
 		return err
 	}

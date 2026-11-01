@@ -64,7 +64,7 @@
 
 ## 最小验证集
 
-- 必跑命令：`go test ./...`（`gmp-core/` 与 `management/`）；`node --test --test-reporter=dot frontend/demos/operations-flow/*.test.mjs`；`python3 test/docs/consistency_check.py`；`git diff --check`；按已有浏览器回归走通人群入口、实验 A/B 两路径与成功/失败分支。
+- 必跑命令：`go test ./...`（`gmp-core/` 与 `management/`）；`go run ./cmd/gmp-demo`（`gmp-core/`）；`node --test --test-reporter=dot frontend/demos/operations-flow/*.test.mjs`；`python3 test/docs/consistency_check.py`；`git diff --check`；按已有浏览器回归走通人群入口、实验 A/B 两路径与成功/失败分支。
 - 必补测试：组/实验包入口类型校验；实验臂完整覆盖与显式对照无投放；实验臂不串路；活动流程必须存在于已构造 core Campaign；Treatment 无 Who 字段；目标 Treatment 不按自有人群枚举；实时展示只从当前入口组的候选起点决策；V1 接受新合同并拒绝旧字段；3D 演示起始路由和回执边同步。
 - 必查边界：普通人群多个并行起点；实验对照臂显式无投放；不同臂各自起始投放；实时展示只从已选择入口组的候选起点中决策；回执目标沿用命中回执的 UID，execution key 保持上游关联且 placements 延续；空草稿可逐步配置但不可本地演练不完整流程。
 - 本次不覆盖项：生产存储、外部渠道、生产授权与执行；Safari/Firefox/真机触屏；真实大规模分桶压力。

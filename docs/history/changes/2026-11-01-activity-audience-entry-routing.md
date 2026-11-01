@@ -27,6 +27,7 @@
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
 | `GOTOOLCHAIN=go1.24.0 go test -count=1 ./...`（`gmp-core/`） | 退出码 0 | audience、campaign、experimentation、internal/arch、scenarios 均通过；含跨实验臂决策候选回归。 |
+| `GOTOOLCHAIN=local go run ./cmd/gmp-demo`（`gmp-core/`） | 退出码 0 | 复用同一已发布实验包活动配置完成演练和执行侧示例。 |
 | `GOTOOLCHAIN=go1.24.0 go vet ./...`（`gmp-core/`） | 退出码 0 | 无诊断。 |
 | `GOTOOLCHAIN=go1.24.0 go test -count=1 ./...`、`GOTOOLCHAIN=go1.24.0 go vet ./...`（`management/`） | 退出码 0 | HTTP API 与管理模型测试通过；无 vet 诊断。 |
 | `GOTOOLCHAIN=go1.24.0 go build -o /tmp/gmp-entry-routing-api-final ./cmd/campaign-api`（`management/`） | 退出码 0 | 管理 API 构建成功。 |
@@ -44,3 +45,9 @@
 - 本次不覆盖项：真实渠道、生产持久化、生产授权、跨实例管理、真实分桶压力与非 Chromium 浏览器。
 - 对外破坏性变更：`/api/v1` 请求与响应结构原地更新；没有迁移计划或 V2 并行兼容，已由用户确认并在 `CHANGELOG.md` 记录。
 - 回滚：回退本分支提交；不涉及外部系统写入或持久化迁移。演示 API 运行时的测试草稿已恢复为完整 A/B/对照入口。
+
+## 合并前门禁补验
+
+- GitHub Actions 首次发现 `go run ./cmd/gmp-demo` 失败：活动示例已发布完整实验包后，执行侧又构造单臂普通组活动，导致该组因所属 assignment 已进入已发布 bundle 而被拒绝。
+- 修复：执行侧示例改为从同一个 `ArmCampaign` 选取投放项；`ArmDelivery` 现在也通过完整实验包活动构造。场景回归断言执行活动使用实验包，并检查所选臂 placements。
+- 修复后：`go run ./cmd/gmp-demo` 与 `TestScenarioTwoDeliveryCarriesTreatmentAndArm` 退出码为 0；对应 GitHub Actions 门禁待修复提交推送后重跑。

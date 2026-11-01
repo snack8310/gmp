@@ -235,8 +235,8 @@ func treatment(id string, image string) (campaign.Treatment, error) {
 	})
 }
 
-// ArmDelivery is scenario 2's delivery half for one arm: the people in that
-// arm, and the machinery to push a message to each of them.
+// ArmDelivery is scenario 2's delivery view for one arm of the complete
+// experiment campaign.
 type ArmDelivery struct {
 	Campaign  campaign.Campaign
 	Treatment campaign.TreatmentID
@@ -247,63 +247,23 @@ type ArmDelivery struct {
 	Arm int
 }
 
-// ArmDelivery builds the push side for one arm of scenario 2.
+// ArmDelivery builds the complete experiment campaign and selects one arm's
+// first treatment for the execution-side scenario.
 func (s *Stack) ArmDelivery(arm int) (*ArmDelivery, error) {
-	arms, err := s.ExperimentArms()
+	built, err := s.ArmCampaign()
 	if err != nil {
 		return nil, err
 	}
-	if arm < 1 || arm > len(arms.Order) {
-		return nil, fmt.Errorf("scenarios: arm %d is outside the experiment", arm)
-	}
-	who := audience.Single(arms.Arms[arms.Order[arm-1]])
-
-	action, err := campaign.RegisterAction(campaign.ActionSpec{
-		ID: SMSAction, Direction: campaign.DirectionPush, Required: []string{"copy"},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scenarios: registering the action: %w", err)
-	}
-	call, err := action.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
-	if err != nil {
-		return nil, fmt.Errorf("scenarios: filling in the action: %w", err)
-	}
-	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "warmup-sms", Call: call,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scenarios: building the treatment: %w", err)
-	}
-	built, err := singleTreatmentCampaign("double-eleven-delivery", 100, who, treatment)
-	if err != nil {
-		return nil, fmt.Errorf("scenarios: building the campaign: %w", err)
-	}
-
-	log := campaign.NewMemoryLog()
-	runner, err := campaign.NewRunner(campaign.RunnerSpec{
-		Audiences: s.Audiences, Log: log, Events: campaign.DiscardEvents(), MaxAttempts: 3,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scenarios: building the runner: %w", err)
-	}
-	deliverer := campaign.NewMemoryDeliverer()
-	if err := runner.RegisterDeliverer(SMSAction, deliverer); err != nil {
-		return nil, fmt.Errorf("scenarios: wiring the deliverer: %w", err)
-	}
-	return &ArmDelivery{
-		Campaign: built, Treatment: treatment.ID(),
-		Runner: runner, Log: log, Deliverer: deliverer, Arm: arm,
-	}, nil
+	return built.Delivery(arm)
 }
 
 // ArmCampaign is scenario 2 in the shape operations would configure it: one
 // campaign, with the arms of one assignment hanging under it, each arm doing
 // its own thing.
 //
-// It is kept apart from ArmDelivery, which shows a different thing -- one
-// arm's decision, delivery and receipt carrying a single key. Both draw their
-// audiences from ExperimentArms, so the arms they talk about are the same
-// arms.
+// It is kept apart from ArmDelivery, which shows one arm's decision, delivery
+// and receipt carrying a single key while reusing this activity's published
+// bundle.
 type ArmCampaign struct {
 	Campaign campaign.Campaign
 	Arms     *ExperimentArms
@@ -314,6 +274,32 @@ type ArmCampaign struct {
 	// Deliverers is what each action was wired to, so that a case can make a
 	// send fail and check that a failure is still recorded in its arm.
 	Deliverers map[campaign.ActionID]*campaign.MemoryDeliverer
+}
+
+// Delivery selects the first configured treatment for a one-based experiment
+// arm from this campaign's published bundle and flow routes.
+func (a *ArmCampaign) Delivery(arm int) (*ArmDelivery, error) {
+	if a == nil || a.Arms == nil {
+		return nil, fmt.Errorf("scenarios: experiment campaign is missing")
+	}
+	if arm < 1 || arm > len(a.Arms.Order) {
+		return nil, fmt.Errorf("scenarios: arm %d is outside the experiment", arm)
+	}
+	name := a.Arms.Order[arm-1]
+	for _, treatment := range a.Treatments {
+		if treatment.Arm != name {
+			continue
+		}
+		deliverer := a.Deliverers[treatment.Action]
+		if deliverer == nil {
+			return nil, fmt.Errorf("scenarios: no deliverer is wired for action %q", treatment.Action)
+		}
+		return &ArmDelivery{
+			Campaign: a.Campaign, Treatment: treatment.ID,
+			Runner: a.Runner, Log: a.Log, Deliverer: deliverer, Arm: arm,
+		}, nil
+	}
+	return nil, fmt.Errorf("scenarios: arm %q has no treatment to deliver", name)
 }
 
 // ArmTreatment is one treatment together with the arm it is aimed at.
@@ -335,10 +321,9 @@ const (
 //
 // The scenario lists a control arm, an arm that gets only a message, an arm
 // that gets both a message and a coupon, and an arm that gets only a coupon.
-// That is taken arm by arm: the control arm hangs nothing, and the arm that
-// gets two things gets two treatments. Nothing new is introduced to express
-// it -- the arms use ordinary audience configurations, and push treatments do
-// not occupy display slots.
+// One published experiment bundle is the campaign audience; its flow routes
+// each arm to its starting treatments, with the control arm starting none.
+// Push treatments do not occupy display slots.
 func (s *Stack) ArmCampaign() (*ArmCampaign, error) {
 	arms, err := s.ExperimentArms()
 	if err != nil {

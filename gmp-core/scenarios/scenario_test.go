@@ -295,6 +295,9 @@ func TestScenarioTwoDeliveryCarriesTreatmentAndArm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setting up the delivery: %v", err)
 	}
+	if !delivery.Campaign.Audience().IsBundle() {
+		t.Fatal("an experiment-arm delivery must use the activity's published bundle audience")
+	}
 	assertPushTreatmentsHaveNoSlots(t, delivery.Campaign)
 
 	// Learn the keys without sending anything, then make every send fail so the
