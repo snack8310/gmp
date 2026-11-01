@@ -30,9 +30,9 @@
 
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
-| `node --test --test-reporter=spec frontend/demos/operations-flow/*.test.mjs` | 通过 | 64 项通过，0 失败；包含管理界面路由、共享资产、活动投放项、旧组合路由回退及离线导出检查。 |
+| `node --test --test-reporter=spec frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归通过；覆盖管理界面路由、共享资产、活动投放项、旧组合路由回退及离线导出检查。 |
 | `find frontend/demos/operations-flow -maxdepth 1 -name '*.mjs' -exec node --check {} +` | 通过 | Demo 目录所有模块语法检查无诊断。 |
-| `python3 test/docs/consistency_check.py` 与 `git diff --check` | 通过 | 文档一致性门禁 10 项通过，差异无空白错误。 |
+| `python3 test/docs/consistency_check.py` 与 `git diff --check` | 通过 | 文档一致性门禁通过，差异无空白错误。 |
 | 离线 HTML 导出与内容检查 | 通过 | 导出成功；确认保留活动详情和投放项清单，无独立沙盘 section、播放控件、模拟运行时代码或模型模块。 |
 | 本机 HTTP 静态服务 | 通过 | 首页返回 200；已删除的 `model.mjs` 返回 404。 |
 | 浏览器桌面、窄屏与键盘走查 | 通过 | 桌面和 390×844 窄屏下确认全局一级菜单、活动列表及活动内容；活动详情无组合入口；首个菜单项可见 `:focus-visible` 与 2px 焦点轮廓。 |
