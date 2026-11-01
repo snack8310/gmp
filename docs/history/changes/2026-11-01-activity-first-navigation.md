@@ -26,18 +26,18 @@
 
 ## 验证结果
 
-以下命令在当前最终候选内容上实际执行；提交后须在最终分支 SHA 上重跑。独立评估结论按仓库规则记录在 PR #75 正文，并绑定当时的 PR head SHA。
+以下命令已在提交 `dcc9cacf391393358c5bb3f485c09c27cabe3158` 上实际执行。记录评估结论后生成的最终提交会再按固定 SHA 复核；PR #75 正文记录最终裁决。
 
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
-| `node --test --test-reporter=spec frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归通过；覆盖管理界面路由、共享资产、活动投放项、旧组合路由回退及离线导出检查。 |
+| `node --test --test-reporter=dot frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归通过；覆盖管理界面路由、共享资产、活动投放项、旧组合路由回退及离线导出检查。 |
 | `find frontend/demos/operations-flow -maxdepth 1 -name '*.mjs' -exec node --check {} +` | 通过 | Demo 目录所有模块语法检查无诊断。 |
 | `python3 test/docs/consistency_check.py` 与 `git diff --check` | 通过 | 文档一致性门禁通过，差异无空白错误。 |
 | 离线 HTML 导出与内容检查 | 通过 | 导出成功；确认保留活动详情和投放项清单，无独立沙盘 section、播放控件、模拟运行时代码或模型模块。 |
 | 本机 HTTP 静态服务 | 通过 | 首页返回 200；已删除的 `model.mjs` 返回 404。 |
 | 浏览器桌面、窄屏与键盘走查 | 通过 | 桌面和 390×844 窄屏下确认全局一级菜单、活动列表及活动内容；活动详情无组合入口；首个菜单项可见 `:focus-visible` 与 2px 焦点轮廓。 |
 | 资产库返回及浏览器历史 | 通过 | 活动详情→受众库的返回链接，以及浏览器后退/前进均回到预期页面。 |
-| 独立只读评估 | 待运行 | 对固定最终 SHA 审查；此前含组合页签的 SHA `ce63d74bd61dc583fdeee5d43c337f2e6fc07d85` 的 PASS 不可沿用。 |
+| 独立只读评估 | PASS | 固定 SHA `dcc9cacf391393358c5bb3f485c09c27cabe3158` 无阻断问题；最终候选 SHA 变化后重新复核。此前含组合页签的 SHA `ce63d74bd61dc583fdeee5d43c337f2e6fc07d85` 的 PASS 不可沿用。 |
 
 ## 风险与未覆盖项
 
