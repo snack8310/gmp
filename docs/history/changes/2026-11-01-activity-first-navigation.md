@@ -10,6 +10,7 @@ operations-flow Demo 原先把受众、实验、运营和组合放在顶层，�
 
 - 新增统一活动路由解析与活动导航模块，支持活动 ID 编码、深链、旧运营活动链接映射、未知活动提示及浏览器历史。
 - 新增独立 `activity-navigation.css`；核心 `style.css` 未修改。桌面侧栏包含活动列表和活动内页签，窄屏改为可横向访问的导航条。
+- 活动详情的「编辑活动」和「＋ 添加投放项」锚点复用核心 `style.css` 中既有的 `.primary-link` 样式；只补 class，不改核心样式表，锚点仍按链接导航。
 - 受众、实验和实验人群包仍读写原共享存储；组合继续引用当前模拟资产，不新增活动关联。
 - 运营控制器根据路由活动 ID 读写活动与投放项。每次渲染生成版本号；切换路由时先使旧版本失效，旧表单提交、活动删除和投放项删除入口会拒绝过期事件。
 - README、离线导出、服务端静态文件白名单和浏览器检查脚本同步支持新的导航结构。
@@ -20,20 +21,20 @@ operations-flow Demo 原先把受众、实验、运营和组合放在顶层，�
 - `frontend/demos/operations-flow/activity-routing.mjs`、`activity-navigation.mjs`：路由和 API 活动列表状态。
 - `frontend/demos/operations-flow/activity-navigation.css`：独立导航样式；核心 `style.css` 保持不变。
 - `frontend/demos/operations-flow/app.mjs`、`campaign-controller.mjs`、`campaign-ui.mjs`：活动上下文渲染和过期写控件保护。
-- `frontend/demos/operations-flow/app.test.mjs`、`activity-routing.test.mjs`、`activity-navigation.test.mjs`：活动切换、共享资产、深链和过期控件回归。
+- `frontend/demos/operations-flow/app.test.mjs`、`activity-routing.test.mjs`、`activity-navigation.test.mjs`、`campaign-activities.test.mjs`：活动切换、共享资产、深链、过期控件及活动操作锚点样式回归。
 - `docs/ai-loop/task-cards/74-activity-first-navigation.md`：范围、验收、高风险和时间顺序记录。
 
 ## 验证结果
 
 | 命令 / 检查 | 结果 | 证据摘要 |
 |---|---|---|
-| `node --test frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归无失败；覆盖路由、共享资产、CRUD、异步切换、过期提交/删除控件与离线导出。 |
+| `node --test frontend/demos/operations-flow/*.test.mjs` | 通过 | 前端回归无失败；覆盖路由、共享资产、CRUD、异步切换、过期提交/删除控件、活动操作锚点样式与离线导出。 |
 | 对 `frontend/demos/operations-flow/*.mjs` 执行 `node --check` | 通过 | Demo 模块语法检查无诊断。 |
 | `python3 test/docs/consistency_check.py` | 通过 | 文档一致性门禁通过，新增本证据后复跑。 |
-| `node frontend/demos/operations-flow/export.mjs /tmp/gmp-activity-navigation-final.html` 与导出内容检查 | 通过 | 生成单文件；包含内联活动导航样式和控件版本校验逻辑。 |
+| `node frontend/demos/operations-flow/export.mjs /tmp/gmp-activity-navigation-final.html` 与导出内容检查 | 通过 | 生成单文件；包含内联活动导航、核心 `.primary-link` 样式和控件版本校验逻辑。 |
 | `git diff HEAD^ HEAD --check` 与范围检查 | 通过 | 无空白问题；未修改核心 `style.css`、`management/` 或 `gmp-core/`。 |
-| 主 Agent CUA 桌面、窄屏、键盘和历史走查 | 通过 | 活动上下文与四个页签可用；窄屏导航、焦点状态和浏览器前进/后退符合预期。该走查在最后一项仅影响事件入口的控件版本保护提交前完成。 |
-| 独立只读评估器 | `PASS` | 固定 SHA `3f9c6e247a62d95d9319f095aa4de008c0f3888a`；无阻断问题。 |
+| 主 Agent CUA 桌面、窄屏、键盘、历史与活动详情预览 | 通过 | 活动上下文与四个页签可用；窄屏导航、焦点状态和浏览器前进/后退符合预期；活动详情中两个主要操作呈按钮式链接。 |
+| 独立只读评估器 | `PASS` | 固定 SHA `c9724a27d35979625fed1446778e0335c11c8dd5`；无阻断问题。 |
 
 ## 风险与未覆盖项
 
