@@ -14,7 +14,28 @@ const socket = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
 let serial = 0;
 const pending = new Map();
-socket.onmessage = event => { const message = JSON.parse(event.data); if (pending.has(message.id)) { const {resolve, reject} = pending.get(message.id); pending.delete(message.id); message.error ? reject(Error(message.error.message)) : resolve(message.result); } };
+const networkRequests = [];
+const flowWriteRequests = [];
+const audienceWriteRequests = [];
+let rejectNextFlowWrite = false;
+socket.onmessage = event => {
+ const message = JSON.parse(event.data);
+ if (message.method === 'Network.requestWillBeSent') {
+  networkRequests.push(message.params.request.url);
+  if (message.params.request.method === 'PUT' && new URL(message.params.request.url).pathname.endsWith('/flow')) flowWriteRequests.push(message.params.request.url);
+  if (message.params.request.method === 'PUT' && new URL(message.params.request.url).pathname.endsWith('/audiences')) audienceWriteRequests.push(message.params.request.url);
+ }
+ if (message.method === 'Fetch.requestPaused') {
+  const path = new URL(message.params.request.url).pathname;
+  const fail = rejectNextFlowWrite && message.params.request.method === 'PUT' && path.endsWith('/flow');
+  if (fail) rejectNextFlowWrite = false;
+  const response = fail
+   ? command('Fetch.fulfillRequest', { requestId: message.params.requestId, responseCode: 422, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify({ error: { code: 'invalid_flow', message: '浏览器验收模拟的写入拒绝' } })).toString('base64') })
+   : command('Fetch.continueRequest', { requestId: message.params.requestId });
+  response.catch(error => console.error(error));
+ }
+ if (pending.has(message.id)) { const {resolve, reject} = pending.get(message.id); pending.delete(message.id); message.error ? reject(Error(message.error.message)) : resolve(message.result); }
+};
 function command(method, params = {}) { const id = ++serial; return new Promise((resolve, reject) => { pending.set(id, {resolve, reject}); socket.send(JSON.stringify({id, method, params})); }); }
 async function evaluate(expression) { const result = await command('Runtime.evaluate', {expression, returnByValue:true, awaitPromise:true}); if (result.exceptionDetails) throw Error(`${result.exceptionDetails.text}: ${result.exceptionDetails.exception?.description}; expression: ${expression.slice(0, 200)}`); return result.result.value; }
 async function until(expression) {
@@ -63,7 +84,7 @@ let mobileViewport = false;
 try {
  await until("document.querySelector('#audience-catalog table')");
  await evaluate("location.hash='#activities'");
- await until("document.querySelector('#activity-list').textContent.includes('campaign-branch')");
+ await until("document.querySelector('#activity-list a[href=\"#activities/campaign-branch/campaign\"]')");
  await evaluate("location.hash='#activities/new'");
  await until("document.querySelector('#campaign-form')");
  await evaluate(`document.querySelector('#campaign-name').value=${JSON.stringify(desktopName)}; document.querySelector('#campaign-form').requestSubmit()`);
@@ -116,15 +137,201 @@ try {
  log('edit_and_delete');
 
  await command('Page.reload', { ignoreCache: true });
- await until("document.querySelector('#activity-list').textContent.includes('campaign-branch')");
+ await until("document.querySelector('#activity-list a[href=\"#activities/campaign-branch/campaign\"]')");
  assert.equal(await evaluate("document.querySelector('#campaign-activities').textContent.includes('浏览器验收已改名')"), false);
  log('reload_without_deleted_activity');
+
+ await evaluate("location.hash='#activities/campaign-branch/campaign'");
+ await until("document.querySelector('#activity-flow-canvas [data-world]') && document.querySelector('#campaign-detail h2')?.textContent==='跨境召回'");
+ const flowDetail = await evaluate(`(() => ({
+  activity: document.querySelector('#campaign-detail h2')?.textContent,
+  nodes: [...new Set([...document.querySelectorAll('#activity-flow-canvas [data-flow-node]')].map(node => node.dataset.flowNode))],
+  edges: [...document.querySelectorAll('#activity-flow-canvas [data-flow-edge]')].map(edge => edge.dataset.flowEdge),
+  warning: document.querySelector('.flow-rehearsal-warning')?.textContent,
+ }))()`);
+ assert.equal(flowDetail.activity, '跨境召回');
+ assert.ok(flowDetail.nodes.includes('treatment-rcs') && flowDetail.nodes.includes('treatment-email') && flowDetail.nodes.includes('treatment-sms'));
+ assert.deepEqual(flowDetail.edges.sort(), ['edge-failed', 'edge-success']);
+ assert.match(flowDetail.warning, /不会触达真实用户或真实渠道/);
+ log('activity_flow_deep_link', { activity: flowDetail.activity, nodeIds: flowDetail.nodes, edgeIds: flowDetail.edges });
+ if (screenshotDir) {
+  await mkdir(screenshotDir, { recursive: true });
+  await command('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await evaluate("document.querySelector('#activity-flow-canvas').scrollIntoView({block:'center'})");
+  const screenshot = await command('Page.captureScreenshot', { format: 'png' });
+  const output = join(screenshotDir, `activity-flow-${runId}.png`);
+  await writeFile(output, Buffer.from(screenshot.data, 'base64'));
+  await command('Emulation.clearDeviceMetricsOverride');
+  log('activity_flow_screenshot', { output });
+ }
+
+ await evaluate("location.hash='#activities/campaign-empty/campaign'");
+ await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='0'");
+ const emptyFlow = await evaluate(`(() => ({
+  activity: document.querySelector('#campaign-detail h2')?.textContent,
+  nodes: document.querySelectorAll('#activity-flow-canvas [data-flow-node]').length,
+  playDisabled: document.querySelector('#activity-flow-canvas [data-flow-play]').disabled,
+ }))()`);
+ assert.equal(emptyFlow.activity, '待装配活动');
+ assert.equal(emptyFlow.nodes, 0);
+ assert.equal(emptyFlow.playDisabled, true);
+ log('activity_flow_empty_activity', emptyFlow);
+ await evaluate("location.hash='#audience?return=activities/campaign-empty/campaign'");
+ await until("document.querySelector('#new-audience') && document.querySelector('#audience-browse')");
+ await evaluate("document.querySelector('#new-audience').click(); document.querySelector('#audience-name').value='画布入口验收人群'; document.querySelector('#audience-form').requestSubmit();");
+ await until("document.querySelector('#audience-status')?.textContent.includes('人群定义已保存')");
+ const newGroupId = await evaluate(`(() => {
+  const card = [...document.querySelectorAll('#audience-list article')].find(item => item.textContent.includes('画布入口验收人群'));
+  const localId = card?.querySelector('small')?.textContent.trim().split(/\\s+/)[0];
+  return localId ? 'group-' + localId : '';
+ })()`);
+ assert.match(newGroupId, /^group-aud-custom-/);
+ const synchronizedReference = await evaluate(`(async () => {
+  const response = await fetch('/api/v1/audience-references');
+  const { audienceReferences } = await response.json();
+  return audienceReferences.find(item => item.groupId === ${JSON.stringify(newGroupId)});
+ })()`);
+ assert.equal(synchronizedReference.name, '画布入口验收人群');
+ await evaluate("document.querySelector('#asset-return-link').click()");
+ await until("location.hash==='#activities/campaign-empty/campaign' && document.querySelector('#activity-flow-canvas [data-flow-add-audience]')");
+ await command('Network.enable');
+ const audienceWriteStart = audienceWriteRequests.length;
+ await evaluate(`document.querySelector('#activity-flow-canvas [data-flow-add-audience]').click(); const form=document.querySelector('#activity-audience-form'); form.elements.audienceRef.value=${JSON.stringify(`group:${newGroupId}`)}; const submit=new SubmitEvent('submit',{bubbles:true,cancelable:true}); form.dispatchEvent(submit); form.dispatchEvent(new SubmitEvent('submit',{bubbles:true,cancelable:true}));`);
+ await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='1'");
+ const concurrentAudienceWrites = audienceWriteRequests.length - audienceWriteStart;
+ assert.equal(concurrentAudienceWrites, 1);
+ const selectedAudience = await evaluate(`(async () => {
+  const response = await fetch('/api/v1/campaigns/campaign-empty');
+  const campaign = await response.json();
+  return { entries: campaign.audienceRefs, nodes: document.querySelectorAll('#activity-flow-canvas [data-flow-node]').length,
+   addTreatment: document.querySelector('#activity-flow-canvas a[href*="/treatments/new"]')?.textContent };
+ })()`);
+ assert.deepEqual(selectedAudience.entries, [{ type: 'group', groupId: newGroupId }]);
+ assert.ok(selectedAudience.nodes > 0 && selectedAudience.addTreatment.includes('添加投放项'));
+ log('activity_flow_audience_entry', { ...selectedAudience, concurrentSubmits: 2, serializedWrites: concurrentAudienceWrites });
+ const staleAudienceWrite = await evaluate(`(async () => {
+  const response=await fetch('/api/v1/campaigns/campaign-empty/audiences',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedAudienceRefs:[],audienceRefs:[]})});
+  const body=await response.json(); const current=await (await fetch('/api/v1/campaigns/campaign-empty')).json();
+  return { status:response.status, code:body.error?.code, audienceRefs:current.audienceRefs };
+ })()`);
+ assert.equal(staleAudienceWrite.status, 409);
+ assert.equal(staleAudienceWrite.code, 'audience_refs_conflict');
+ assert.deepEqual(staleAudienceWrite.audienceRefs, [{ type: 'group', groupId: newGroupId }]);
+ log('stale_activity_audience_write_rejected', staleAudienceWrite);
+ await evaluate(`document.querySelector("#activity-flow-canvas a[href*='/treatments/new']").click()`);
+ await until("document.querySelector('#treatment-form')");
+ const selectedByDefault = await evaluate(`document.querySelector('#treatment-audience').value`);
+ assert.equal(selectedByDefault, `group:${newGroupId}`);
+ await evaluate(`document.querySelector('#treatment-name').value='画布短信投放项'; document.querySelector('#treatment-action').value='action-sms'; document.querySelector('#treatment-form').requestSubmit();`);
+ await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='3'");
+ await evaluate("document.querySelector('#activity-flow-canvas [data-select-node]').click()");
+ assert.equal(await evaluate("Boolean(document.querySelector('#activity-flow-canvas [data-edge-detail] [data-remove-audience-entry]'))"), false);
+ await evaluate("window.confirm=()=>true; document.querySelector('#campaign-detail [data-delete-treatment]').click()");
+ await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='1'");
+ await evaluate("document.querySelector('#activity-flow-canvas [data-select-node]').click(); document.querySelector('#activity-flow-canvas [data-edge-detail] [data-remove-audience-entry]').click();");
+ await until("document.querySelector('#activity-flow-canvas [data-node-total]')?.textContent==='0'");
+ assert.deepEqual(await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-empty')).json()).audienceRefs)()"), []);
+ log('activity_flow_audience_entry_removed');
+
+ await evaluate("location.hash='#activities/campaign-branch/campaign'");
+ await until("document.querySelector('#activity-flow-canvas [data-flow-play]') && document.querySelector('#campaign-detail h2')?.textContent==='跨境召回'");
+ await command('Page.reload', { ignoreCache: true });
+ await until("document.querySelector('#activity-flow-canvas [data-world]') && document.querySelector('#campaign-detail h2')?.textContent==='跨境召回'");
+ const refreshedFlow = await evaluate("document.querySelectorAll('#activity-flow-canvas [data-flow-edge]').length");
+ assert.equal(refreshedFlow, 2);
+ log('activity_flow_refresh_binding', { activity: '跨境召回', receiptEdges: refreshedFlow });
+
+ await evaluate("document.querySelector('#activity-flow-canvas [data-flow-add-edge]').click()");
+ await evaluate("(() => { const form=document.querySelector('#activity-flow-form'); form.elements.fromTreatmentId.value='treatment-email'; form.elements.fromTreatmentId.dispatchEvent(new Event('change',{bubbles:true})); form.elements.toTreatmentId.value='treatment-sms'; form.elements.conditionLabel.value='成功'; form.requestSubmit(); })()");
+ const addedEdge = await evaluate("(async () => { const campaign=await (await fetch('/api/v1/campaigns/campaign-branch')).json(); return campaign.activityFlow.edges.find(edge=>edge.fromTreatmentId==='treatment-email' && edge.toTreatmentId==='treatment-sms' && edge.conditionLabel==='成功'); })()");
+ assert.ok(addedEdge?.id);
+ await until(`document.querySelector('#activity-flow-canvas [data-flow-edge="${addedEdge.id}"]')`);
+ await evaluate(`document.querySelector('#activity-flow-canvas [data-flow-edge="${addedEdge.id}"]').dispatchEvent(new MouseEvent('click',{bubbles:true}))`);
+ await until(`document.querySelector('#activity-flow-canvas [data-delete-edge="${addedEdge.id}"]')`);
+ await evaluate(`document.querySelector('#activity-flow-canvas [data-delete-edge="${addedEdge.id}"]').click()`);
+ await until("document.querySelectorAll('#activity-flow-canvas [data-flow-edge]').length===2");
+ const afterDeleteEdges = await evaluate("(async () => (await (await fetch('/api/v1/campaigns/campaign-branch')).json()).activityFlow.edges.length)()");
+ assert.equal(afterDeleteEdges, 2);
+ log('activity_flow_edge_create_delete', { created: addedEdge, remaining: afterDeleteEdges });
+
+ await evaluate("document.querySelector('[data-flow-edge=\"edge-success\"]').dispatchEvent(new MouseEvent('click',{bubbles:true}))");
+ await until("document.querySelector('#activity-flow-canvas [data-edit-edge=\"edge-success\"]')");
+ await evaluate("document.querySelector('#activity-flow-canvas [data-edit-edge=\"edge-success\"]').click()");
+ await until("document.querySelector('#activity-flow-form') && !document.querySelector('#activity-flow-form').closest('.flow-edge-form').hidden");
+ const existingEdge = await evaluate("(() => { const form=document.querySelector('#activity-flow-form'); return { from:form.elements.fromTreatmentId.value, to:form.elements.toTreatmentId.value, condition:form.elements.conditionLabel.value }; })()");
+ assert.deepEqual(existingEdge, { from: 'treatment-rcs', to: 'treatment-email', condition: '成功' });
+ await command('Network.enable');
+ const failedWriteStart = flowWriteRequests.length;
+ await command('Fetch.enable', { patterns: [{ urlPattern: `http://127.0.0.1:${serverPort}/api/v1/campaigns/campaign-branch/flow`, requestStage: 'Request' }] });
+ rejectNextFlowWrite = true;
+ await evaluate("document.querySelector('#activity-flow-form').dispatchEvent(new SubmitEvent('submit',{bubbles:true,cancelable:true}))");
+ await until("document.querySelector('#activity-flow-canvas .flow-save-status')?.textContent.includes('保存失败')");
+ const failedFormState = await evaluate("(() => { const form=document.querySelector('#activity-flow-form'); return { busy:form.hasAttribute('aria-busy'), submitDisabled:form.querySelector('[type=submit]').disabled, selectsEnabled:[...form.querySelectorAll('select')].every(item=>!item.disabled) }; })()");
+ assert.deepEqual(failedFormState, { busy: false, submitDisabled: false, selectsEnabled: true });
+ assert.equal(flowWriteRequests.length - failedWriteStart, 1);
+ await command('Fetch.disable');
+ log('activity_flow_edge_edit_failure_unlock', failedFormState);
+ const edgeWriteStart = flowWriteRequests.length;
+ await evaluate("(() => { const form=document.querySelector('#activity-flow-form'); form.elements.fromTreatmentId.value='treatment-email'; form.elements.fromTreatmentId.dispatchEvent(new Event('change',{bubbles:true})); form.elements.toTreatmentId.value='treatment-sms'; form.elements.conditionLabel.value='失败'; const submit=new SubmitEvent('submit',{bubbles:true,cancelable:true}); form.dispatchEvent(submit); form.dispatchEvent(new SubmitEvent('submit',{bubbles:true,cancelable:true})); })()");
+ await until("document.querySelector('#activity-flow-canvas [data-flow-edge=\"edge-success\"]')?.textContent==='失败'");
+ const concurrentFlowWrites = flowWriteRequests.length - edgeWriteStart;
+ assert.equal(concurrentFlowWrites, 1);
+ const updatedEdge = await evaluate("(async () => { const campaign=await (await fetch('/api/v1/campaigns/campaign-branch')).json(); return campaign.activityFlow.edges.find(edge=>edge.id==='edge-success'); })()");
+ assert.deepEqual(updatedEdge, { id: 'edge-success', fromTreatmentId: 'treatment-email', toTreatmentId: 'treatment-sms', conditionLabel: '失败' });
+ await until("document.querySelector('#activity-flow-canvas [data-flow-edge=\"edge-success\"]')?.textContent==='失败'");
+ const seedEdges = [
+  { id: 'edge-success', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-email', conditionLabel: '成功' },
+  { id: 'edge-failed', fromTreatmentId: 'treatment-rcs', toTreatmentId: 'treatment-sms', conditionLabel: '失败' },
+ ];
+ const staleFlowWrite = await evaluate(`(async () => {
+  const expectedEdges=${JSON.stringify(seedEdges)};
+  const response=await fetch('/api/v1/campaigns/campaign-branch/flow',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'flow-recall',expectedEdges,edges:expectedEdges})});
+  const body=await response.json(); const current=await (await fetch('/api/v1/campaigns/campaign-branch')).json();
+  return { status:response.status, code:body.error?.code, edges:current.activityFlow.edges };
+ })()`);
+ assert.equal(staleFlowWrite.status, 409);
+ assert.equal(staleFlowWrite.code, 'flow_conflict');
+ assert.deepEqual(staleFlowWrite.edges.find(edge => edge.id === 'edge-success'), updatedEdge);
+ log('stale_activity_flow_write_rejected', { status: staleFlowWrite.status, code: staleFlowWrite.code });
+ log('activity_flow_edge_edit', { ...updatedEdge, concurrentSubmits: 2, serializedWrites: concurrentFlowWrites });
+
+ await command('Network.enable');
+ const flowNetworkStart = networkRequests.length;
+ await evaluate("(() => { const speed=document.querySelector('#activity-flow-canvas [data-flow-speed]'); speed.value='4'; speed.dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('#activity-flow-canvas [data-flow-play]').click(); })()");
+ await until("document.querySelector('#activity-flow-canvas [data-play-state]')?.textContent==='本地演练中' && Number(document.querySelector('#activity-flow-canvas [data-flow-time]')?.textContent.split(':').at(-1))>0.2");
+ const runningFlow = await evaluate(`(() => ({
+  state: document.querySelector('#activity-flow-canvas [data-flow-state]')?.textContent,
+  figures: document.querySelectorAll('#activity-flow-canvas [data-objects] ellipse').length,
+  time: document.querySelector('#activity-flow-canvas [data-flow-time]')?.textContent,
+ }))()`);
+ assert.equal(runningFlow.state, '演练中');
+ assert.ok(runningFlow.figures > 0);
+ await evaluate("document.querySelector('#activity-flow-canvas [data-flow-play]').click()");
+ await until("document.querySelector('#activity-flow-canvas [data-flow-state]')?.textContent==='已暂停'");
+ const pausedTime = await evaluate("document.querySelector('#activity-flow-canvas [data-flow-time]')?.textContent");
+ await new Promise(resolve => setTimeout(resolve, 120));
+ assert.equal(await evaluate("document.querySelector('#activity-flow-canvas [data-flow-time]')?.textContent"), pausedTime);
+ await evaluate("document.querySelector('#activity-flow-canvas [data-flow-reset]').click()");
+ await until("document.querySelector('#activity-flow-canvas [data-flow-time]')?.textContent==='00:00.0'");
+ const resetFlow = await evaluate(`(() => ({
+  state: document.querySelector('#activity-flow-canvas [data-flow-state]')?.textContent,
+  queued: document.querySelector('#activity-flow-canvas [data-flow-queued]')?.textContent,
+  complete: document.querySelector('#activity-flow-canvas [data-flow-complete]')?.textContent,
+ }))()`);
+ assert.deepEqual(resetFlow, { state: '已暂停', queued: String(runningFlow.figures), complete: '0' });
+ assert.deepEqual(networkRequests.slice(flowNetworkStart), []);
+ log('activity_flow_play_pause_reset', { running: runningFlow, pausedAt: pausedTime, reset: resetFlow, networkRequestsDuringPlayback: 0 });
 
  await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
  mobileViewport = true;
  await evaluate("location.hash='#activities'");
  await until("document.querySelector('#campaign-activities .primary-link')");
  await mobileCheck('mobile_list', '#campaign-activities .primary-link');
+ await evaluate("location.hash='#activities/campaign-branch/campaign'");
+ await until("document.querySelector('#activity-flow-canvas [data-world]')");
+ await mobileCheck('mobile_activity_flow', '#activity-flow-canvas [data-world]');
+ await evaluate("location.hash='#activities'");
+ await until("document.querySelector('#campaign-activities .primary-link')");
  await evaluate("document.querySelector('#campaign-activities .primary-link').click()");
  await until("document.querySelector('#campaign-form')");
  await mobileCheck('mobile_new_form', '#campaign-form');

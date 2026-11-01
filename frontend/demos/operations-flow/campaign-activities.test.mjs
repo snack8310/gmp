@@ -24,7 +24,7 @@ test('normal activities keep unique identities and same-activity flow references
  assert.doesNotThrow(() => validateActivities(ACTIVITIES, renamedCatalog));
 });
 
-test('list and detail expose stable links, distinct audience types and receipt edges', () => {
+test('list and detail expose stable links, shared assets and the activity canvas mount point', () => {
  const list = renderActivitiesList();
  assert.match(list, /href="#activities\/campaign-branch\/campaign"/);
  assert.match(list, /跨境召回/);
@@ -35,11 +35,9 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /treatment-rcs/);
  assert.match(detail, /treatment-email/);
  assert.match(detail, /treatment-sms/);
- assert.match(detail, /成功/);
- assert.match(detail, /失败/);
- assert.match(detail, /结果含义来自演示动作说明/);
  assert.match(detail, /普通人群组/);
  assert.match(detail, /实验人群包臂/);
+ assert.match(detail, /id="activity-flow-canvas"/);
  assert.match(detail, /投放项引用受众统一目录中的人群组或实验人群包臂；分流定义由实验管理。/);
  assert.match(detail, /受众库 · 新建或管理/);
  assert.match(detail, /实验库 · 新建或管理/);
@@ -53,8 +51,8 @@ test('list and detail expose stable links, distinct audience types and receipt e
 test('empty and unavailable states stay explicit without replacing references', () => {
  assert.match(renderActivitiesList([]), /暂无演示活动/);
  assert.match(renderActivityDetail('campaign-empty'), /暂无投放项/);
- assert.match(renderActivityDetail('campaign-empty'), /未配置活动流程/);
- assert.match(renderActivityDetail('campaign-no-edges'), /暂无活动流程边/);
+ assert.match(renderActivityDetail('campaign-empty'), /id="activity-flow-canvas"/);
+ assert.match(renderActivityDetail('campaign-no-edges'), /id="activity-flow-canvas"/);
  const invalid = renderActivityDetail(INVALID_ACTIVITY.id);
  assert.match(invalid, /引用不可用/);
  assert.match(invalid, /旧人群组/);
@@ -66,12 +64,11 @@ test('empty and unavailable states stay explicit without replacing references', 
  assert.doesNotMatch(missing, /跨境召回/);
 });
 
-test('same-name edge endpoints stay distinguishable by ID', () => {
- const activity = { ...ACTIVITIES.find(item => item.id === 'campaign-no-edges'), activityFlow: { id: 'flow-same-name', edges: [
-  { id: 'edge-same-name', fromTreatmentId: 'treatment-a', toTreatmentId: 'treatment-b', conditionLabel: '成功' },
- ] } };
+test('same-name treatment rows stay distinguishable by stable ID', () => {
+ const activity = ACTIVITIES.find(item => item.id === 'campaign-no-edges');
  const detail = renderActivityDetail(activity.id, [activity]);
- assert.match(detail, /提醒投放项 <small>· treatment-a<\/small> <span aria-hidden="true">→<\/span> 提醒投放项 <small>· treatment-b<\/small>/);
+ assert.match(detail, /提醒投放项 <small>· treatment-a<\/small>/);
+ assert.match(detail, /提醒投放项 <small>· treatment-b<\/small>/);
 });
 
 test('unavailable action and bundle keep their original IDs and names', () => {

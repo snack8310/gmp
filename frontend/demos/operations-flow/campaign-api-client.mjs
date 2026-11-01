@@ -41,12 +41,16 @@ export class CampaignApi {
  create(value) { return this.call('POST', '/campaigns', value); }
  get(id) { return this.call('GET', `/campaigns/${encodeURIComponent(id)}`); }
  update(id, value) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}`, value); }
+ updateFlow(id, value, expectedEdges) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/flow`, { ...value, expectedEdges }); }
+ updateAudiences(id, audienceRefs, expectedAudienceRefs) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/audiences`, { audienceRefs, expectedAudienceRefs }); }
  delete(id) { return this.call('DELETE', `/campaigns/${encodeURIComponent(id)}`); }
  createTreatment(id, value) { return this.call('POST', `/campaigns/${encodeURIComponent(id)}/treatments`, value); }
  updateTreatment(id, treatmentId, value) { return this.call('PUT', `/campaigns/${encodeURIComponent(id)}/treatments/${encodeURIComponent(treatmentId)}`, value); }
  deleteTreatment(id, treatmentId) { return this.call('DELETE', `/campaigns/${encodeURIComponent(id)}/treatments/${encodeURIComponent(treatmentId)}`); }
  actions() { return this.call('GET', '/actions'); }
  audienceReferences() { return this.call('GET', '/audience-references'); }
+ upsertGroupAudienceReference(groupId, name) { return this.call('PUT', `/audience-references/${encodeURIComponent(groupId)}`, { name }); }
+ deleteGroupAudienceReference(groupId) { return this.call('DELETE', `/audience-references/${encodeURIComponent(groupId)}`); }
  usages(ref) {
   const query = new URLSearchParams(ref.type === 'arm' ? { type: 'arm', bundleId: ref.bundleId, groupId: ref.groupId } : { type: 'group', groupId: ref.groupId });
   return this.call('GET', `/audience-reference-usages?${query}`);

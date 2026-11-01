@@ -4,6 +4,7 @@ import { CampaignApi, browserCampaignApiBase } from './campaign-api-client.mjs';
 import { mountCampaigns } from './campaign-controller.mjs';
 import { mountActivityNavigation } from './activity-navigation.mjs';
 import { activityRoute, assetRoute, parseActivityRoute } from './activity-routing.mjs';
+import { groupIdOf } from './audience.mjs';
 
 const $ = id => document.getElementById(id);
 const assetDomains = { audience: 'audience-section', experimentation: 'experimentation-section' };
@@ -47,6 +48,8 @@ async function renderDomain() {
   return;
  }
 
+ await audienceUI.ready;
+ if (version !== renderSerial) return;
  const activityResult = await activityNavigation.refresh(route.activityId);
  if (version !== renderSerial) return;
  $('activity-route-loading').hidden = true;
@@ -91,7 +94,10 @@ function navigate(route) {
 window.addEventListener('hashchange', renderDomain);
 const campaignApi = new CampaignApi(browserCampaignApiBase(window.location, window.CAMPAIGN_API_BASE));
 activityNavigation = mountActivityNavigation({ api: campaignApi });
-audienceUI = mountAudiences({ api: campaignApi, onSaved() {}, onDeleted() {}, onNavigate: navigate });
+audienceUI = mountAudiences({ api: campaignApi,
+ onLoaded: audiences => campaignApi.base ? Promise.all(audiences.map(item => campaignApi.upsertGroupAudienceReference(groupIdOf(item.id), item.name))) : undefined,
+ onSaved: item => campaignApi.base ? campaignApi.upsertGroupAudienceReference(groupIdOf(item.id), item.name) : undefined,
+ onDeleted: id => campaignApi.base ? campaignApi.deleteGroupAudienceReference(groupIdOf(id)) : undefined, onNavigate: navigate });
 campaignUI = mountCampaigns({ api: campaignApi, audienceStore: audienceUI.store, onNavigate: navigate,
  onChanged: () => audienceUI.refreshProtection() });
 mountExperiments({ store: audienceUI.store, onChanged: () => audienceUI.refreshExperiments() });
