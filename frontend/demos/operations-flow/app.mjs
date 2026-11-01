@@ -4,7 +4,7 @@ import { mountExperimentPicker, mountExperiments, escapeHTML } from './experimen
 import { CampaignApi, browserCampaignApiBase } from './campaign-api-client.mjs';
 import { mountCampaigns } from './campaign-controller.mjs';
 import { mountActivityNavigation } from './activity-navigation.mjs';
-import { activityRoute, parseActivityRoute } from './activity-routing.mjs';
+import { activityRoute, assetRoute, parseActivityRoute } from './activity-routing.mjs';
 import { CHANNELS, SCENARIOS, createScenario, snapshot, createClock } from './model.mjs';
 
 const $ = id => document.getElementById(id);
@@ -230,7 +230,8 @@ function applyAudience(item,preserveExtra=false){
 }
 function refreshAudienceOptions(items){$('flow-audience').innerHTML=items.map(a=>`<option value="${escapeHTML(a.id)}">${escapeHTML(a.name)}</option>`).join('')||'<option value="">暂无人群</option>';}
 function refreshExperiments(){audienceUI.refreshExperiments();canvasPicker?.refresh();if(extraConfig&&!audienceUI.store.experiments().some(item=>item.id===extraConfig.experimentId))extraConfig=null;if(currentAudience)applyAudience(currentAudience,true);}
-const domains={audience:'audience-section',experimentation:'experimentation-section',campaign:'campaign-section',compose:'flow-section'};
+const activityDomains={campaign:'campaign-section',compose:'flow-section'};
+const assetDomains={audience:'audience-section',experimentation:'experimentation-section'};
 let renderSerial=0, activityNavigation;
 async function renderDomain(){
  const version=++renderSerial, route=parseActivityRoute(window.location.hash);
@@ -238,9 +239,23 @@ async function renderDomain(){
  const landing=$('activity-landing'),notFound=$('activity-not-found'),workspace=$('lab-shell'),domainNav=$('domain-nav');
  landing.hidden=route.screen!=='list';
  notFound.hidden=true;workspace.hidden=true;domainNav.hidden=true;$('activity-context').hidden=true;$('shared-asset-note').hidden=true;
- $('activity-route-loading').hidden=route.screen==='list';
- for(const [key,section] of Object.entries(domains)){$(section).hidden=true;$(`nav-${key}`).setAttribute('aria-current','false');}
+ $('activity-route-loading').hidden=route.screen==='list'||route.screen==='global';
+ $('asset-return').hidden=true;
+ workspace.classList.toggle('global-asset-view',route.screen==='global'||route.screen==='new');
+ $('activity-menu-list').hidden=route.screen==='global';
+ for(const [key,section] of Object.entries(activityDomains)){$(section).hidden=true;$(`nav-${key}`).setAttribute('aria-current','false');}
+ for(const section of Object.values(assetDomains))$(section).hidden=true;
+ for(const key of ['activities','audience','experimentation'])$(`module-${key}`).setAttribute('aria-current',route.screen==='global'?route.module===key?'page':'false':key==='activities'?'page':'false');
  campaignUI.clear();
+ if(route.screen==='global'){
+  workspace.hidden=false;
+  $(assetDomains[route.module]).hidden=false;
+  $('activity-context').hidden=true;
+  $('shared-asset-note').hidden=true;
+ $('experiment-audience-link').href='#'+assetRoute('audience',route.returnTo);
+  if(route.returnTo){$('asset-return').hidden=false;$('asset-return-link').href='#'+route.returnTo;}
+  return;
+ }
  const activityResult=await activityNavigation.refresh(route.activityId);
  if(version!==renderSerial)return;
  $('activity-route-loading').hidden=true;
@@ -265,21 +280,21 @@ async function renderDomain(){
   return;
  }
  workspace.hidden=false;domainNav.hidden=false;$('activity-context').hidden=false;
- for(const key of Object.keys(domains)){
+ for(const key of Object.keys(activityDomains)){
   const link=$('nav-'+key),current=key===route.domain;
   link.href='#'+activityRoute(selected.id,key);
   link.setAttribute('aria-current',current?'page':'false');
-  $(domains[key]).hidden=!current;
+  $(activityDomains[key]).hidden=!current;
  }
- $('shared-asset-note').hidden=!['audience','experimentation'].includes(route.domain);
- $('experiment-audience-link').href='#'+activityRoute(selected.id,'audience');
+ $('experiment-audience-link').href='#'+assetRoute('audience',activityRoute(selected.id,route.domain));
  if(route.domain==='campaign')await campaignUI.render(route.campaignRoute);
  if(route.domain!=='compose')clock.pause();
 }
 function navigate(route){
  const current=parseActivityRoute(window.location.hash);
- const next=['audience','experimentation','campaign','compose'].includes(route)
-  ?current.activityId?activityRoute(current.activityId,route):'activities'
+ const returnTo=current.screen==='workspace'?activityRoute(current.activityId,current.domain):current.returnTo;
+ const next=['audience','experimentation'].includes(route)?assetRoute(route,returnTo)
+  :['campaign','compose'].includes(route)?current.activityId?activityRoute(current.activityId,route):'activities'
   :route;
  window.location.hash='#'+next;renderDomain();
 }

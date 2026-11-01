@@ -5,7 +5,7 @@ export const escapeHTML = value => String(value).replace(/[&<>"']/g, c => ({'&':
 export function mountExperimentPicker({rootId,store,onChange,onNavigate}) {
  const el=id=>document.getElementById(`${rootId}-${id}`);
  const root=document.getElementById(rootId);
- root.innerHTML=`<div class="experiment-picker"><label for="${rootId}-select">引用已有实验</label><select id="${rootId}-select" aria-label="选择复用实验"></select><p class="experiment-fixed">演示固定 A 45% / B 45% / 对照 10%<br>同一实验 ID + 同一模拟用户 → 相同分组</p><a href="#activities" data-domain-nav="experimentation">前往实验域管理 ↗</a></div>`;
+ root.innerHTML=`<div class="experiment-picker"><label for="${rootId}-select">引用已有实验</label><select id="${rootId}-select" aria-label="选择复用实验"></select><p class="experiment-fixed">演示固定 A 45% / B 45% / 对照 10%<br>同一实验 ID + 同一模拟用户 → 相同分组</p><a href="#experimentation" data-domain-nav="experimentation">前往实验库管理 ↗</a></div>`;
  root.addEventListener('click',event=>{const link=event.target.closest('[data-domain-nav]');if(link){event.preventDefault();onNavigate?.(link.dataset.domainNav);}});
  function refresh(id=el('select').value){const values=store.experiments();el('select').innerHTML=values.map(e=>`<option value="${escapeHTML(e.id)}">${escapeHTML(e.name)} · ${escapeHTML(e.id)}</option>`).join('')||'<option value="">请先在实验域新建实验</option>';el('select').value=values.some(e=>e.id===id)?id:values[0]?.id||'';}
  el('select').addEventListener('change',()=>onChange?.(el('select').value));

@@ -7,8 +7,8 @@ test('activity navigation uses stable encoded IDs and marks the selected activit
   { id: 'campaign alpha/β', name: '<活动 A>' },
   { id: 'campaign-b', name: '活动 B' },
  ], 'campaign-b');
- assert.match(html, /href="#activities\/campaign%20alpha%2F%CE%B2\/audience"/);
- assert.match(html, /href="#activities\/campaign-b\/audience" aria-current="location"/);
+ assert.match(html, /href="#activities\/campaign%20alpha%2F%CE%B2\/campaign"/);
+ assert.match(html, /href="#activities\/campaign-b\/campaign" aria-current="location"/);
  assert.doesNotMatch(html, /<活动 A>/);
 });
 

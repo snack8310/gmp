@@ -1,12 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityRoute, parseActivityRoute } from './activity-routing.mjs';
+import { activityRoute, assetRoute, parseActivityRoute } from './activity-routing.mjs';
 
-test('activity routes place shared domains inside a selected activity', () => {
- assert.deepEqual(parseActivityRoute('#activities/campaign-branch/experimentation'), {
-  screen: 'workspace', activityId: 'campaign-branch', domain: 'experimentation', campaignRoute: 'campaign/activities/campaign-branch',
+test('activity, audience and experimentation are independent top-level routes', () => {
+ assert.equal(parseActivityRoute('#activities').screen, 'list');
+ assert.deepEqual(parseActivityRoute('#audience'), {
+  screen: 'global', module: 'audience', returnTo: null, activityId: null, domain: null, campaignRoute: '',
  });
- assert.equal(activityRoute('campaign-branch', 'campaign'), 'activities/campaign-branch/campaign');
+ assert.deepEqual(parseActivityRoute('#experimentation'), {
+  screen: 'global', module: 'experimentation', returnTo: null, activityId: null, domain: null, campaignRoute: '',
+ });
+});
+
+test('activity workspaces contain only operations and composition routes', () => {
+ assert.deepEqual(parseActivityRoute('#activities/campaign-branch/compose'), {
+  screen: 'workspace', activityId: 'campaign-branch', domain: 'compose', campaignRoute: 'campaign/activities/campaign-branch',
+ });
+ assert.equal(activityRoute('campaign-branch'), 'activities/campaign-branch/campaign');
+ assert.equal(activityRoute('campaign-branch', 'compose'), 'activities/campaign-branch/compose');
+});
+
+test('asset routes preserve a valid activity return path and reject other return targets', () => {
+ const target = activityRoute('campaign alpha/β', 'campaign');
+ const route = assetRoute('audience', target);
+ assert.equal(route, 'audience?return=activities%2Fcampaign%2520alpha%252F%25CE%25B2%2Fcampaign');
+ assert.deepEqual(parseActivityRoute('#' + route), {
+  screen: 'global', module: 'audience', returnTo: target, activityId: null, domain: null, campaignRoute: '',
+ });
+ assert.equal(parseActivityRoute('#audience?return=activities%2Fbad%2Funknown').returnTo, null);
+ assert.equal(assetRoute('experimentation', 'audience'), 'experimentation');
+ assert.throws(() => assetRoute('activities'), TypeError);
 });
 
 test('activity and nested operation IDs are encoded and decoded by path segment', () => {
@@ -18,29 +41,31 @@ test('activity and nested operation IDs are encoded and decoded by path segment'
  });
 });
 
-test('activity list and create routes accept old top-level entry links', () => {
- assert.equal(parseActivityRoute('').screen, 'list');
- assert.equal(parseActivityRoute('#activities').screen, 'list');
+test('old activity asset routes return to the activity and old top-level domains remain understandable', () => {
+ assert.deepEqual(parseActivityRoute('#activities/campaign-branch/audience'), {
+  screen: 'global', module: 'audience', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '',
+ });
+ assert.deepEqual(parseActivityRoute('#activities/campaign-branch/experimentation'), {
+  screen: 'global', module: 'experimentation', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '',
+ });
+ assert.equal(parseActivityRoute('#campaign').screen, 'list');
+ assert.equal(parseActivityRoute('#compose').screen, 'list');
+ assert.equal(parseActivityRoute('#campaign/activities').screen, 'list');
  assert.equal(parseActivityRoute('#activities/new').screen, 'new');
- for (const legacy of ['#audience', '#experimentation', '#campaign', '#compose', '#campaign/activities']) {
-  assert.equal(parseActivityRoute(legacy).screen, 'list');
- }
  assert.equal(parseActivityRoute('#campaign/activities/new').screen, 'new');
 });
 
-test('old activity detail and editor deep links map into the campaign subpage', () => {
+test('old activity details, malformed IDs and unknown workspace domains have explicit routes', () => {
  assert.deepEqual(parseActivityRoute('#campaign/activities/campaign-branch/edit'), {
   screen: 'workspace', activityId: 'campaign-branch', domain: 'campaign',
   campaignRoute: 'campaign/activities/campaign-branch/edit',
  });
  assert.equal(parseActivityRoute('#activities/campaign-branch/campaign/treatments/new').campaignRoute, 'campaign/activities/campaign-branch/treatments/new');
  assert.equal(parseActivityRoute('#campaign/activities/campaign-branch/treatments/new').campaignRoute, 'campaign/activities/campaign-branch/treatments/new');
-});
-
-test('malformed activity IDs and unknown workspace domains do not become valid activity routes', () => {
- assert.equal(parseActivityRoute('#activities/%ZZ/audience').screen, 'invalid');
+ assert.equal(parseActivityRoute('#activities/%ZZ/campaign').screen, 'invalid');
  assert.equal(parseActivityRoute('#activities/campaign-branch/not-a-domain').screen, 'invalid');
  assert.equal(parseActivityRoute('#activities/campaign-branch/campaign/unknown').screen, 'invalid');
  assert.equal(parseActivityRoute('#activities/campaign-branch/campaign/treatments/%ZZ/edit').screen, 'invalid');
- assert.throws(() => activityRoute('', 'audience'), TypeError);
+ assert.throws(() => activityRoute('', 'campaign'), TypeError);
+ assert.throws(() => activityRoute('campaign-branch', 'audience'), TypeError);
 });

@@ -18,7 +18,7 @@ function element(id) {
 }
 const media = { matches: false, addEventListener(name,fn) { this.change=fn; } };
 globalThis.document = { getElementById:element, querySelector:element, querySelectorAll:()=>[], addEventListener() {} };
-globalThis.window = { location:{hash:'#activities/campaign-branch/audience',protocol:'http:',origin:'http://127.0.0.1:9191'}, localStorage:{getItem:key=>browserStorage.get(key)??null,setItem:(key,value)=>{storageWrites.push(key);browserStorage.set(key,value);},removeItem:key=>browserStorage.delete(key)}, addEventListener(name,fn) {this.listeners[name]=fn;}, listeners:{} };
+globalThis.window = { location:{hash:'#activities/campaign-branch/campaign',protocol:'http:',origin:'http://127.0.0.1:9191'}, localStorage:{getItem:key=>browserStorage.get(key)??null,setItem:(key,value)=>{storageWrites.push(key);browserStorage.set(key,value);},removeItem:key=>browserStorage.delete(key)}, addEventListener(name,fn) {this.listeners[name]=fn;}, listeners:{} };
 globalThis.matchMedia = () => media;
 globalThis.requestAnimationFrame = fn => { pending.set(++frameID,fn); return frameID; };
 globalThis.cancelAnimationFrame = id => pending.delete(id);
@@ -174,10 +174,11 @@ test('flow experiment is a selectable path node, separate from read-only inherit
 });
 
 test('experiment page creates and renames identities reused by audience and composition',async()=>{
- window.location.hash='#activities/campaign-branch/experimentation';window.listeners.hashchange();
+ window.location.hash='#experimentation';window.listeners.hashchange();
  await settle();
  assert.equal(element('experimentation-section').hidden,false);
- assert.equal(element('nav-experimentation').attributes['aria-current'],'page');
+ assert.equal(element('module-experimentation').attributes['aria-current'],'page');
+ assert.equal(element('experiment-audience-link').href,'#audience');
  fire('new-experiment','click');element('experiment-name').value='Reusable demo';
  fire('experiment-form','submit',{preventDefault(){}});
  const experimentId=element('experiment-list').innerHTML.match(/exp-custom-\d+/)?.[0];
@@ -229,7 +230,12 @@ test('publish control updates the shared catalog and stopping a split invalidate
  assert.match(element('bundle-list').innerHTML,/重新发布包.*可用/);
 });
 
-test('domain deep links require an activity context and pause composition on exit',async()=>{
+test('audience and experiment are global pages; composition stays in an activity context',async()=>{
+ window.location.hash='#experimentation';window.listeners.hashchange();await settle();
+ assert.equal(element('experimentation-section').hidden,false);
+ assert.equal(element('module-experimentation').attributes['aria-current'],'page');
+ assert.equal(element('activity-context').hidden,true);
+ assert.equal(element('activity-menu-list').hidden,true);
  window.location.hash='#activities/campaign-branch/compose';window.listeners.hashchange();await settle();
  assert.equal(element('flow-section').hidden,false);
  fire('play','click');assert.equal(pending.size,1);
@@ -238,7 +244,7 @@ test('domain deep links require an activity context and pause composition on exi
  assert.equal(element('flow-section').hidden,true);
  assert.equal(element('nav-campaign').attributes['aria-current'],'page');
  assert.equal(pending.size,0);
- window.location.hash='#activities/missing/audience';window.listeners.hashchange();await settle();
+ window.location.hash='#activities/missing/campaign';window.listeners.hashchange();await settle();
  assert.equal(element('activity-not-found-title').textContent,'未找到该活动');
  assert.equal(element('audience-section').hidden,true);
 });
@@ -272,20 +278,27 @@ test('campaign list and detail deep links follow history and pause composition',
  assert.equal(element('activity-context-name').textContent,'跨境召回');
 });
 
-test('the activity list is the outer navigation and shared assets survive activity switches',async()=>{
+test('global module navigation separates shared assets from activity workspaces',async()=>{
  window.location.hash='#activities';window.listeners.hashchange();await settle();
  assert.match(element('activity-list').innerHTML,/campaign-branch/);
  assert.match(element('activity-list').innerHTML,/campaign-empty/);
  const storageKeys=[...browserStorage.keys()],writesBefore=storageWrites.length;
- window.location.hash='#activities/campaign-branch/audience';window.listeners.hashchange();await settle();
- assert.equal(element('activity-context-name').textContent,'跨境召回');
- assert.equal(element('nav-audience').attributes['aria-current'],'page');
- assert.match(element('activity-list').innerHTML,/aria-current="location"/);
- assert.equal(element('shared-asset-note').hidden,false);
- window.location.hash='#activities/campaign-empty/experimentation';window.listeners.hashchange();await settle();
+ window.location.hash='#audience';window.listeners.hashchange();await settle();
+ assert.equal(element('audience-section').hidden,false);
+ assert.equal(element('module-audience').attributes['aria-current'],'page');
+ assert.equal(element('activity-context').hidden,true);
+ assert.equal(element('activity-menu-list').hidden,true);
+ window.location.hash='#experimentation';window.listeners.hashchange();await settle();
+ assert.equal(element('experimentation-section').hidden,false);
+ assert.equal(element('module-experimentation').attributes['aria-current'],'page');
+ window.location.hash='#activities/campaign-empty/campaign';window.listeners.hashchange();await settle();
  assert.equal(element('activity-context-name').textContent,'待装配活动');
- assert.equal(element('nav-experimentation').attributes['aria-current'],'page');
- assert.equal(element('shared-asset-note').hidden,false);
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
+ assert.equal(element('activity-menu-list').hidden,false);
+ window.location.hash='#activities/campaign-branch/audience';window.listeners.hashchange();await settle();
+ assert.equal(element('audience-section').hidden,false);
+ assert.equal(element('asset-return').hidden,false);
+ assert.equal(element('asset-return-link').href,'#activities/campaign-branch/campaign');
  assert.equal(storageWrites.length,writesBefore);
  assert.deepEqual([...browserStorage.keys()],storageKeys);
  assert.ok([...browserStorage.keys()].every(key=>key===STORAGE_KEY));
@@ -299,18 +312,18 @@ test('activity changes invalidate old operation forms before the next activity l
  const staleForm=formTarget('campaign-form');
  const beforeWrites=writes, beforeActivities=apiCampaigns.length;
  deferCampaignList=true;
- window.location.hash='#activities/campaign-empty/audience';window.listeners.hashchange();
+ window.location.hash='#activities/campaign-empty/campaign';window.listeners.hashchange();
  assert.equal(element('campaign-section').hidden,true);
  assert.equal(element('campaign-detail').hidden,true);
  assert.equal(element('activity-route-loading').hidden,false);
  await fire('campaign-section','submit',{target:staleForm,preventDefault(){}});
  assert.equal(writes,beforeWrites);
  assert.equal(apiCampaigns.length,beforeActivities);
- assert.equal(window.location.hash,'#activities/campaign-empty/audience');
+ assert.equal(window.location.hash,'#activities/campaign-empty/campaign');
  releaseCampaignList();await settle();
  assert.equal(element('activity-context-name').textContent,'待装配活动');
- assert.equal(element('audience-section').hidden,false);
- assert.equal(element('nav-audience').attributes['aria-current'],'page');
+ assert.equal(element('campaign-section').hidden,false);
+ assert.equal(element('nav-campaign').attributes['aria-current'],'page');
 });
 
 test('a stale activity delete control cannot delete after its controller is cleared',async()=>{
@@ -318,11 +331,11 @@ test('a stale activity delete control cannot delete after its controller is clea
  const staleDelete={dataset:{controllerVersion:String(controllerVersion('campaign-detail')),deleteActivity:'campaign-branch'},hasAttribute:()=>false};
  const before=apiCampaigns.length;
  window.confirm=()=>true;
- window.location.hash='#activities/campaign-empty/audience';window.listeners.hashchange();await settle();
+ window.location.hash='#activities/campaign-empty/campaign';window.listeners.hashchange();await settle();
  await fire('campaign-section','click',{target:{closest:selector=>selector==='button'?staleDelete:null}});
  assert.equal(apiCampaigns.length,before);
  assert.ok(apiCampaigns.some(item=>item.id==='campaign-branch'));
- assert.equal(window.location.hash,'#activities/campaign-empty/audience');
+ assert.equal(window.location.hash,'#activities/campaign-empty/campaign');
 });
 
 test('encoded activity IDs round trip through list links and deep routes',async()=>{
@@ -427,6 +440,10 @@ test('campaign writes follow API success, while 4xx and cancel keep server state
 test('treatment add, edit and delete use API state and reject failed writes',async()=>{
  window.location.hash='#campaign/activities/campaign-empty/treatments/new';window.listeners.hashchange();await settle();
  assert.match(element('campaign-editor').innerHTML,/新增投放项/);
+ assert.match(element('campaign-editor').innerHTML,/引用人群组或实验包臂/);
+ assert.match(element('campaign-editor').innerHTML,/新标签打开受众库/);
+ assert.match(element('campaign-editor').innerHTML,/target="_blank" rel="noopener"/);
+ assert.match(element('campaign-editor').innerHTML,/管理 API 当前开放的引用/);
  element('treatment-name').value='短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
  const form=formTarget('treatment-form');
  nextFailure=true;

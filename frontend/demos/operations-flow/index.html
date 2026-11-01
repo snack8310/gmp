@@ -12,22 +12,24 @@
 <header class="topbar"><a class="brand" href="./" aria-label="GMP 演示首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 10 5v10l-10 5-10-5V7zm0 0v10m10-5-10 5L2 7m10 5v10"/></svg>GMP <span>GROWTH PLATFORM</span></a><span class="topnav">领域演示</span><span class="demo-badge"><span></span>模拟数据 · 不会真实触达</span></header>
 <main>
 <div class="workspace-shell">
-<aside class="activity-sidebar" aria-label="活动工作区">
-<div class="activity-sidebar-heading"><h2>活动列表</h2><a class="activity-create" href="#activities/new">＋ 新建</a></div>
-<nav id="activity-list" class="activity-list" aria-label="活动列表"></nav>
+<aside class="activity-sidebar" aria-label="全局导航">
+<nav class="primary-module-nav" aria-label="一级菜单"><a id="module-activities" href="#activities">活动</a><a id="module-audience" href="#audience">受众</a><a id="module-experimentation" href="#experimentation">实验</a></nav>
+<div id="activity-menu-list" class="activity-menu-list"><div class="activity-sidebar-heading"><h2>活动列表</h2><a class="activity-create" href="#activities/new">＋ 新建</a></div><nav id="activity-list" class="activity-list" aria-label="活动列表"></nav>
 <p id="activity-nav-status" class="activity-nav-status" role="status" aria-live="polite"></p>
+</div>
 </aside>
 <div class="workspace-main">
 <section id="activity-landing" class="activity-landing">
-<div class="intro"><div><p class="eyebrow">GMP / ACTIVITY WORKSPACE</p><h1>先选活动，再进入工作区。</h1><p class="subtitle">每个活动下可查看受众、实验、运营与组合。受众和实验定义仍是可跨活动复用的共享资产。</p></div></div>
+<div class="intro"><div><p class="eyebrow">GMP / ACTIVITIES</p><h1>活动列表</h1><p class="subtitle">活动负责组织运营与组合；受众和实验在各自一级菜单维护，并可被多个活动引用。</p></div></div>
 <div id="campaign-activities" hidden></div>
 </section>
 <section id="activity-not-found" class="activity-not-found" hidden role="alert"><h1 id="activity-not-found-title">无法打开活动</h1><p id="activity-not-found-message"></p><a href="#activities">返回活动列表</a></section>
 <p id="campaign-status" class="campaign-global-status" role="status" aria-live="polite"></p>
 <p id="activity-route-loading" class="activity-route-loading" role="status" aria-live="polite" hidden>正在切换活动工作区…</p>
-<div id="lab-shell" class="lab-shell" hidden><nav id="domain-nav" class="domain-nav" aria-label="活动工作区"><a id="nav-audience" href="#activities" aria-current="page"><strong>受众</strong><span>这个人是谁</span></a><a id="nav-experimentation" href="#activities"><strong>实验</strong><span>落在第几份</span></a><a id="nav-campaign" href="#activities"><strong>运营</strong><span>要对这些人做什么</span></a><a id="nav-compose" href="#activities"><strong>组合</strong><span>三域挂在一起跑</span></a></nav><div class="lab-content">
+<div id="lab-shell" class="lab-shell" hidden><nav id="domain-nav" class="domain-nav" aria-label="活动工作区"><a id="nav-campaign" href="#activities" aria-current="page"><strong>运营</strong><span>活动与投放项</span></a><a id="nav-compose" href="#activities"><strong>组合</strong><span>三域挂在一起跑</span></a></nav><div class="lab-content">
 <section id="activity-context" class="activity-context"><div><p class="eyebrow">当前活动</p><h1 id="activity-context-name"></h1><p id="activity-context-id" class="activity-context-id"></p></div></section>
 <p id="shared-asset-note" class="shared-asset-note" hidden>此处维护跨活动共享的受众与实验资产；活动通过稳定引用使用这些定义。</p>
+<p id="asset-return" class="asset-return" hidden><a id="asset-return-link" href="#activities">← 返回当前活动</a></p>
 
 <section id="audience-section" aria-label="受众">
 <div id="audience-browse">

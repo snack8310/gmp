@@ -1,6 +1,6 @@
 import { escapeHTML } from './experiment-ui.mjs';
 import { BROWSE_ACTIVITIES, DEFAULT_AUDIENCE_CATALOG, REFERENCE_CATALOG, actionAvailable, resolveAudience } from './campaign-activities.mjs';
-import { activityRoute } from './activity-routing.mjs';
+import { activityRoute, assetRoute } from './activity-routing.mjs';
 
 const safe = value => escapeHTML(String(value ?? ''));
 const unavailable = '<span class="campaign-unavailable">引用不可用 · 构造引用</span>';
@@ -49,7 +49,7 @@ export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES, catalog
  const activity = activities.find(item => item.id === id);
  if (!activity) return `${back}<div class="section-heading"><div><h2>未找到该演示活动</h2></div></div>`;
  const base = activityRoute(id, 'campaign');
- return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a class="primary-link" href="#${base}/edit">编辑活动</a><button type="button" data-controller-version="${controllerVersion}" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a class="primary-link" href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id, controllerVersion)}<p class="campaign-note">运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
+ return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a class="primary-link" href="#${base}/edit">编辑活动</a><button type="button" data-controller-version="${controllerVersion}" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="共享资产入口"><h3>共享资产</h3><p class="campaign-note">受众和实验在全局列表维护。投放项引用人群组或实验人群包臂；实验通过受众资产进入活动。投放项只可选管理 API 引用目录当前开放的资产；浏览器本地新建的人群不会自动同步。</p><div class="campaign-actions"><a class="primary-link" href="#${assetRoute('audience',base)}">受众库 · 新建或管理</a><a class="primary-link" href="#${assetRoute('experimentation',base)}">实验库 · 新建或管理</a></div></section><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a class="primary-link" href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id, controllerVersion)}<p class="campaign-note">运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
 }
 
 export function validateTreatmentDraft(value, actions, references, others) {

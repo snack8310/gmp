@@ -13,6 +13,7 @@ test('standalone export embeds the actual modules, has no external assets, and b
   execFileSync(process.execPath,[new URL('./export.mjs',import.meta.url).pathname,output]);
   const html=await readFile(output,'utf8');
   assert.doesNotMatch(html,/<script[^>]+src=|<link[^>]+stylesheet/i);
+  assert.match(html,/\.primary-module-nav/);
   assert.match(html,/活动列表与工作区需要本机管理 API/);
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
   assert.doesNotMatch(script,/^import |^export /m);
@@ -62,12 +63,15 @@ test('domain navigation and sections are ordered and management stays in its dom
  const html=await readFile(new URL('./index.html',import.meta.url),'utf8');
  const nav=html.match(/<nav id="domain-nav"[\s\S]*?<\/nav>/)?.[0];
  assert.ok(nav);
- assert.deepEqual([...nav.matchAll(/id="nav-(audience|experimentation|campaign|compose)"/g)].map(match=>match[1]),['audience','experimentation','campaign','compose']);
+ assert.deepEqual([...nav.matchAll(/id="nav-(campaign|compose)"/g)].map(match=>match[1]),['campaign','compose']);
+ const primary=html.match(/<nav class="primary-module-nav"[\s\S]*?<\/nav>/)?.[0];
+ assert.ok(primary);
+ assert.deepEqual([...primary.matchAll(/id="module-(activities|audience|experimentation)"/g)].map(match=>match[1]),['activities','audience','experimentation']);
  assert.match(html,/id="activity-list" class="activity-list"/);
  assert.ok(html.indexOf('id="activity-list"')<html.indexOf('id="domain-nav"'));
  assert.match(html,/id="lab-shell" class="lab-shell" hidden/);
  assert.match(html,/id="activity-route-loading" class="activity-route-loading"/);
- assert.match(html,/id="shared-asset-note"/);
+ assert.match(html,/id="asset-return-link"/);
  const landing=html.slice(html.indexOf('id="activity-landing"'),html.indexOf('id="activity-not-found"'));
  assert.match(landing,/id="campaign-activities"/);
  assert.ok(html.indexOf('id="experimentation-section"')<html.indexOf('id="campaign-section"'));

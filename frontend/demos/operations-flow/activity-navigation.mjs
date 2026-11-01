@@ -1,6 +1,6 @@
 import { escapeHTML } from './experiment-ui.mjs';
 
-const activityLink = id => '#activities/' + encodeURIComponent(id) + '/audience';
+const activityLink = id => '#activities/' + encodeURIComponent(id) + '/campaign';
 
 export function renderActivityNavigation(campaigns, selectedId = null) {
  if (!campaigns.length) return '<p class="activity-nav-empty">暂无活动</p>';

@@ -41,9 +41,13 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /普通人群组/);
  assert.match(detail, /实验人群包臂/);
  assert.match(detail, /运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。/);
+ assert.match(detail, /受众库 · 新建或管理/);
+ assert.match(detail, /实验库 · 新建或管理/);
+ assert.match(detail, /实验通过受众资产进入活动/);
  assert.doesNotMatch(detail, /投放箱|<button|contenteditable|draggable/);
  assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/edit">编辑活动<\/a>/);
  assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/treatments\/new">＋ 添加投放项<\/a>/);
+ assert.match(editableDetail, /href="#audience\?return=activities%2Fcampaign-branch%2Fcampaign"/);
 });
 
 test('empty and unavailable states stay explicit without replacing references', () => {
