@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 const listenPort = Number(process.argv[2] || 8081);
 const apiPort = Number(process.argv[3] || 8082);
 if (!Number.isInteger(listenPort) || !Number.isInteger(apiPort) || listenPort < 1 || apiPort < 1 || listenPort === apiPort) throw Error('Pass distinct listen and API ports');
-const files = new Set(['index.html', 'style.css', 'app.mjs', 'audience.mjs', 'audience-ui.mjs', 'experiment-ui.mjs', 'model.mjs', 'campaign-activities.mjs', 'campaign-ui.mjs', 'campaign-api-client.mjs', 'campaign-controller.mjs']);
+const files = new Set(['index.html', 'style.css', 'activity-navigation.css', 'activity-routing.mjs', 'activity-navigation.mjs', 'app.mjs', 'audience.mjs', 'audience-ui.mjs', 'experiment-ui.mjs', 'campaign-activities.mjs', 'campaign-ui.mjs', 'campaign-api-client.mjs', 'campaign-controller.mjs']);
 
 const server = createServer(async (incoming, outgoing) => {
  const started = Date.now();

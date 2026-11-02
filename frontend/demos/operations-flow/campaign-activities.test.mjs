@@ -26,9 +26,10 @@ test('normal activities keep unique identities and same-activity flow references
 
 test('list and detail expose stable links, distinct audience types and receipt edges', () => {
  const list = renderActivitiesList();
- assert.match(list, /href="#campaign\/activities\/campaign-branch"/);
+ assert.match(list, /href="#activities\/campaign-branch\/campaign"/);
  assert.match(list, /跨境召回/);
  const detail = renderActivityDetail('campaign-branch');
+ const editableDetail = renderActivityDetail('campaign-branch', undefined, undefined, true);
  assert.match(detail, /RCS 投放项/);
  assert.match(detail, /预热实验人群包 \/ A 臂/);
  assert.match(detail, /treatment-rcs/);
@@ -39,8 +40,14 @@ test('list and detail expose stable links, distinct audience types and receipt e
  assert.match(detail, /结果含义来自演示动作说明/);
  assert.match(detail, /普通人群组/);
  assert.match(detail, /实验人群包臂/);
- assert.match(detail, /运营引用受众侧统一目录中的人群组或实验人群包臂；分流定义归实验侧。/);
+ assert.match(detail, /投放项引用受众统一目录中的人群组或实验人群包臂；分流定义由实验管理。/);
+ assert.match(detail, /受众库 · 新建或管理/);
+ assert.match(detail, /实验库 · 新建或管理/);
+ assert.match(detail, /实验通过受众资产进入活动/);
  assert.doesNotMatch(detail, /投放箱|<button|contenteditable|draggable/);
+ assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/edit">编辑活动<\/a>/);
+ assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/treatments\/new">＋ 添加投放项<\/a>/);
+ assert.match(editableDetail, /href="#audience\?return=activities%2Fcampaign-branch%2Fcampaign"/);
 });
 
 test('empty and unavailable states stay explicit without replacing references', () => {
@@ -55,7 +62,7 @@ test('empty and unavailable states stay explicit without replacing references', 
  assert.match(invalid, /构造引用/);
  const missing = renderActivityDetail('missing-id');
  assert.match(missing, /未找到该演示活动/);
- assert.match(missing, /href="#campaign\/activities"/);
+ assert.match(missing, /href="#activities"/);
  assert.doesNotMatch(missing, /跨境召回/);
 });
 

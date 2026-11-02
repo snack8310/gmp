@@ -2,7 +2,7 @@ import { MOCK_USERS, createAudienceStore, groupIdOf, validateAudience, filterAud
 import { mountExperimentPicker, escapeHTML } from './experiment-ui.mjs';
 import { referenceKey } from './campaign-ui.mjs';
 
-export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
+export function mountAudiences({ api, onSaved, onDeleted, onNavigate }) {
  const el = id => document.getElementById(id);
  let storage;
  try { storage = window.localStorage; } catch { storage = null; }
@@ -25,7 +25,7 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   return work;
  }
  let editing = null;
- const picker=mountExperimentPicker({rootId:'audience-experiment-picker',store,onChange:()=>preview()});
+ const picker=mountExperimentPicker({rootId:'audience-experiment-picker',store,onChange:()=>preview(),onNavigate});
  const lifecycleLabel = {new:'新用户',active:'活跃用户',dormant:'沉睡用户'};
  function renderCatalog() {
   const rows = store.catalog().map(item => `<tr><th scope="row">${escapeHTML(item.type === 'arm' ? `${item.bundleName} / ${item.armName}` : item.groupName)}</th><td>${item.type === 'arm' ? '实验人群包臂' : '普通人群组'}</td><td>${item.type === 'arm' ? `${escapeHTML(item.bundleId)} / ` : ''}${escapeHTML(item.groupId)}</td><td>${item.available ? '可用' : '<span class="campaign-unavailable">不可用</span>'}</td></tr>`).join('');
@@ -42,7 +42,7 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   const items = store.list(), query = String(el('audience-search').value || '').trim().toLowerCase();
   el('audience-count').textContent = items.length;
   const filtered = items.filter(a => a.name.toLowerCase().includes(query));
-  el('audience-list').innerHTML = filtered.map(a => `<article class="audience-card"><div class="audience-card-icon" aria-hidden="true">♙</div><div><h3>${escapeHTML(a.name)}</h3><small>${escapeHTML(a.id)} · 已保存定义</small></div><p>${escapeHTML(summarizeEntry(a))}<br>${escapeHTML(summarizeRules(a.rules))}<br><span class="audience-experiment-tag">${a.experimentId?`引用实验 · ${escapeHTML(store.experiments().find(e=>e.id===a.experimentId)?.name||a.experimentId)}`:'未引用实验 · 单一出口'}</span></p><div class="card-count">${filterAudience(a.rules).length}<span>模拟匹配</span></div><div class="card-actions"><button data-edit-audience="${escapeHTML(a.id)}" aria-label="编辑 ${escapeHTML(a.name)}">编辑</button><button data-delete-audience="${escapeHTML(a.id)}" aria-label="删除 ${escapeHTML(a.name)}">删除</button>${protectedKeys.has(`group:${groupIdOf(a.id)}`) ? '<span class="campaign-unavailable">活动占用</span>' : ''}<button class="use-audience" data-use-audience="${escapeHTML(a.id)}" aria-label="将 ${escapeHTML(a.name)} 引用到组合">引用到组合 ↗</button></div></article>`).join('') || `<div class="empty-state">${items.length ? '没有找到匹配的人群名称。<br>试试其他关键词，或清空搜索。' : '还没有保存的人群。<br>点击「新建人群」，从一组条件开始。'}</div>`;
+  el('audience-list').innerHTML = filtered.map(a => `<article class="audience-card"><div class="audience-card-icon" aria-hidden="true">♙</div><div><h3>${escapeHTML(a.name)}</h3><small>${escapeHTML(a.id)} · 已保存定义</small></div><p>${escapeHTML(summarizeEntry(a))}<br>${escapeHTML(summarizeRules(a.rules))}<br><span class="audience-experiment-tag">${a.experimentId?`引用实验 · ${escapeHTML(store.experiments().find(e=>e.id===a.experimentId)?.name||a.experimentId)}`:'未引用实验 · 单一出口'}</span></p><div class="card-count">${filterAudience(a.rules).length}<span>模拟匹配</span></div><div class="card-actions"><button data-edit-audience="${escapeHTML(a.id)}" aria-label="编辑 ${escapeHTML(a.name)}">编辑</button><button data-delete-audience="${escapeHTML(a.id)}" aria-label="删除 ${escapeHTML(a.name)}">删除</button>${protectedKeys.has(`group:${groupIdOf(a.id)}`) ? '<span class="campaign-unavailable">活动占用</span>' : ''}</div></article>`).join('') || `<div class="empty-state">${items.length ? '没有找到匹配的人群名称。<br>试试其他关键词，或清空搜索。' : '还没有保存的人群。<br>点击「新建人群」，从一组条件开始。'}</div>`;
   el('storage-warning').textContent = store.warning;
   renderBundles();renderCatalog();
  }
@@ -57,7 +57,7 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   const ruleErrors = validateAudience({...value,name:'预览',experimentId:null,entry:{mode:'batch',schedule:{type:'manual'}}});
   const users = ruleErrors.length ? [] : filterAudience(value.rules);
   el('batch-entry-fields').hidden=value.entry.mode!=='batch';el('event-entry-fields').hidden=value.entry.mode!=='event';el('batch-time-fields').hidden=value.entry.mode!=='batch'||value.entry.schedule?.type!=='daily';
-  el('entry-mode-help').textContent=value.entry.mode==='event'?'事件到来时判定资格；模式和触发配置随这份人群一起复用。':'按手动或每日配置从来源圈选；画布不再设置模式或排期。';
+  el('entry-mode-help').textContent=value.entry.mode==='event'?'事件到来时判定资格；模式和触发配置随这份人群一起复用。':'按手动或每日配置从来源圈选；活动投放项引用这份完整定义。';
   el('preview-count-label').textContent=value.entry.mode==='event'?'位模拟用户具备事件进入资格':'位模拟用户符合批量条件';
   el('preview-entry').textContent=summarizeEntry(value);
   el('editor-error').textContent = errors.join('；');
@@ -70,9 +70,9 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   el('preview-ratio').textContent = ruleErrors.length ? '请先修正规则，再预览人数。' : `占模拟样本池 ${(users.length/MOCK_USERS.length*100).toFixed(1)}% / ${MOCK_USERS.length} 位`;
   const experiment=store.experiments().find(e=>e.id===value.experimentId);
   const groups={a:0,b:0,control:0};if(experiment)for(const user of users)groups[assignGroup(user.uid,experiment.id)]++;
-  el('preview-assignment').textContent=experiment?`引用 ${experiment.name} · 分母 ${users.length} 位符合条件用户 → A ${groups.a} / B ${groups.b} / 对照 ${groups.control}（不触达）`:el('audience-experiment-enabled').checked?'请选择实验后预览分配。':'未引用实验 · 符合条件用户从单一出口进入画布';
+  el('preview-assignment').textContent=experiment?`引用 ${experiment.name} · 分母 ${users.length} 位符合条件用户 → A ${groups.a} / B ${groups.b} / 对照 ${groups.control}（不触达）`:el('audience-experiment-enabled').checked?'请选择实验后预览分配。':'未引用实验 · 符合条件用户不做分组';
   el('preview-rules').textContent = ruleErrors.length ? '条件暂不可计算' : summarizeRules(value.rules);
-  el('preview-message').textContent = ruleErrors.length ? ruleErrors.join('；') : users.length ? value.entry.mode==='event'?'以下是可判定资格样本，不是已收到的事件或真实进入人数；不模拟事件分发。':'所有条件同时满足，以下是符合条件的构造样本。' : '当前条件没有匹配用户。可放宽条件，或保存这个空人群；空人群不能播放触达。';
+  el('preview-message').textContent = ruleErrors.length ? ruleErrors.join('；') : users.length ? value.entry.mode==='event'?'以下是可判定资格样本，不是已收到的事件或真实进入人数；不模拟事件分发。':'所有条件同时满足，以下是符合条件的构造样本。' : '当前条件没有匹配用户。可放宽条件，或保存这个空人群。';
   el('preview-samples').innerHTML = users.slice(0,6).map(u=>`<tr><td>${escapeHTML(u.uid)}</td><td>${escapeHTML(u.country)}</td><td>${lifecycleLabel[u.lifecycle]}</td><td>${u.inactiveDays} 天</td></tr>`).join('') || '<tr><td colspan="4">暂无可展示样本</td></tr>';
  }
  function edit(id = null) {
@@ -88,11 +88,10 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
   onNavigate('audience');preview();el('audience-name').focus?.();
  }
  function close(message) { editing=null;el('audience-editor').hidden=true;el('audience-browse').hidden=false;el('audience-status').textContent=message;list();el('new-audience').focus?.(); }
- function use(id) { const item=store.list().find(a=>a.id===id);if(item){onUse(item);onNavigate('compose');} }
  el('new-audience').addEventListener('click',()=>edit());
- el('cancel-audience').addEventListener('click',()=>close('已取消，保存的定义与沙盘均未改变。'));
+ el('cancel-audience').addEventListener('click',()=>close('已取消，保存的人群定义没有改变。'));
  el('audience-search').addEventListener('input',list);
- el('audience-list').addEventListener('click',async e=>{const editButton=e.target.closest('[data-edit-audience]'),useButton=e.target.closest('[data-use-audience]'),deleteButton=e.target.closest('[data-delete-audience]');if(editButton)edit(editButton.dataset.editAudience);else if(useButton)use(useButton.dataset.useAudience);else if(deleteButton){const id=deleteButton.dataset.deleteAudience;try{const used=await refreshProtection();if(used.has(`group:${groupIdOf(id)}`)) throw Error('人群组已被服务端活动引用，不能删除。');store.delete(id);list();onDeleted(id,store.list());el('audience-status').textContent='人群已删除。';}catch(error){el('audience-status').textContent=error.message;}}});
+ el('audience-list').addEventListener('click',async e=>{const editButton=e.target.closest('[data-edit-audience]'),deleteButton=e.target.closest('[data-delete-audience]');if(editButton)edit(editButton.dataset.editAudience);else if(deleteButton){const id=deleteButton.dataset.deleteAudience;try{const used=await refreshProtection();if(used.has(`group:${groupIdOf(id)}`)) throw Error('人群组已被服务端活动引用，不能删除。');store.delete(id);list();onDeleted(id,store.list());el('audience-status').textContent='人群已删除。';}catch(error){el('audience-status').textContent=error.message;}}});
  el('bundle-form').addEventListener('submit',event=>{
   event.preventDefault();
   const audience = store.list().find(item => item.id === el('bundle-audience').value);
@@ -111,7 +110,7 @@ export function mountAudiences({ api, onUse, onSaved, onDeleted, onNavigate }) {
  });
  el('audience-form').addEventListener('input',preview);
  el('audience-form').addEventListener('change',preview);
- el('audience-form').addEventListener('submit',e=>{e.preventDefault();const value=draft();if(validateAudience(value,store.experiments()).length||(el('audience-experiment-enabled').checked&&!value.experimentId)){preview();return;}let saved;try{saved=store.save(value);}catch(error){el('editor-error').textContent=error.message;return;}close(store.warning?'人群定义已保存；请留意下方存储或兼容提示。':'人群定义已保存，可引用到组合沙盘。');onSaved(saved,store.list());});
+ el('audience-form').addEventListener('submit',e=>{e.preventDefault();const value=draft();if(validateAudience(value,store.experiments()).length||(el('audience-experiment-enabled').checked&&!value.experimentId)){preview();return;}let saved;try{saved=store.save(value);}catch(error){el('editor-error').textContent=error.message;return;}close(store.warning?'人群定义已保存；请留意下方存储或兼容提示。':'人群定义已保存，可在此列表中管理。');onSaved(saved,store.list());});
  list();refreshProtection().catch(error=>{el('audience-status').textContent=`无法读取服务端占用，删除保护不可用：${error.message}`;});
  return {list:()=>store.list(),edit,store,refreshProtection,refreshExperiments:()=>{picker.refresh();list();if(!el('audience-editor').hidden)preview();}};
 }

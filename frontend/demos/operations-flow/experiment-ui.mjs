@@ -2,9 +2,11 @@ import { validateExperiment } from './audience.mjs';
 
 export const escapeHTML = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountExperimentPicker({rootId,store,onChange}) {
+export function mountExperimentPicker({rootId,store,onChange,onNavigate}) {
  const el=id=>document.getElementById(`${rootId}-${id}`);
- document.getElementById(rootId).innerHTML=`<div class="experiment-picker"><label for="${rootId}-select">引用已有实验</label><select id="${rootId}-select" aria-label="选择复用实验"></select><p class="experiment-fixed">演示固定 A 45% / B 45% / 对照 10%<br>同一实验 ID + 同一模拟用户 → 相同分组</p><a href="#experimentation">前往实验域管理 ↗</a></div>`;
+ const root=document.getElementById(rootId);
+ root.innerHTML=`<div class="experiment-picker"><label for="${rootId}-select">引用已有实验</label><select id="${rootId}-select" aria-label="选择复用实验"></select><p class="experiment-fixed">演示固定 A 45% / B 45% / 对照 10%<br>同一实验 ID + 同一模拟用户 → 相同分组</p><a href="#experimentation" data-domain-nav="experimentation">前往实验库管理 ↗</a></div>`;
+ root.addEventListener('click',event=>{const link=event.target.closest('[data-domain-nav]');if(link){event.preventDefault();onNavigate?.(link.dataset.domainNav);}});
  function refresh(id=el('select').value){const values=store.experiments();el('select').innerHTML=values.map(e=>`<option value="${escapeHTML(e.id)}">${escapeHTML(e.name)} · ${escapeHTML(e.id)}</option>`).join('')||'<option value="">请先在实验域新建实验</option>';el('select').value=values.some(e=>e.id===id)?id:values[0]?.id||'';}
  el('select').addEventListener('change',()=>onChange?.(el('select').value));
  refresh();return {getValue:()=>el('select').value||null,setValue:id=>refresh(id),refresh};
@@ -16,7 +18,7 @@ export function mountExperiments({store,onChanged}) {
  function refresh(){
   const experiments=store.experiments();
   el('experiment-count').textContent=experiments.length;
-  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10% · ${experiment.runtimeStatus === 'running' ? '运行中' : '已停用'}</p><div class="card-actions"><button type="button" data-toggle-experiment="${escapeHTML(experiment.id)}">${experiment.runtimeStatus === 'running' ? '停用分流' : '运行分流'}</button><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验，创建后即可被受众或组合引用。</p>';
+  el('experiment-list').innerHTML=experiments.map(experiment=>`<article class="domain-card"><span class="eyebrow">${escapeHTML(experiment.id)}</span><h3>${escapeHTML(experiment.name)}</h3><p>A 45% · B 45% · 对照 10% · ${experiment.runtimeStatus === 'running' ? '运行中' : '已停用'}</p><div class="card-actions"><button type="button" data-toggle-experiment="${escapeHTML(experiment.id)}">${experiment.runtimeStatus === 'running' ? '停用分流' : '运行分流'}</button><button type="button" data-edit-experiment="${escapeHTML(experiment.id)}">改名</button><button type="button" data-delete-experiment="${escapeHTML(experiment.id)}">删除</button></div></article>`).join('')||'<p class="empty-state">尚无实验；实验运行后可由受众定义引用并发布实验人群包。</p>';
   el('experiment-storage-warning').textContent=store.warning;
  }
  function open(id=null){const experiment=store.experiments().find(value=>value.id===id);editingId=experiment?.id||null;el('experiment-name').value=experiment?.name||'';el('experiment-form').hidden=false;el('experiment-error').textContent='';el('experiment-name').focus?.();}
@@ -33,7 +35,7 @@ export function mountExperiments({store,onChanged}) {
   event.preventDefault();
   const definition={id:editingId||'',name:String(el('experiment-name').value)},errors=validateExperiment(definition);
   if(errors.length){el('experiment-error').textContent=errors.join('；');return;}
-  try{store.saveExperiment(definition);close();refresh();onChanged?.();el('experiment-status').textContent='实验已保存，可在受众和组合中引用。';}
+  try{store.saveExperiment(definition);close();refresh();onChanged?.();el('experiment-status').textContent='实验已保存，可由受众定义引用。';}
   catch(error){el('experiment-error').textContent=error.message;}
  });
  refresh();return {refresh};

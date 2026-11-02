@@ -1,5 +1,6 @@
 import { escapeHTML } from './experiment-ui.mjs';
 import { referenceKey, renderActivitiesList, renderActivityDetail, validateTreatmentDraft } from './campaign-ui.mjs';
+import { assetRoute } from './activity-routing.mjs';
 
 const url = id => encodeURIComponent(id);
 
@@ -14,13 +15,13 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
  });
  const status = message => { el('campaign-status').textContent = message; };
  const error = message => { const target = el('campaign-error'); if (target) target.textContent = message; else status(message); };
- const detailRoute = () => `campaign/activities/${url(activity.id)}`;
+ const detailRoute = () => `activities/${url(activity.id)}/campaign`;
 
- function activityEditor() {
-  el('campaign-editor').innerHTML = `<a class="campaign-back" href="${activity ? `#${detailRoute()}` : '#campaign/activities'}">← 返回</a><div class="section-heading"><div><h2>${activity ? '编辑活动' : '新建活动'}</h2><p>${activity ? `稳定 ID · ${safe(activity.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="campaign-form" class="campaign-form"><label>活动名称<input id="campaign-name" value="${safe(activity?.name)}" maxlength="48" required></label><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存活动</button><button type="button" data-cancel-campaign>取消</button></div></form>`;
+ function activityEditor(version) {
+  el('campaign-editor').innerHTML = `<a class="campaign-back" href="${activity ? `#${detailRoute()}` : '#activities'}">← 返回</a><div class="section-heading"><div><h2>${activity ? '编辑活动' : '新建活动'}</h2><p>${activity ? `稳定 ID · ${safe(activity.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="campaign-form" class="campaign-form" data-controller-version="${version}"><label>活动名称<input id="campaign-name" value="${safe(activity?.name)}" maxlength="48" required></label><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存活动</button><button type="button" data-cancel-campaign data-controller-version="${version}">取消</button></div></form>`;
  }
 
- function treatmentEditor() {
+ function treatmentEditor(version) {
   const refs = references(), selected = referenceKey(treatment?.audienceRef);
   const action = actions.find(item => item.id === treatment?.actionId);
   const actionOptions = actions.filter(item => item.available).map(item => `<option value="${safe(item.id)}" ${item.id === treatment?.actionId ? 'selected' : ''}>${safe(item.name)} · ${safe(item.id)}</option>`).join('');
@@ -31,7 +32,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
   const slots = ['', 'slot-home-banner', 'slot-home-hero'];
   const slotOptions = slots.map(item => `<option value="${safe(item)}" ${item === slot ? 'selected' : ''}>${safe(item || '不占展示位')}</option>`).join('');
   const unknownSlot = slot && !slots.includes(slot) ? `<option value="${safe(slot)}" selected>${safe(slot)}（不可用）</option>` : '';
-  el('campaign-editor').innerHTML = `<a class="campaign-back" href="#${detailRoute()}">← 返回活动</a><div class="section-heading"><div><h2>${treatment?.id ? '编辑投放项' : '新增投放项'}</h2><p>${treatment?.id ? `稳定 ID · ${safe(treatment.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="treatment-form" class="campaign-form"><label>名称<input id="treatment-name" value="${safe(treatment?.name)}" maxlength="48" required></label><label>动作<select id="treatment-action"><option value="">选择动作</option>${missingAction}${actionOptions}</select></label><label>人群<select id="treatment-audience"><option value="">选择人群</option>${missingRef}${audienceOptions}</select></label><label>展示位<select id="treatment-slot">${unknownSlot}${slotOptions}</select></label><p class="campaign-note">每项恰好一个动作和一个人群。展示动作须占展示位，推送不得带。同位仅同包不同臂可证互斥。</p><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存投放项</button><button type="button" data-cancel-campaign>取消</button></div></form>`;
+  el('campaign-editor').innerHTML = `<a class="campaign-back" href="#${detailRoute()}">← 返回活动</a><div class="section-heading"><div><h2>${treatment?.id ? '编辑投放项' : '新增投放项'}</h2><p>${treatment?.id ? `稳定 ID · ${safe(treatment.id)}` : '保存后由服务端分配稳定 ID'}</p></div></div><form id="treatment-form" class="campaign-form" data-controller-version="${version}"><label>名称<input id="treatment-name" value="${safe(treatment?.name)}" maxlength="48" required></label><label>动作<select id="treatment-action"><option value="">选择动作</option>${missingAction}${actionOptions}</select></label><label>引用人群组或实验包臂<select id="treatment-audience"><option value="">选择人群</option>${missingRef}${audienceOptions}</select></label><div class="campaign-actions"><a class="primary-link" href="#${assetRoute('audience',detailRoute())}" target="_blank" rel="noopener">新标签打开受众库</a><a class="primary-link" href="#${assetRoute('experimentation',detailRoute())}" target="_blank" rel="noopener">新标签打开实验库</a></div><label>展示位<select id="treatment-slot">${unknownSlot}${slotOptions}</select></label><p class="campaign-note">新标签用于保留当前未完成表单。投放项选择器仅列出管理 API 当前开放的引用；浏览器本地新建的人群不会自动同步。实验须经已发布的人群包臂引用。每项恰好选择一个可用人群引用。</p><p id="campaign-error" class="inline-error" role="alert"></p><div class="campaign-actions"><button class="primary" type="submit">保存投放项</button><button type="button" data-cancel-campaign data-controller-version="${version}">取消</button></div></form>`;
  }
 
  async function render(route) {
@@ -50,7 +51,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
     if (request === serial) target.innerHTML = renderActivitiesList(result.campaigns, true);
     return;
    }
-   if (route === 'campaign/activities/new') { if (request === serial) activityEditor(); return; }
+   if (route === 'campaign/activities/new') { if (request === serial) activityEditor(request); return; }
    let id;
    try { id = decodeURIComponent(parts[2]); } catch { if (request === serial) target.innerHTML = renderActivityDetail('', []); return; }
    const result = await api.get(id).catch(error => { if (error.status === 404) return null; throw error; });
@@ -60,17 +61,26 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
    const [actionResult, refResult] = await Promise.all([api.actions(), api.audienceReferences()]);
    if (request !== serial) return;
    actions = actionResult.actions; serverRefs = refResult.audienceReferences;
-   if (view === 'detail') target.innerHTML = renderActivityDetail(id, [activity], audienceStore.catalog(), true, actions, serverRefs);
-   else if (parts[3] === 'edit' && parts.length === 4) activityEditor();
+   if (view === 'detail') target.innerHTML = renderActivityDetail(id, [activity], audienceStore.catalog(), true, actions, serverRefs, request);
+   else if (parts[3] === 'edit' && parts.length === 4) activityEditor(request);
    else if (parts[3] === 'treatments' && (parts[4] === 'new' || parts[5] === 'edit')) {
     treatment = parts[4] === 'new' ? null : activity.treatments.find(item => item.id === decodeURIComponent(parts[4]));
     target.innerHTML = parts[4] === 'new' || treatment ? '' : '<p class="campaign-empty">未找到该投放项</p>';
-    if (parts[4] === 'new' || treatment) treatmentEditor();
+    if (parts[4] === 'new' || treatment) treatmentEditor(request);
    } else target.innerHTML = '<p class="campaign-empty">未找到该页面</p>';
   } catch (failure) {
    if (request === serial) target.innerHTML = `<p class="inline-error" role="alert">无法读取活动管理 API：${safe(failure.message)}</p>`;
   }
  }
+
+ function clear() {
+  serial++;
+  activity = null; treatment = null;
+  for (const id of ['campaign-overview', 'campaign-activities', 'campaign-detail', 'campaign-editor']) el(id).hidden = true;
+  status('');
+ }
+
+ const isCurrentControl = control => Number(control?.dataset?.controllerVersion) === serial;
 
  async function changed(message, route, version) {
   try { await onChanged(); if (serial === version) status(message); }
@@ -81,14 +91,16 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
  section.addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button) return;
-  if (button.hasAttribute('data-cancel-campaign')) { onNavigate(activity ? detailRoute() : 'campaign/activities'); return; }
+   if (button.hasAttribute('data-cancel-campaign')) { if (!isCurrentControl(button)) return; onNavigate(activity ? detailRoute() : 'activities'); return; }
   if (button.dataset.deleteActivity) {
+   if (!isCurrentControl(button)) return;
    if (!window.confirm('删除整项活动及其投放项、活动流程边？')) return;
    const version = serial;
-   try { await api.delete(button.dataset.deleteActivity); await changed('活动已删除。', 'campaign/activities', version); }
+   try { await api.delete(button.dataset.deleteActivity); await changed('活动已删除。', 'activities', version); }
    catch (failure) { if (serial === version) status(`删除失败：${failure.message}`); }
   }
   if (button.dataset.deleteTreatment && activity) {
+   if (!isCurrentControl(button)) return;
    if (!window.confirm('删除该投放项？')) return;
    const version = serial, campaignId = activity.id, route = detailRoute();
    try { await api.deleteTreatment(campaignId, button.dataset.deleteTreatment); await changed('投放项已删除。', route, version); }
@@ -99,6 +111,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
  section.addEventListener('submit', async event => {
   if (!['campaign-form', 'treatment-form'].includes(event.target.id)) return;
   event.preventDefault();
+  if (!isCurrentControl(event.target)) return;
   const version = serial;
   const button = event.target.querySelector('button[type=submit]');
   if (button) button.disabled = true;
@@ -107,7 +120,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
     const name = el('campaign-name').value.trim();
     if (!name) throw Error('活动名称必填。');
     const saved = activity ? await api.update(activity.id, { ...activity, name }) : await api.create({ name });
-    await changed('活动已保存。', `campaign/activities/${url(saved.id)}`, version);
+    await changed('活动已保存。', `activities/${url(saved.id)}/campaign`, version);
    } else {
     const key = el('treatment-audience').value;
     const ref = references().find(item => referenceKey(item) === key && item.available);
@@ -124,5 +137,5 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
   } catch (failure) { if (serial === version) error(failure.message); }
   finally { if (button) button.disabled = false; }
  });
- return { render };
+ return { render, clear };
 }
