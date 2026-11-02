@@ -19,10 +19,13 @@ func NewHandler(store *management.Store, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/campaigns", a.campaigns)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}", a.campaign)
+	mux.HandleFunc("/api/v1/campaigns/{campaignId}/flow", a.flow)
+	mux.HandleFunc("/api/v1/campaigns/{campaignId}/audiences", a.audiences)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}/treatments", a.treatments)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}/treatments/{treatmentId}", a.treatment)
 	mux.HandleFunc("/api/v1/actions", a.actions)
 	mux.HandleFunc("/api/v1/audience-references", a.references)
+	mux.HandleFunc("/api/v1/audience-references/{groupId}", a.audienceReference)
 	mux.HandleFunc("/api/v1/audience-reference-usages", a.usages)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, &management.Problem{Status: 404, Code: "not_found", Message: "接口不存在"})
@@ -160,6 +163,82 @@ func (a *api) treatments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 201, created)
+}
+
+func (a *api) flow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w)
+		return
+	}
+	var input struct {
+		ID            string             `json:"id"`
+		Edges         []management.Edge  `json:"edges"`
+		ExpectedEdges *[]management.Edge `json:"expectedEdges"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.ExpectedEdges == nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_edges_required", Message: "请提供提交时读取的活动流程边"})
+		return
+	}
+	updated, p := a.store.UpdateFlow(r.PathValue("campaignId"), *input.ExpectedEdges, management.Flow{ID: input.ID, Edges: input.Edges})
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	writeJSON(w, 200, updated)
+}
+
+func (a *api) audiences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w)
+		return
+	}
+	var input struct {
+		AudienceRefs         []management.AudienceRef  `json:"audienceRefs"`
+		ExpectedAudienceRefs *[]management.AudienceRef `json:"expectedAudienceRefs"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.ExpectedAudienceRefs == nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_audience_refs_required", Message: "请提供提交时读取的活动受众入口"})
+		return
+	}
+	updated, p := a.store.UpdateAudienceRefs(r.PathValue("campaignId"), *input.ExpectedAudienceRefs, input.AudienceRefs)
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (a *api) audienceReference(w http.ResponseWriter, r *http.Request) {
+	groupID := r.PathValue("groupId")
+	switch r.Method {
+	case http.MethodPut:
+		var input struct {
+			Name string `json:"name"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		ref, p := a.store.UpsertGroupAudienceReference(groupID, input.Name)
+		if p != nil {
+			writeProblem(w, p)
+			return
+		}
+		writeJSON(w, http.StatusOK, ref)
+	case http.MethodDelete:
+		if p := a.store.DeleteGroupAudienceReference(groupID); p != nil {
+			writeProblem(w, p)
+			return
+		}
+		writeJSON(w, http.StatusNoContent, nil)
+	default:
+		methodNotAllowed(w)
+	}
 }
 
 func (a *api) treatment(w http.ResponseWriter, r *http.Request) {

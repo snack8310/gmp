@@ -31,25 +31,12 @@ function renderTreatments(treatments, catalog, editable = false, actions = REFER
  return `<div class="campaign-table-scroll" tabindex="0" aria-label="投放项表格，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">投放项</th><th scope="col">动作</th><th scope="col">引用人群</th><th scope="col">展示位</th>${editable ? '<th scope="col">操作</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-function treatmentLabel(id, treatments) {
- const treatment = treatments.find(item => item.id === id);
- return `${safe(treatment?.name)} <small>· ${safe(id)}</small>`;
-}
-
-function renderFlow(activity) {
- const flow = activity.activityFlow;
- if (!flow) return '<p class="campaign-empty">未配置活动流程</p>';
- if (!flow.edges.length) return '<p class="campaign-empty">暂无活动流程边</p><p class="campaign-note">同一入口且无边相连的投放项可并行；本页不计算入口，也不按列表顺序推断执行。</p>';
- const rows = flow.edges.map(edge => `<tr><td>${treatmentLabel(edge.fromTreatmentId, activity.treatments)} <span aria-hidden="true">→</span> ${treatmentLabel(edge.toTreatmentId, activity.treatments)}</td><td>${safe(edge.conditionLabel)}</td></tr>`).join('');
- return `<p class="campaign-note">活动流程 · ${safe(flow.id)}。结果含义来自演示动作说明；边只展示回执关系，本页不执行或求值。</p><div class="campaign-table-scroll" tabindex="0" aria-label="活动流程关系表，可横向滚动"><table class="campaign-table"><thead><tr><th scope="col">起点 → 终点</th><th scope="col">回执条件</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
 export function renderActivityDetail(id, activities = BROWSE_ACTIVITIES, catalog = DEFAULT_AUDIENCE_CATALOG, editable = false, actions = REFERENCE_CATALOG.actions, serverRefs = null, controllerVersion = '') {
  const back = '<a class="campaign-back" href="#activities">← 返回活动列表</a>';
  const activity = activities.find(item => item.id === id);
  if (!activity) return `${back}<div class="section-heading"><div><h2>未找到该演示活动</h2></div></div>`;
  const base = activityRoute(id, 'campaign');
- return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a class="primary-link" href="#${base}/edit">编辑活动</a><button type="button" data-controller-version="${controllerVersion}" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="共享资产入口"><h3>共享资产</h3><p class="campaign-note">受众和实验在全局列表维护。投放项引用人群组或实验人群包臂；实验通过受众资产进入活动。投放项只可选管理 API 引用目录当前开放的资产；浏览器本地新建的人群不会自动同步。</p><div class="campaign-actions"><a class="primary-link" href="#${assetRoute('audience',base)}">受众库 · 新建或管理</a><a class="primary-link" href="#${assetRoute('experimentation',base)}">实验库 · 新建或管理</a></div></section><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a class="primary-link" href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id, controllerVersion)}<p class="campaign-note">投放项引用受众统一目录中的人群组或实验人群包臂；分流定义由实验管理。可用性随本浏览器的目录变化。</p></section><section class="campaign-detail-block" aria-label="活动流程"><h3>活动流程</h3>${renderFlow(activity)}</section>`;
+ return `${back}<div class="section-heading"><div><p class="eyebrow">CAMPAIGN / ACTIVITY DETAIL</p><h2>${safe(activity.name)}</h2><p>活动 ID · ${safe(activity.id)} · ${editable ? '管理 API 当前状态' : '仅本地构造数据'}</p></div>${editable ? `<div class="campaign-actions"><a class="primary-link" href="#${base}/edit">编辑活动</a><button type="button" data-controller-version="${controllerVersion}" data-delete-activity="${safe(id)}">删除活动</button></div>` : ''}</div><section class="campaign-detail-block" aria-label="共享资产入口"><h3>共享资产</h3><p class="campaign-note">受众和实验在全局列表维护。投放项引用人群组或实验人群包臂；实验通过受众资产进入活动。投放项只可选管理 API 引用目录当前开放的资产；新建或改名的普通人群会将稳定 ID 与名称同步到本机引用目录。</p><div class="campaign-actions"><a class="primary-link" href="#${assetRoute('audience',base)}">受众库 · 新建或管理</a><a class="primary-link" href="#${assetRoute('experimentation',base)}">实验库 · 新建或管理</a></div></section><section class="campaign-detail-block" aria-label="投放项清单"><h3>投放项清单</h3>${editable ? `<a class="primary-link" href="#${base}/treatments/new">＋ 添加投放项</a>` : ''}${renderTreatments(activity.treatments, catalog, editable, actions, serverRefs, id, controllerVersion)}<p class="campaign-note">投放项引用受众统一目录中的人群组或实验人群包臂；分流定义由实验管理。可用性随本浏览器的目录变化。</p></section><div id="activity-flow-canvas"></div>`;
 }
 
 export function validateTreatmentDraft(value, actions, references, others) {

@@ -27,15 +27,24 @@ test('campaign client uses the documented routes and JSON bodies', async () => {
  const ref = { type: 'arm', bundleId: 'bundle-a', groupId: 'group-b' };
  await api.list(); await api.create({ name: '新活动' }); await api.get('a/b'); await api.update('a/b', { id: 'a/b', name: '新名称', treatments: [] }); await api.delete('a/b');
  await api.createTreatment('a/b', { name: '短信', actionId: 'action-sms', audienceRef: ref });
+ await api.updateFlow('a/b', { id: 'flow-a', edges: [] }, []);
+ await api.updateAudiences('a/b', [{ type: 'group', groupId: 'group-a' }], []);
  await api.updateTreatment('a/b', 't/1', { id: 't/1', name: '短信', actionId: 'action-sms', audienceRef: ref });
- await api.deleteTreatment('a/b', 't/1'); await api.actions(); await api.audienceReferences(); await api.usages(ref);
+ await api.deleteTreatment('a/b', 't/1'); await api.actions(); await api.audienceReferences();
+ await api.upsertGroupAudienceReference('group-a', '新建人群'); await api.deleteGroupAudienceReference('group-a'); await api.usages(ref);
  assert.deepEqual(calls.map(({ path, method }) => `${method} ${path}`), [
   'GET /api/v1/campaigns', 'POST /api/v1/campaigns', 'GET /api/v1/campaigns/a%2Fb', 'PUT /api/v1/campaigns/a%2Fb', 'DELETE /api/v1/campaigns/a%2Fb',
-  'POST /api/v1/campaigns/a%2Fb/treatments', 'PUT /api/v1/campaigns/a%2Fb/treatments/t%2F1', 'DELETE /api/v1/campaigns/a%2Fb/treatments/t%2F1',
-  'GET /api/v1/actions', 'GET /api/v1/audience-references', 'GET /api/v1/audience-reference-usages?type=arm&bundleId=bundle-a&groupId=group-b',
+  'POST /api/v1/campaigns/a%2Fb/treatments', 'PUT /api/v1/campaigns/a%2Fb/flow', 'PUT /api/v1/campaigns/a%2Fb/audiences',
+  'PUT /api/v1/campaigns/a%2Fb/treatments/t%2F1', 'DELETE /api/v1/campaigns/a%2Fb/treatments/t%2F1',
+  'GET /api/v1/actions', 'GET /api/v1/audience-references',
+  'PUT /api/v1/audience-references/group-a', 'DELETE /api/v1/audience-references/group-a',
+  'GET /api/v1/audience-reference-usages?type=arm&bundleId=bundle-a&groupId=group-b',
  ]);
  assert.deepEqual(calls[1].body, { name: '新活动' });
  assert.deepEqual(calls[5].body.audienceRef, ref);
+ assert.deepEqual(calls[6].body, { id: 'flow-a', edges: [], expectedEdges: [] });
+ assert.deepEqual(calls[7].body, { audienceRefs: [{ type: 'group', groupId: 'group-a' }], expectedAudienceRefs: [] });
+ assert.deepEqual(calls[12].body, { name: '新建人群' });
 });
 
 test('campaign client calls the default fetch with the global receiver', async () => {

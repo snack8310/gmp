@@ -2,7 +2,7 @@ import { MOCK_USERS, createAudienceStore, groupIdOf, validateAudience, filterAud
 import { mountExperimentPicker, escapeHTML } from './experiment-ui.mjs';
 import { referenceKey } from './campaign-ui.mjs';
 
-export function mountAudiences({ api, onSaved, onDeleted, onNavigate }) {
+export function mountAudiences({ api, onSaved = () => {}, onDeleted = () => {}, onLoaded = () => {}, onNavigate }) {
  const el = id => document.getElementById(id);
  let storage;
  try { storage = window.localStorage; } catch { storage = null; }
@@ -15,7 +15,9 @@ export function mountAudiences({ api, onSaved, onDeleted, onNavigate }) {
    const activities = (await api.list()).campaigns;
    const refs = store.catalog();
    const usages = await Promise.all(refs.map(ref => api.usages(ref)));
-   const next = new Set(refs.filter((ref, index) => usages[index].usages.length || activities.some(activity => activity.treatments.some(item => referenceKey(item.audienceRef) === referenceKey(ref)))).map(referenceKey));
+   const next = new Set(refs.filter((ref, index) => usages[index].usages.length || activities.some(activity =>
+    activity.audienceRefs?.some(item => referenceKey(item) === referenceKey(ref))
+    || activity.treatments.some(item => referenceKey(item.audienceRef) === referenceKey(ref)))).map(referenceKey));
    if (version !== protectionVersion) return latestProtection;
    protectedKeys = next;
    list();
@@ -91,7 +93,7 @@ export function mountAudiences({ api, onSaved, onDeleted, onNavigate }) {
  el('new-audience').addEventListener('click',()=>edit());
  el('cancel-audience').addEventListener('click',()=>close('已取消，保存的人群定义没有改变。'));
  el('audience-search').addEventListener('input',list);
- el('audience-list').addEventListener('click',async e=>{const editButton=e.target.closest('[data-edit-audience]'),deleteButton=e.target.closest('[data-delete-audience]');if(editButton)edit(editButton.dataset.editAudience);else if(deleteButton){const id=deleteButton.dataset.deleteAudience;try{const used=await refreshProtection();if(used.has(`group:${groupIdOf(id)}`)) throw Error('人群组已被服务端活动引用，不能删除。');store.delete(id);list();onDeleted(id,store.list());el('audience-status').textContent='人群已删除。';}catch(error){el('audience-status').textContent=error.message;}}});
+ el('audience-list').addEventListener('click',async e=>{const editButton=e.target.closest('[data-edit-audience]'),deleteButton=e.target.closest('[data-delete-audience]');if(editButton)edit(editButton.dataset.editAudience);else if(deleteButton){const id=deleteButton.dataset.deleteAudience;try{const used=await refreshProtection();if(used.has(`group:${groupIdOf(id)}`)) throw Error('人群组已被服务端活动引用，不能删除。');const deletion=onDeleted(id);if(deletion&&typeof deletion.then==='function')await deletion;store.delete(id);list();el('audience-status').textContent='人群已删除。';}catch(error){el('audience-status').textContent=error.message;}}});
  el('bundle-form').addEventListener('submit',event=>{
   event.preventDefault();
   const audience = store.list().find(item => item.id === el('bundle-audience').value);
@@ -110,7 +112,8 @@ export function mountAudiences({ api, onSaved, onDeleted, onNavigate }) {
  });
  el('audience-form').addEventListener('input',preview);
  el('audience-form').addEventListener('change',preview);
- el('audience-form').addEventListener('submit',e=>{e.preventDefault();const value=draft();if(validateAudience(value,store.experiments()).length||(el('audience-experiment-enabled').checked&&!value.experimentId)){preview();return;}let saved;try{saved=store.save(value);}catch(error){el('editor-error').textContent=error.message;return;}close(store.warning?'人群定义已保存；请留意下方存储或兼容提示。':'人群定义已保存，可在此列表中管理。');onSaved(saved,store.list());});
- list();refreshProtection().catch(error=>{el('audience-status').textContent=`无法读取服务端占用，删除保护不可用：${error.message}`;});
- return {list:()=>store.list(),edit,store,refreshProtection,refreshExperiments:()=>{picker.refresh();list();if(!el('audience-editor').hidden)preview();}};
+ el('audience-form').addEventListener('submit',async e=>{e.preventDefault();const value=draft();if(validateAudience(value,store.experiments()).length||(el('audience-experiment-enabled').checked&&!value.experimentId)){preview();return;}let saved;try{saved=store.save(value);}catch(error){el('editor-error').textContent=error.message;return;}try{const synchronization=onSaved(saved,store.list());if(synchronization&&typeof synchronization.then==='function')await synchronization;}catch(error){editing=saved.id;el('editor-title').textContent='编辑人群定义';el('editor-error').textContent=`已保存到浏览器；活动目录同步失败，暂不可在活动中使用：${error.message}`;list();return;}close(store.warning?'人群定义已保存；请留意下方存储或兼容提示。':'人群定义已保存，可从活动流程画布选择。');});
+ list();
+ const ready = Promise.resolve().then(()=>onLoaded(store.list())).catch(error=>{el('audience-status').textContent=`人群已在浏览器保存，但未能同步到活动目录：${error.message}`;}).finally(()=>refreshProtection().catch(error=>{el('audience-status').textContent=`无法读取服务端占用，删除保护不可用：${error.message}`;}));
+ return {list:()=>store.list(),edit,store,ready,refreshProtection,refreshExperiments:()=>{picker.refresh();list();if(!el('audience-editor').hidden)preview();}};
 }

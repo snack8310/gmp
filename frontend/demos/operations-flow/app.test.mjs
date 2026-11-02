@@ -38,6 +38,16 @@ globalThis.fetch = async (address, options = {}) => {
  if (path === '/api/v1/campaigns') return response(200, { campaigns: structuredClone(apiCampaigns) });
  if (path === '/api/v1/actions') return response(200, { actions: apiActions });
  if (path === '/api/v1/audience-references') return response(200, { audienceReferences: apiRefs });
+ if (path.startsWith('/api/v1/audience-references/')) {
+  const groupId = decodeURIComponent(path.slice('/api/v1/audience-references/'.length));
+  const index = apiRefs.findIndex(item => item.type === 'group' && item.groupId === groupId);
+  if (method === 'PUT') {
+   const ref = { type: 'group', groupId, name: body.name, available: true };
+   if (index < 0) apiRefs.push(ref); else apiRefs[index] = ref;
+   return response(200, ref);
+  }
+  if (method === 'DELETE') { if (index >= 0) apiRefs.splice(index, 1); return response(204); }
+ }
  if (path === '/api/v1/audience-reference-usages') { usageCalls++; return response(200, { usages: apiCampaigns.flatMap(activity => activity.treatments.filter(item => item.audienceRef?.type === parsed.searchParams.get('type') && item.audienceRef.groupId === parsed.searchParams.get('groupId') && (!parsed.searchParams.has('bundleId') || item.audienceRef.bundleId === parsed.searchParams.get('bundleId'))).map(item => ({ campaignId: activity.id, treatmentId: item.id }))) }); }
  if (path.startsWith('/api/v1/campaigns/')) { const parts=path.slice('/api/v1/campaigns/'.length).split('/'); const id = decodeURIComponent(parts[0]); const campaign = apiCampaigns.find(item => item.id === id);
   if (!campaign) return response(404, { error: { code: 'not_found', message: '活动不存在' } });
@@ -48,6 +58,7 @@ globalThis.fetch = async (address, options = {}) => {
    if (method === 'PUT') { writes++;Object.assign(current,body);return response(200,structuredClone(current)); }
    if (method === 'DELETE') { writes++;campaign.treatments.splice(campaign.treatments.indexOf(current),1);return response(204); }
   }
+  if (parts[1] === 'audiences' && method === 'PUT') { writes++; campaign.audienceRefs = body.audienceRefs; return response(200, structuredClone(campaign)); }
   if (method === 'PUT') { writes++; campaign.name = body.name; return response(200, structuredClone(campaign)); }
   if (method === 'DELETE') { writes++; apiCampaigns.splice(apiCampaigns.indexOf(campaign), 1); return response(204); }
   return response(200, structuredClone(campaign)); }
@@ -66,7 +77,7 @@ test('app requests the campaign API from the page origin by default', async () =
  assert.ok(apiAddresses.every(address => new URL(address).origin === window.location.origin));
 });
 
-test('audience definitions can be created, previewed, canceled and saved', () => {
+test('audience definitions can be created, previewed, canceled and saved', async () => {
  fire('new-audience','click');
  assert.equal(element('audience-editor').hidden,false);
  element('audience-name').value='Temporary draft';element('rule-country').value='MX';fire('audience-form','input');
@@ -75,7 +86,7 @@ test('audience definitions can be created, previewed, canceled and saved', () =>
  fire('new-audience','click');assert.equal(element('audience-name').value,'');
  element('audience-name').value='Saved test';element('rule-country').value='MX';fire('audience-form','input');
  const count=Number(element('preview-count').textContent);
- fire('audience-form','submit',{preventDefault(){}});
+ await fire('audience-form','submit',{preventDefault(){}});
  assert.equal(element('audience-editor').hidden,true);
  assert.match(element('audience-list').innerHTML,/Saved test/);
  const card=element('audience-list').innerHTML.split('Saved test')[1];
@@ -107,7 +118,7 @@ test('experiment page creates and renames identities reused by audience definiti
  window.location.hash='#audience';window.listeners.hashchange();await settle();
  fire('new-audience','click');element('audience-experiment-enabled').checked=true;
  element('audience-experiment-picker-select').value=experimentId;fire('audience-form','change');
- element('audience-name').value='引用共享实验';fire('audience-form','submit',{preventDefault(){}});
+ element('audience-name').value='引用共享实验';await fire('audience-form','submit',{preventDefault(){}});
  assert.ok(element('audience-list').innerHTML.includes('Renamed shared'));
  assert.equal(element('audience-section').hidden,false);
  fire('experiment-list','click',{target:{closest:selector=>selector==='[data-delete-experiment]'?{dataset:{deleteExperiment:experimentId}}:null}});
@@ -262,12 +273,12 @@ test('encoded activity IDs round trip through list links and deep routes',async(
  } finally {apiCampaigns.pop();}
 });
 
-test('audience entry mode, batch schedule and event trigger are saved with the shared definition',()=>{
+test('audience entry mode, batch schedule and event trigger are saved with the shared definition',async()=>{
  fire('new-audience','click');
  element('audience-name').value='定时活动受众';
  element('batch-schedule').value='daily';element('batch-time').value='18:30';fire('audience-form','change');
  assert.equal(element('batch-time-fields').hidden,false);
- fire('audience-form','submit',{preventDefault(){}});
+ await fire('audience-form','submit',{preventDefault(){}});
  const savedId=[...element('audience-list').innerHTML.matchAll(/data-edit-audience=\"([^\"]+)/g)].at(-1)?.[1];
  assert.ok(savedId);
  fire('audience-list','click',{target:{closest:selector=>selector==='[data-edit-audience]'?{dataset:{editAudience:savedId}}:null}});
@@ -277,18 +288,18 @@ test('audience entry mode, batch schedule and event trigger are saved with the s
  assert.equal(element('batch-entry-fields').hidden,true);assert.equal(element('event-entry-fields').hidden,false);
  assert.equal(element('save-audience').disabled,false);
  assert.ok(element('preview-message').textContent.includes('不是已收到'));
- fire('audience-form','submit',{preventDefault(){}});
+ await fire('audience-form','submit',{preventDefault(){}});
  assert.match(element('audience-list').innerHTML,/定时活动受众/);
 });
 
 test('deleting an unreferenced audience succeeds and an API-referenced audience stays protected',async()=>{
  const before=Number(element('audience-count').textContent);
- fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-app'}}:null}});
+ await fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-app'}}:null}});
  await settle();
  assert.equal(Number(element('audience-count').textContent),before-1);
  assert.doesNotMatch(element('audience-list').innerHTML,/data-edit-audience=\"aud-app\"/);
  assert.match(element('audience-status').textContent,/已删除/);
- fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-mx-dormant'}}:null}});
+ await fire('audience-list','click',{target:{closest:selector=>selector==='[data-delete-audience]'?{dataset:{deleteAudience:'aud-mx-dormant'}}:null}});
  await settle();
  assert.match(element('audience-status').textContent,/不能删除/);
 });
@@ -334,7 +345,7 @@ test('treatment add, edit and delete use API state and reject failed writes',asy
  assert.match(element('campaign-editor').innerHTML,/引用人群组或实验包臂/);
  assert.match(element('campaign-editor').innerHTML,/新标签打开受众库/);
  assert.match(element('campaign-editor').innerHTML,/target="_blank" rel="noopener"/);
- assert.match(element('campaign-editor').innerHTML,/管理 API 当前开放的引用/);
+ assert.match(element('campaign-editor').innerHTML,/新建或改名的普通共享人群会同步到本机引用目录/);
  element('treatment-name').value='短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
  const form=formTarget('treatment-form');
  nextFailure=true;

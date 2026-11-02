@@ -18,10 +18,11 @@ func problem(status int, code, message string) *Problem {
 }
 
 type Action struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	RequiresSlot bool   `json:"requiresSlot"`
-	Available    bool   `json:"available"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	RequiresSlot    bool     `json:"requiresSlot"`
+	Available       bool     `json:"available"`
+	ReceiptOutcomes []string `json:"receiptOutcomes,omitempty"`
 }
 
 type AudienceReference struct {
@@ -60,13 +61,15 @@ type Flow struct {
 }
 
 type Campaign struct {
-	ID           string      `json:"id"`
-	Name         string      `json:"name"`
-	Treatments   []Treatment `json:"treatments"`
-	ActivityFlow *Flow       `json:"activityFlow,omitempty"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	AudienceRefs []AudienceRef `json:"audienceRefs"`
+	Treatments   []Treatment   `json:"treatments"`
+	ActivityFlow *Flow         `json:"activityFlow,omitempty"`
 }
 
 func (c Campaign) clone() Campaign {
+	c.AudienceRefs = append([]AudienceRef{}, c.AudienceRefs...)
 	c.Treatments = append([]Treatment{}, c.Treatments...)
 	if c.ActivityFlow != nil {
 		flow := *c.ActivityFlow
@@ -99,6 +102,21 @@ func validateCampaign(c Campaign, actions []Action, refs []AudienceReference, sl
 		return problem(400, "missing_field", "活动 ID 和名称必填")
 	}
 	seen := make(map[string]bool, len(c.Treatments))
+	treatmentByID := make(map[string]Treatment, len(c.Treatments))
+	seenAudienceRefs := make(map[string]bool, len(c.AudienceRefs))
+	for _, ref := range c.AudienceRefs {
+		if !ref.validShape() {
+			return problem(400, "invalid_audience_ref", "活动入口须为普通组 groupId，或包臂 bundleId 与 groupId")
+		}
+		key := audienceReferenceKey(ref)
+		if seenAudienceRefs[key] {
+			return problem(409, "duplicate_audience_entry", fmt.Sprintf("活动入口重复：%s", ref.GroupID))
+		}
+		seenAudienceRefs[key] = true
+		if p := validateAudienceRef(ref, refs); p != nil {
+			return p
+		}
+	}
 	bySlot := map[string][]Treatment{}
 	for _, t := range c.Treatments {
 		if strings.TrimSpace(t.ID) == "" || strings.TrimSpace(t.Name) == "" || strings.TrimSpace(t.ActionID) == "" {
@@ -108,6 +126,7 @@ func validateCampaign(c Campaign, actions []Action, refs []AudienceReference, sl
 			return problem(409, "duplicate_treatment", fmt.Sprintf("投放项 ID 重复：%s", t.ID))
 		}
 		seen[t.ID] = true
+		treatmentByID[t.ID] = t
 		if p := validateTreatment(t, actions, refs, slots); p != nil {
 			return p
 		}
@@ -125,6 +144,27 @@ func validateCampaign(c Campaign, actions []Action, refs []AudienceReference, sl
 			}
 		}
 	}
+	incomingTreatments := map[string]bool{}
+	if c.ActivityFlow != nil {
+		for _, edge := range c.ActivityFlow.Edges {
+			incomingTreatments[edge.ToTreatmentID] = true
+		}
+	}
+	for _, treatment := range c.Treatments {
+		if incomingTreatments[treatment.ID] {
+			continue
+		}
+		found := false
+		for _, ref := range c.AudienceRefs {
+			if sameRef(ref, treatment.AudienceRef) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return problem(409, "missing_audience_entry", fmt.Sprintf("入口投放项 %s 未绑定活动入口人群", treatment.ID))
+		}
+	}
 	if c.ActivityFlow == nil {
 		return nil
 	}
@@ -132,6 +172,7 @@ func validateCampaign(c Campaign, actions []Action, refs []AudienceReference, sl
 		return problem(400, "missing_field", "活动流程 ID 必填")
 	}
 	edgeIDs := map[string]bool{}
+	tupleIDs := map[string]bool{}
 	for _, edge := range c.ActivityFlow.Edges {
 		if strings.TrimSpace(edge.ID) == "" || strings.TrimSpace(edge.ConditionLabel) == "" {
 			return problem(400, "missing_field", "活动流程边 ID 和条件必填")
@@ -143,8 +184,116 @@ func validateCampaign(c Campaign, actions []Action, refs []AudienceReference, sl
 		if !seen[edge.FromTreatmentID] || !seen[edge.ToTreatmentID] || edge.FromTreatmentID == edge.ToTreatmentID {
 			return problem(409, "invalid_edge", fmt.Sprintf("活动流程边 %s 的端点无效", edge.ID))
 		}
+		tuple := edge.FromTreatmentID + "\x00" + edge.ToTreatmentID + "\x00" + edge.ConditionLabel
+		if tupleIDs[tuple] {
+			return problem(409, "duplicate_edge", fmt.Sprintf("活动流程边重复：%s -> %s（%s）", edge.FromTreatmentID, edge.ToTreatmentID, edge.ConditionLabel))
+		}
+		tupleIDs[tuple] = true
+		source := treatmentByID[edge.FromTreatmentID]
+		var sourceAction *Action
+		for i := range actions {
+			if actions[i].ID == source.ActionID {
+				sourceAction = &actions[i]
+				break
+			}
+		}
+		declared := false
+		if sourceAction != nil {
+			for _, outcome := range sourceAction.ReceiptOutcomes {
+				if outcome == edge.ConditionLabel {
+					declared = true
+					break
+				}
+			}
+		}
+		if !declared {
+			return problem(422, "invalid_edge_condition", fmt.Sprintf("动作 %s 未声明回执条件：%s", source.ActionID, edge.ConditionLabel))
+		}
+	}
+	if receiptCycle(c.ActivityFlow.Edges) {
+		return problem(409, "flow_cycle", "活动流程回执边不能形成循环")
 	}
 	return nil
+}
+
+func audienceReferenceKey(ref AudienceRef) string {
+	return ref.Type + ":" + ref.BundleID + ":" + ref.GroupID
+}
+
+func validateAudienceRef(ref AudienceRef, refs []AudienceReference) *Problem {
+	if !ref.validShape() {
+		return problem(400, "invalid_audience_ref", "人群引用须为普通组 groupId，或包臂 bundleId 与 groupId")
+	}
+	for _, item := range refs {
+		if sameRef(ref, AudienceRef{Type: item.Type, GroupID: item.GroupID, BundleID: item.BundleID}) {
+			if !item.Available {
+				return problem(422, "unavailable_audience", fmt.Sprintf("人群引用不可用：%s/%s/%s", item.Type, item.BundleID, item.GroupID))
+			}
+			return nil
+		}
+	}
+	return problem(422, "unknown_audience", fmt.Sprintf("未知人群引用：%s/%s/%s", ref.Type, ref.BundleID, ref.GroupID))
+}
+
+func ensureEntryAudienceRefs(c *Campaign) {
+	if c == nil {
+		return
+	}
+	if c.AudienceRefs == nil {
+		c.AudienceRefs = []AudienceRef{}
+	}
+	incoming := map[string]bool{}
+	if c.ActivityFlow != nil {
+		for _, edge := range c.ActivityFlow.Edges {
+			incoming[edge.ToTreatmentID] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, ref := range c.AudienceRefs {
+		seen[audienceReferenceKey(ref)] = true
+	}
+	for _, treatment := range c.Treatments {
+		if incoming[treatment.ID] {
+			continue
+		}
+		key := audienceReferenceKey(treatment.AudienceRef)
+		if !seen[key] {
+			c.AudienceRefs = append(c.AudienceRefs, treatment.AudienceRef)
+			seen[key] = true
+		}
+	}
+}
+
+func receiptCycle(edges []Edge) bool {
+	next := map[string][]string{}
+	for _, edge := range edges {
+		next[edge.FromTreatmentID] = append(next[edge.FromTreatmentID], edge.ToTreatmentID)
+	}
+	visiting, visited := map[string]bool{}, map[string]bool{}
+	var visit func(string) bool
+	visit = func(id string) bool {
+		if visiting[id] {
+			return true
+		}
+		if visited[id] {
+			return false
+		}
+		visiting[id] = true
+		for _, target := range next[id] {
+			if visit(target) {
+				return true
+			}
+		}
+		delete(visiting, id)
+		visited[id] = true
+		return false
+	}
+	for _, edge := range edges {
+		if visit(edge.FromTreatmentID) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateTreatment(t Treatment, actions []Action, refs []AudienceReference, slots map[string]bool) *Problem {
