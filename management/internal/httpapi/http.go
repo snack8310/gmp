@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -20,7 +21,7 @@ func NewHandler(store *management.Store, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("/api/v1/campaigns", a.campaigns)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}", a.campaign)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}/flow", a.flow)
-	mux.HandleFunc("/api/v1/campaigns/{campaignId}/audiences", a.audiences)
+	mux.HandleFunc("/api/v1/campaigns/{campaignId}/audience", a.audience)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}/treatments", a.treatments)
 	mux.HandleFunc("/api/v1/campaigns/{campaignId}/treatments/{treatmentId}", a.treatment)
 	mux.HandleFunc("/api/v1/actions", a.actions)
@@ -148,15 +149,14 @@ func (a *api) treatments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Name        string                 `json:"name"`
-		ActionID    string                 `json:"actionId"`
-		AudienceRef management.AudienceRef `json:"audienceRef"`
-		SlotID      string                 `json:"slotId"`
+		Name     string `json:"name"`
+		ActionID string `json:"actionId"`
+		SlotID   string `json:"slotId"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	t := management.Treatment{Name: input.Name, ActionID: input.ActionID, AudienceRef: input.AudienceRef, SlotID: input.SlotID}
+	t := management.Treatment{Name: input.Name, ActionID: input.ActionID, SlotID: input.SlotID}
 	created, p := a.store.CreateTreatment(r.PathValue("campaignId"), t)
 	if p != nil {
 		writeProblem(w, p)
@@ -171,18 +171,20 @@ func (a *api) flow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ID            string             `json:"id"`
-		Edges         []management.Edge  `json:"edges"`
-		ExpectedEdges *[]management.Edge `json:"expectedEdges"`
+		ID              string                   `json:"id"`
+		Entries         []management.EntryRoute  `json:"entries"`
+		Edges           []management.Edge        `json:"edges"`
+		ExpectedEntries *[]management.EntryRoute `json:"expectedEntries"`
+		ExpectedEdges   *[]management.Edge       `json:"expectedEdges"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	if input.ExpectedEdges == nil {
-		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_edges_required", Message: "请提供提交时读取的活动流程边"})
+	if input.ExpectedEntries == nil || input.ExpectedEdges == nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_flow_required", Message: "请提供提交时读取的活动流程入口和回执边"})
 		return
 	}
-	updated, p := a.store.UpdateFlow(r.PathValue("campaignId"), *input.ExpectedEdges, management.Flow{ID: input.ID, Edges: input.Edges})
+	updated, p := a.store.UpdateFlow(r.PathValue("campaignId"), *input.ExpectedEntries, *input.ExpectedEdges, management.Flow{ID: input.ID, Entries: input.Entries, Edges: input.Edges})
 	if p != nil {
 		writeProblem(w, p)
 		return
@@ -190,28 +192,51 @@ func (a *api) flow(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, updated)
 }
 
-func (a *api) audiences(w http.ResponseWriter, r *http.Request) {
+func (a *api) audience(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		methodNotAllowed(w)
 		return
 	}
 	var input struct {
-		AudienceRefs         []management.AudienceRef  `json:"audienceRefs"`
-		ExpectedAudienceRefs *[]management.AudienceRef `json:"expectedAudienceRefs"`
+		Audience         json.RawMessage `json:"audience"`
+		ExpectedAudience json.RawMessage `json:"expectedAudience"`
 	}
 	if !decode(w, r, &input) {
 		return
 	}
-	if input.ExpectedAudienceRefs == nil {
-		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_audience_refs_required", Message: "请提供提交时读取的活动受众入口"})
+	if input.ExpectedAudience == nil || input.Audience == nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "expected_audience_required", Message: "请提供提交时读取的活动受众与新的活动受众"})
 		return
 	}
-	updated, p := a.store.UpdateAudienceRefs(r.PathValue("campaignId"), *input.ExpectedAudienceRefs, input.AudienceRefs)
+	expected, err := decodeAudienceSelection(input.ExpectedAudience)
+	if err != nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "invalid_audience_selection", Message: "活动受众格式无效"})
+		return
+	}
+	selection, err := decodeAudienceSelection(input.Audience)
+	if err != nil {
+		writeProblem(w, &management.Problem{Status: http.StatusBadRequest, Code: "invalid_audience_selection", Message: "活动受众格式无效"})
+		return
+	}
+	updated, p := a.store.UpdateAudienceSelection(r.PathValue("campaignId"), expected, selection)
 	if p != nil {
 		writeProblem(w, p)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func decodeAudienceSelection(raw json.RawMessage) (*management.AudienceSelection, error) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var selection management.AudienceSelection
+	if err := decoder.Decode(&selection); err != nil {
+		return nil, err
+	}
+	return &selection, nil
 }
 
 func (a *api) audienceReference(w http.ResponseWriter, r *http.Request) {

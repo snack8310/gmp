@@ -99,18 +99,13 @@ func (s *Stack) ReceiptFlow() (*ReceiptFlow, error) {
 }
 
 func (s *Stack) receiptSerial() (ReceiptSerial, error) {
-	// The later treatment is aimed at a different non-empty partition than
-	// the entry. An empty audience would also be the wrong people, but it
-	// would look unconfigured. A real partition shows the edge ignoring a
-	// definition someone did write down.
+	// The campaign selects one audience. The receipt edge carries the same
+	// person to the next treatment without evaluating a second audience.
 	entryWho, err := s.Definition("recall-new", mustAttribute("tier", "new"))
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	nextWho, err := s.Definition("recall-returning", mustAttribute("tier", "returning"))
-	if err != nil {
-		return ReceiptSerial{}, err
-	}
+	entryAudience := audience.Single(entryWho)
 	entryCall, err := receiptCall(RecallPushAction, "召回提醒")
 	if err != nil {
 		return ReceiptSerial{}, err
@@ -119,11 +114,11 @@ func (s *Stack) receiptSerial() (ReceiptSerial, error) {
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	entry, err := newPushTreatment("recall-entry", entryWho, entryCall)
+	entry, err := newPushTreatment("recall-entry", entryCall)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
-	next, err := newPushTreatment("recall-next", nextWho, nextCall)
+	next, err := newPushTreatment("recall-next", nextCall)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
@@ -137,7 +132,7 @@ func (s *Stack) receiptSerial() (ReceiptSerial, error) {
 	if err != nil {
 		return ReceiptSerial{}, fmt.Errorf("scenarios: building the serial flow: %w", err)
 	}
-	built, err := campaignWithFlow("recall-serial", flow, entry, next)
+	built, err := campaignWithFlow("recall-serial", entryAudience, flow, entry, next)
 	if err != nil {
 		return ReceiptSerial{}, err
 	}
@@ -152,20 +147,13 @@ func (s *Stack) receiptSerial() (ReceiptSerial, error) {
 }
 
 func (s *Stack) receiptBranch() (ReceiptBranch, error) {
-	// Three partitions of tier. The later two are not the people who enter,
-	// so a branch that enumerated its target would hit the wrong group.
+	// The activity has one entry audience. Success and failure choose the
+	// downstream treatment for that same person.
 	entryWho, err := s.Definition("branch-other", mustAttribute("tier", "other"))
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	mailWho, err := s.Definition("branch-mail-new", mustAttribute("tier", "new"))
-	if err != nil {
-		return ReceiptBranch{}, err
-	}
-	smsWho, err := s.Definition("branch-sms-returning", mustAttribute("tier", "returning"))
-	if err != nil {
-		return ReceiptBranch{}, err
-	}
+	entryAudience := audience.Single(entryWho)
 	entryCall, err := receiptCall(BranchRCSAction, "RCS 通知")
 	if err != nil {
 		return ReceiptBranch{}, err
@@ -178,15 +166,15 @@ func (s *Stack) receiptBranch() (ReceiptBranch, error) {
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	entry, err := newPushTreatment("branch-entry", entryWho, entryCall)
+	entry, err := newPushTreatment("branch-entry", entryCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	mail, err := newPushTreatment("branch-on-success", mailWho, mailCall)
+	mail, err := newPushTreatment("branch-on-success", mailCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
-	sms, err := newPushTreatment("branch-on-failure", smsWho, smsCall)
+	sms, err := newPushTreatment("branch-on-failure", smsCall)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
@@ -200,7 +188,7 @@ func (s *Stack) receiptBranch() (ReceiptBranch, error) {
 	if err != nil {
 		return ReceiptBranch{}, fmt.Errorf("scenarios: building the branch flow: %w", err)
 	}
-	built, err := campaignWithFlow("receipt-branch", flow, entry, mail, sms)
+	built, err := campaignWithFlow("receipt-branch", entryAudience, flow, entry, mail, sms)
 	if err != nil {
 		return ReceiptBranch{}, err
 	}
@@ -215,17 +203,12 @@ func (s *Stack) receiptBranch() (ReceiptBranch, error) {
 }
 
 func (s *Stack) receiptParallel() (ReceiptParallel, error) {
-	// Different predicates, both non-empty, and not the same size on the
-	// fixture population. Same audience on both would let one run stand in
-	// for the other.
-	leftWho, err := s.Definition("parallel-new", mustAttribute("tier", "new"))
+	// Both independent entry treatments use the campaign's one audience.
+	everyone, err := s.Definition("parallel-entry-everyone")
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	rightWho, err := s.Definition("parallel-cart", mustAttribute("added-to-cart", "yes"))
-	if err != nil {
-		return ReceiptParallel{}, err
-	}
+	entryAudience := audience.Single(everyone)
 	leftCall, err := receiptCall(ParallelBenefitAction, "并行权益")
 	if err != nil {
 		return ReceiptParallel{}, err
@@ -234,11 +217,11 @@ func (s *Stack) receiptParallel() (ReceiptParallel, error) {
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	left, err := newPushTreatment("parallel-left", leftWho, leftCall)
+	left, err := newPushTreatment("parallel-left", leftCall)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
-	right, err := newPushTreatment("parallel-right", rightWho, rightCall)
+	right, err := newPushTreatment("parallel-right", rightCall)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
@@ -251,7 +234,7 @@ func (s *Stack) receiptParallel() (ReceiptParallel, error) {
 	if err != nil {
 		return ReceiptParallel{}, fmt.Errorf("scenarios: building the parallel flow: %w", err)
 	}
-	built, err := campaignWithFlow("parallel-entries", flow, left, right)
+	built, err := campaignWithFlow("parallel-entries", entryAudience, flow, left, right)
 	if err != nil {
 		return ReceiptParallel{}, err
 	}
@@ -285,9 +268,9 @@ func receiptCall(id campaign.ActionID, text string) (campaign.Call, error) {
 	return call, nil
 }
 
-func newPushTreatment(id campaign.TreatmentID, who audience.Definition, call campaign.Call) (campaign.Treatment, error) {
+func newPushTreatment(id campaign.TreatmentID, call campaign.Call) (campaign.Treatment, error) {
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: id, Who: audience.Single(who), Call: call,
+		ID: id, Call: call,
 	})
 	if err != nil {
 		return campaign.Treatment{}, fmt.Errorf("scenarios: building treatment %q: %w", id, err)
@@ -295,10 +278,30 @@ func newPushTreatment(id campaign.TreatmentID, who audience.Definition, call cam
 	return treatment, nil
 }
 
-func campaignWithFlow(id campaign.CampaignID, flow campaign.Flow, treatments ...campaign.Treatment) (campaign.Campaign, error) {
+func campaignWithFlow(id campaign.CampaignID, entryAudience audience.Group, flow campaign.Flow, treatments ...campaign.Treatment) (campaign.Campaign, error) {
+	flowEdges := flow.Edges()
+	receiptTargets := map[campaign.TreatmentID]bool{}
+	edges := make([]campaign.EdgeSpec, len(flowEdges))
+	for i, edge := range flowEdges {
+		edges[i] = campaign.EdgeSpec{From: edge.From(), To: edge.To(), Kind: edge.Kind(), When: edge.When()}
+		if edge.Kind() == campaign.EdgeOnReceipt {
+			receiptTargets[edge.To()] = true
+		}
+	}
+	starts := make([]campaign.TreatmentID, 0, len(treatments))
+	for _, treatment := range treatments {
+		if !receiptTargets[treatment.ID()] {
+			starts = append(starts, treatment.ID())
+		}
+	}
+	flow, err := singleEntryFlow(flow.ID(), entryAudience, starts, edges)
+	if err != nil {
+		return campaign.Campaign{}, fmt.Errorf("scenarios: adding the campaign entry route: %w", err)
+	}
 	built, err := campaign.NewCampaign(campaign.CampaignSpec{
 		ID:         id,
 		Priority:   campaign.NewPriority(40),
+		Audience:   audience.SelectGroup(entryAudience),
 		Treatments: treatments,
 		Flow:       flow,
 	})

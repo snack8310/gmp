@@ -24,7 +24,7 @@ func TestPublishedArmAsActivityRolloutKeepsAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	display, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "display", Slot: scenarios.BannerSlot, Who: audience.Single(everyone), Call: showCall})
+	display, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "display", Slot: scenarios.BannerSlot, Call: showCall})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,11 +36,21 @@ func TestPublishedArmAsActivityRolloutKeepsAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	push, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "send", Who: audience.Single(everyone), Call: sendCall})
+	push, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "send", Call: sendCall})
 	if err != nil {
 		t.Fatal(err)
 	}
-	activity, err := campaign.NewCampaign(campaign.CampaignSpec{ID: "rollout-activity", Priority: campaign.NewPriority(1), Rollout: rollout, Treatments: []campaign.Treatment{display, push}})
+	entryGroup := audience.Single(everyone)
+	flow, err := campaign.NewFlow(campaign.FlowSpec{ID: "rollout-activity-flow", Entries: []campaign.EntrySpec{{
+		Group: entryGroup.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{display.ID(), push.ID()},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "rollout-activity", Priority: campaign.NewPriority(1), Audience: audience.SelectGroup(entryGroup),
+		Rollout: rollout, Treatments: []campaign.Treatment{display, push}, Flow: flow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,11 +100,11 @@ func TestRetiredBundleStopsReceiptEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "first", Who: group, Call: call})
+	first, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "first", Call: call})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "second", Who: group, Call: call})
+	second, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "second", Call: call})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +112,17 @@ func TestRetiredBundleStopsReceiptEdge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activity, err := campaign.NewCampaign(campaign.CampaignSpec{ID: "retired-activity", Priority: campaign.NewPriority(1), Treatments: []campaign.Treatment{first, second}, Flow: flow})
+	entryGroup := group
+	entryFlow, err := campaign.NewFlow(campaign.FlowSpec{ID: flow.ID(), Entries: []campaign.EntrySpec{{
+		Group: entryGroup.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{first.ID()},
+	}}, Edges: []campaign.EdgeSpec{{From: first.ID(), To: second.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "retired-activity", Priority: campaign.NewPriority(1), Audience: audience.SelectGroup(entryGroup),
+		Treatments: []campaign.Treatment{first, second}, Flow: entryFlow,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

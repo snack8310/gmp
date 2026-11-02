@@ -27,6 +27,8 @@ export const DEFAULT_AUDIENCES = Object.freeze([
 ].map(value => Object.freeze({ ...value, experimentId: value.id === 'aud-mx-dormant' ? 'exp-recall' : null, entry: Object.freeze(value.entry.mode === 'batch' ? { ...value.entry, schedule: Object.freeze(value.entry.schedule) } : value.entry), rules: Object.freeze(value.rules) })));
 const clone = value => JSON.parse(JSON.stringify(value));
 const owns = (object, key) => typeof key === 'string' && Object.hasOwn(object, key);
+const activityUsesGroup = (activity, groupId) => activity.audience?.type === 'group' && activity.audience.groupId === groupId
+  || activity.activityFlow?.entries?.some(entry => entry.groupId === groupId);
 function validateRules(rules) {
   if (!rules || typeof rules !== 'object' || Array.isArray(rules)) return ['请设置筛选条件。'];
   const errors = [];
@@ -223,7 +225,7 @@ export function createAudienceStore(storage, activities = []) {
     delete(id) {
       const index = definitions.findIndex(value => value.id === id);
       if (index < 0) throw new RangeError('人群不存在。');
-      if (bundles.some(bundle => bundle.arms.some(arm => arm.audienceId === id)) || activities.some(activity => activity.treatments.some(treatment => treatment.audienceRef?.type === 'group' && treatment.audienceRef.groupId === groupIdOf(id)))) throw new RangeError('人群组已被包或活动引用，不能删除。');
+      if (bundles.some(bundle => bundle.arms.some(arm => arm.audienceId === id)) || activities.some(activity => activityUsesGroup(activity, groupIdOf(id)))) throw new RangeError('人群组已被包或活动引用，不能删除。');
       definitions.splice(index, 1);
       persist();
     },
@@ -273,7 +275,7 @@ export function createAudienceStore(storage, activities = []) {
     deleteBundle(id) {
       const index = bundles.findIndex(item => item.id === id);
       if (index < 0) throw new RangeError('实验人群包不存在。');
-      if (activities.some(activity => activity.treatments.some(treatment => treatment.audienceRef?.type === 'arm' && treatment.audienceRef.bundleId === id))) throw new RangeError('实验人群包已被活动引用，不能删除。');
+      if (activities.some(activity => activity.audience?.type === 'bundle' && activity.audience.bundleId === id || activity.activityFlow?.entries?.some(entry => bundles[index].arms.some(arm => arm.groupId === entry.groupId)))) throw new RangeError('实验人群包已被活动引用，不能删除。');
       bundles.splice(index, 1);
       persist();
     },

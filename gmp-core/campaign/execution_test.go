@@ -65,14 +65,14 @@ func newPushWorld(t *testing.T, population int) *pushWorld {
 	return &pushWorld{world: w, runner: runner, log: log, deliverer: deliverer, action: action, events: events}
 }
 
-func (p *pushWorld) smsTreatment(t *testing.T, id string, who audience.Definition) campaign.Treatment {
+func (p *pushWorld) smsTreatment(t *testing.T, id string) campaign.Treatment {
 	t.Helper()
 	call, err := p.action.Call(map[string]string{"copy": "预热提醒 · 加购有礼"})
 	if err != nil {
 		t.Fatalf("filling in the action: %v", err)
 	}
 	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: campaign.TreatmentID(id), Who: audience.Single(who), Call: call,
+		ID: campaign.TreatmentID(id), Call: call,
 	})
 	if err != nil {
 		t.Fatalf("building treatment %q: %v", id, err)
@@ -86,10 +86,11 @@ func (p *pushWorld) armCampaign(t *testing.T, id string) campaign.Campaign {
 	t.Helper()
 	assignment := p.assignment("warmup", 4, false)
 	arm := p.definition("arm-two", p.condition(audience.Share(assignment, p.share(2))))
-	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+	built, err := p.build(campaign.CampaignSpec{
 		ID:         campaign.CampaignID(id),
 		Priority:   campaign.NewPriority(10),
-		Treatments: []campaign.Treatment{p.smsTreatment(t, "sms", arm)},
+		Audience:   audience.SelectGroup(audience.Single(arm)),
+		Treatments: []campaign.Treatment{p.smsTreatment(t, "sms")},
 	})
 	if err != nil {
 		t.Fatalf("building campaign %q: %v", id, err)
@@ -301,7 +302,7 @@ func TestRehearsalRecordsNoExecution(t *testing.T) {
 func TestAPullActionCannotBeRunInBatch(t *testing.T) {
 	w := newPushWorld(t, 20)
 	everyone := w.definition("anyone")
-	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+	built, err := w.build(campaign.CampaignSpec{
 		ID:         "pull-in-batch",
 		Priority:   campaign.NewPriority(10),
 		Treatments: []campaign.Treatment{w.treatment("banner", everyone, "a.png")},

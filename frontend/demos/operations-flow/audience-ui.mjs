@@ -16,8 +16,9 @@ export function mountAudiences({ api, onSaved = () => {}, onDeleted = () => {}, 
    const refs = store.catalog();
    const usages = await Promise.all(refs.map(ref => api.usages(ref)));
    const next = new Set(refs.filter((ref, index) => usages[index].usages.length || activities.some(activity =>
-    activity.audienceRefs?.some(item => referenceKey(item) === referenceKey(ref))
-    || activity.treatments.some(item => referenceKey(item.audienceRef) === referenceKey(ref)))).map(referenceKey));
+    activity.audience?.type === 'group' && ref.type === 'group' && activity.audience.groupId === ref.groupId
+    || activity.audience?.type === 'bundle' && ref.type === 'arm' && activity.audience.bundleId === ref.bundleId
+    || activity.activityFlow?.entries?.some(entry => entry.groupId === ref.groupId))).map(referenceKey));
    if (version !== protectionVersion) return latestProtection;
    protectedKeys = next;
    list();

@@ -22,7 +22,7 @@ globalThis.window = { location:{hash:'#activities/campaign-branch/campaign',prot
 globalThis.matchMedia = () => media;
 globalThis.requestAnimationFrame = fn => { pending.set(++frameID,fn); return frameID; };
 globalThis.cancelAnimationFrame = id => pending.delete(id);
-const apiCampaigns = structuredClone(ACTIVITIES).map(activity => ({ ...activity, treatments: activity.treatments.map(({ actionRef, audienceRef, ...item }) => ({ ...item, actionId: actionRef.id, audienceRef: audienceRef.type === 'arm' ? { type: 'arm', bundleId: audienceRef.bundleId, groupId: audienceRef.groupId } : { type: 'group', groupId: audienceRef.groupId } })) }));
+const apiCampaigns = structuredClone(ACTIVITIES).map(activity => ({ ...activity, treatments: activity.treatments.map(({ actionRef, ...item }) => ({ ...item, actionId: actionRef.id })) }));
 const apiActions = ['rcs', 'email', 'sms'].map(id => ({ id: `action-${id}`, name: id, available: true, requiresSlot: false }));
 const apiRefs = DEFAULT_AUDIENCE_CATALOG.map(item => ({ type: item.type, groupId: item.groupId, ...(item.bundleId ? { bundleId: item.bundleId, bundleName: item.bundleName } : {}), name: item.armName || item.groupName, available: item.available }));
 let nextFailure = false, writes = 0, usageCalls = 0, deferTreatment = false, releaseTreatment, deferCampaignList = false, releaseCampaignList;
@@ -48,7 +48,7 @@ globalThis.fetch = async (address, options = {}) => {
   }
   if (method === 'DELETE') { if (index >= 0) apiRefs.splice(index, 1); return response(204); }
  }
- if (path === '/api/v1/audience-reference-usages') { usageCalls++; return response(200, { usages: apiCampaigns.flatMap(activity => activity.treatments.filter(item => item.audienceRef?.type === parsed.searchParams.get('type') && item.audienceRef.groupId === parsed.searchParams.get('groupId') && (!parsed.searchParams.has('bundleId') || item.audienceRef.bundleId === parsed.searchParams.get('bundleId'))).map(item => ({ campaignId: activity.id, treatmentId: item.id }))) }); }
+ if (path === '/api/v1/audience-reference-usages') { usageCalls++; const type = parsed.searchParams.get('type'), groupId = parsed.searchParams.get('groupId'), bundleId = parsed.searchParams.get('bundleId'); return response(200, { usages: apiCampaigns.flatMap(activity => { const role = type === 'group' && activity.audience?.type === 'group' && activity.audience.groupId === groupId ? 'activity-audience' : type === 'arm' && activity.audience?.type === 'bundle' && activity.audience.bundleId === bundleId ? 'experiment-audience' : activity.activityFlow?.entries?.some(entry => entry.groupId === groupId) ? 'flow-entry' : ''; return role ? [{ campaignId: activity.id, role }] : []; }) }); }
  if (path.startsWith('/api/v1/campaigns/')) { const parts=path.slice('/api/v1/campaigns/'.length).split('/'); const id = decodeURIComponent(parts[0]); const campaign = apiCampaigns.find(item => item.id === id);
   if (!campaign) return response(404, { error: { code: 'not_found', message: '活动不存在' } });
   if (parts[1] === 'treatments') {
@@ -58,7 +58,8 @@ globalThis.fetch = async (address, options = {}) => {
    if (method === 'PUT') { writes++;Object.assign(current,body);return response(200,structuredClone(current)); }
    if (method === 'DELETE') { writes++;campaign.treatments.splice(campaign.treatments.indexOf(current),1);return response(204); }
   }
-  if (parts[1] === 'audiences' && method === 'PUT') { writes++; campaign.audienceRefs = body.audienceRefs; return response(200, structuredClone(campaign)); }
+  if (parts[1] === 'audience' && method === 'PUT') { writes++; if (JSON.stringify(campaign.audience || null) !== JSON.stringify(body.audience || null) && campaign.activityFlow) campaign.activityFlow.entries = []; campaign.audience = body.audience; return response(200, structuredClone(campaign)); }
+  if (parts[1] === 'flow' && method === 'PUT') { writes++; campaign.activityFlow = { id: body.id, entries: body.entries, edges: body.edges }; return response(200, structuredClone(campaign)); }
   if (method === 'PUT') { writes++; campaign.name = body.name; return response(200, structuredClone(campaign)); }
   if (method === 'DELETE') { writes++; apiCampaigns.splice(apiCampaigns.indexOf(campaign), 1); return response(204); }
   return response(200, structuredClone(campaign)); }
@@ -133,7 +134,7 @@ test('publish control updates the shared catalog and stopping a split invalidate
  assert.match(element('bundle-status').textContent,/已发布/);
  assert.match(element('bundle-list').innerHTML,/界面发布包/);
  assert.match(element('audience-catalog').innerHTML,/对照臂/);
- window.location.hash='#campaign/activities/campaign-branch';window.listeners.hashchange();
+ window.location.hash='#campaign/activities/campaign-no-edges';window.listeners.hashchange();
  await settle();
  assert.doesNotMatch(element('campaign-detail').innerHTML,/引用不可用/);
  fire('experiment-list','click',{target:{closest:selector=>selector==='[data-toggle-experiment]'?{dataset:{toggleExperiment:'exp-recall'}}:null}});
@@ -306,7 +307,7 @@ test('deleting an unreferenced audience succeeds and an API-referenced audience 
 
 test('campaign writes follow API success, while 4xx and cancel keep server state',async()=>{
  window.location.hash='#activities/new';window.listeners.hashchange();await settle();
- element('campaign-name').value='接口创建活动';
+ element('campaign-name').value='接口创建活动';element('campaign-audience').value='group:group-new';
  const form=formTarget('campaign-form');
  const before=writes;
  nextFailure=true;
@@ -340,13 +341,14 @@ test('campaign writes follow API success, while 4xx and cancel keep server state
 });
 
 test('treatment add, edit and delete use API state and reject failed writes',async()=>{
+ window.location.hash='#activities/campaign-empty/campaign/edit';window.listeners.hashchange();await settle();
+ element('campaign-audience').value='group:group-new';
+ await fire('campaign-section','submit',{target:formTarget('campaign-form'),preventDefault(){}});await settle();
  window.location.hash='#campaign/activities/campaign-empty/treatments/new';window.listeners.hashchange();await settle();
  assert.match(element('campaign-editor').innerHTML,/新增投放项/);
- assert.match(element('campaign-editor').innerHTML,/引用人群组或实验包臂/);
- assert.match(element('campaign-editor').innerHTML,/新标签打开受众库/);
- assert.match(element('campaign-editor').innerHTML,/target="_blank" rel="noopener"/);
- assert.match(element('campaign-editor').innerHTML,/新建或改名的普通共享人群会同步到本机引用目录/);
- element('treatment-name').value='短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
+ assert.doesNotMatch(element('campaign-editor').innerHTML,/treatment-audience|引用人群组或实验包臂/);
+ assert.match(element('campaign-editor').innerHTML,/投放项不单独绑定受众/);
+ element('treatment-name').value='短信';element('treatment-action').value='action-sms';element('treatment-slot').value='';
  const form=formTarget('treatment-form');
  nextFailure=true;
  await fire('campaign-section','submit',{target:form,preventDefault(){}});
@@ -357,7 +359,7 @@ test('treatment add, edit and delete use API state and reject failed writes',asy
  assert.equal(added.actionId,'action-sms');
  assert.match(element('campaign-detail').innerHTML,/短信/);
  window.location.hash=`#campaign/activities/campaign-empty/treatments/${added.id}/edit`;window.listeners.hashchange();await settle();
- element('treatment-name').value='短信已改名';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
+ element('treatment-name').value='短信已改名';element('treatment-action').value='action-sms';element('treatment-slot').value='';
  await fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});await settle();
  assert.equal(apiCampaigns.find(item=>item.id==='campaign-empty').treatments[0].name,'短信已改名');
  window.confirm=()=>true;
@@ -377,14 +379,14 @@ test('older usage refresh cannot replace newer audience protection',async()=>{
  const older=ui.refreshProtection();
  const newer=ui.refreshProtection();
  await newer;
- release({campaigns:[{treatments:[{audienceRef:{type:'group',groupId:'group-new'}}]}]});
+ release({campaigns:[{audience:{type:'group',groupId:'group-new'},treatments:[],activityFlow:{entries:[{groupId:'group-new'}]}}]});
  await older;
  assert.doesNotMatch(element('audience-list').innerHTML,/活动占用/);
 });
 
 test('treatment completion refreshes usages after navigating away during HTTP write',async()=>{
  window.location.hash='#campaign/activities/campaign-empty/treatments/new';window.listeners.hashchange();await settle();
- element('treatment-name').value='慢请求短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
+ element('treatment-name').value='慢请求短信';element('treatment-action').value='action-sms';element('treatment-slot').value='';
  const before=usageCalls;
  deferTreatment=true;
  const saving=fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});
@@ -399,7 +401,7 @@ test('treatment completion refreshes usages after navigating away during HTTP wr
 
 test('treatment completion keeps another domain open after HTTP write',async()=>{
  window.location.hash='#campaign/activities/campaign-empty/treatments/new';window.listeners.hashchange();await settle();
- element('treatment-name').value='跨域切换短信';element('treatment-action').value='action-sms';element('treatment-audience').value='group:group-new';element('treatment-slot').value='';
+ element('treatment-name').value='跨域切换短信';element('treatment-action').value='action-sms';element('treatment-slot').value='';
  const before=usageCalls;
  deferTreatment=true;
  const saving=fire('campaign-section','submit',{target:formTarget('treatment-form'),preventDefault(){}});

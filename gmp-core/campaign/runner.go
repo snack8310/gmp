@@ -131,6 +131,11 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 	if !c.isEntry(id) {
 		return report, fmt.Errorf("%w: %q in campaign %q", ErrNotAnEntry, id, c.ID())
 	}
+	entry, _ := c.flow.RouteForTreatment(id)
+	group, ok := c.audience.Group(entry.Group())
+	if !ok {
+		return report, fmt.Errorf("%w: entry group %q in campaign %q", ErrInvalidEntryRoute, entry.Group(), c.ID())
+	}
 	if treatment.call.Direction() == DirectionPull {
 		return report, fmt.Errorf("%w: treatment %q runs action %q",
 			ErrPullCannotBeDeliveredInBatch, id, treatment.call.Action())
@@ -140,7 +145,7 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 		return report, fmt.Errorf("%w: %q", ErrNoDeliverer, treatment.call.Action())
 	}
 
-	people, err := r.audiences.EnumerateGroup(treatment.who, mode)
+	people, err := r.audiences.EnumerateGroup(group, mode)
 	if err != nil {
 		return report, fmt.Errorf("campaign %q, treatment %q: %w", c.ID(), id, err)
 	}
@@ -158,7 +163,7 @@ func (r *Runner) Run(c Campaign, id TreatmentID, occurrence Occurrence, mode aud
 		}
 		// Where the person landed, recorded whether or not the delivery works
 		// out: someone the send failed for is still in their arm.
-		placements, err := r.audiences.GroupPlacements(treatment.who, mode, uid)
+		placements, err := r.audiences.GroupPlacements(group, mode, uid)
 		if err != nil {
 			return report, fmt.Errorf("campaign %q, treatment %q: %w", c.ID(), id, err)
 		}
@@ -245,6 +250,9 @@ func (r *Runner) RecordReceipt(c Campaign, receipt Receipt) error {
 	if c.ID() != execution.Campaign {
 		return fmt.Errorf("%w: execution %q belongs to campaign %q", ErrCampaignMismatch, receipt.Key, execution.Campaign)
 	}
+	if err := r.audiences.ValidateSelection(c.audience); err != nil {
+		return fmt.Errorf("campaign %q: validating its entry audience before following a receipt: %w", c.ID(), err)
+	}
 	treatment, held := c.treatment(execution.Treatment)
 	if !held {
 		return fmt.Errorf("%w: %q in campaign %q", ErrNoSuchTreatment, execution.Treatment, c.ID())
@@ -283,11 +291,6 @@ func (r *Runner) follow(c Campaign, upstream Execution, outcome Outcome) error {
 	if c.flow.id == "" || outcome == "" {
 		return nil
 	}
-	if source, ok := c.treatment(upstream.Treatment); ok {
-		if err := r.audiences.ValidateGroup(source.who); err != nil {
-			return err
-		}
-	}
 	for _, edge := range c.flow.edges {
 		if edge.kind != EdgeOnReceipt || edge.from != upstream.Treatment || edge.when != outcome {
 			continue
@@ -310,9 +313,6 @@ func (r *Runner) follow(c Campaign, upstream Execution, outcome Outcome) error {
 // downstream delivery. An execution already recorded as anything but a total
 // failure is left alone. A failure is tried again under that same key.
 func (r *Runner) deliverFromEdge(c Campaign, target Treatment, upstream Execution) error {
-	if err := r.audiences.ValidateGroup(target.who); err != nil {
-		return err
-	}
 	if target.call.Direction() == DirectionPull {
 		return fmt.Errorf("%w: treatment %q runs action %q",
 			ErrPullCannotBeDeliveredInBatch, target.id, target.call.Action())

@@ -84,15 +84,12 @@ func (s *Stack) CrossBorderWinBack() (*TwoStep, error) {
 		return nil, err
 	}
 	firstStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "whatsapp-first", Who: audience.Single(inactive), Call: whatsapp,
+		ID: "whatsapp-first", Call: whatsapp,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first step: %w", err)
 	}
-	first, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID: "cross-border-winback", Priority: campaign.NewPriority(60),
-		Treatments: []campaign.Treatment{firstStep},
-	})
+	first, err := singleTreatmentCampaign("cross-border-winback", 60, audience.Single(inactive), firstStep)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first campaign: %w", err)
 	}
@@ -119,15 +116,12 @@ func (s *Stack) CrossBorderWinBack() (*TwoStep, error) {
 		return nil, err
 	}
 	secondStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "sms-follow-up", Who: audience.Single(unreadForHours), Call: sms,
+		ID: "sms-follow-up", Call: sms,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second step: %w", err)
 	}
-	second, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID: "cross-border-followup", Priority: campaign.NewPriority(60),
-		Treatments: []campaign.Treatment{secondStep},
-	})
+	second, err := singleTreatmentCampaign("cross-border-followup", 60, audience.Single(unreadForHours), secondStep)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second campaign: %w", err)
 	}
@@ -166,15 +160,12 @@ func (s *Stack) FirstOrderConversion() (*TwoStep, error) {
 		return nil, err
 	}
 	firstStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coupon-first", Who: audience.Single(noOrderYet), Call: coupon,
+		ID: "coupon-first", Call: coupon,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first step: %w", err)
 	}
-	first, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID: "first-order-conversion", Priority: campaign.NewPriority(70),
-		Treatments: []campaign.Treatment{firstStep},
-	})
+	first, err := singleTreatmentCampaign("first-order-conversion", 70, audience.Single(noOrderYet), firstStep)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the first campaign: %w", err)
 	}
@@ -196,15 +187,12 @@ func (s *Stack) FirstOrderConversion() (*TwoStep, error) {
 		return nil, err
 	}
 	secondStep, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "coupon-reminder", Who: audience.Single(threeDaysOn), Call: sms,
+		ID: "coupon-reminder", Call: sms,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second step: %w", err)
 	}
-	second, err := campaign.NewCampaign(campaign.CampaignSpec{
-		ID: "first-order-reminder", Priority: campaign.NewPriority(70),
-		Treatments: []campaign.Treatment{secondStep},
-	})
+	second, err := singleTreatmentCampaign("first-order-reminder", 70, audience.Single(threeDaysOn), secondStep)
 	if err != nil {
 		return nil, fmt.Errorf("scenarios: building the second campaign: %w", err)
 	}

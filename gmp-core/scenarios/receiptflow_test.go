@@ -12,8 +12,7 @@ import (
 
 // Serial receipt edge: the later treatment is not an entry, a batch run of it
 // is refused, and after receipts it reaches exactly the people whose outcome
-// hit the edge. Its own audience is a different non-empty set, so enumerating
-// that audience cannot be what produced the deliveries.
+// hit the edge. The campaign has one audience for both steps.
 func TestReceiptSerialReachesOnlyThePeopleOnTheReceipt(t *testing.T) {
 	stack := newStack(t, 90)
 	built := mustReceiptFlow(t, stack)
@@ -36,18 +35,12 @@ func TestReceiptSerialReachesOnlyThePeopleOnTheReceipt(t *testing.T) {
 	}
 
 	entryWho := statedMembers(t, stack, "stated-recall-new", "tier", "new")
-	nextWho := statedMembers(t, stack, "stated-recall-returning", "tier", "returning")
-	if len(entryWho) == 0 || len(nextWho) == 0 {
-		t.Fatal("an audience is empty, so a delivery asserts nothing")
+	if len(entryWho) == 0 {
+		t.Fatal("the campaign audience is empty, so a delivery asserts nothing")
 	}
-	if len(overlap(entryWho, nextWho)) != 0 {
-		t.Fatal("the stated audiences overlap, so a delivery could belong to either")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-entry").Audience().Definition()), entryWho) {
-		t.Fatal("the entry treatment is not aimed at the new-tier audience")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, serial.Campaign, "recall-next").Audience().Definition()), nextWho) {
-		t.Fatal("the later treatment is not aimed at the returning audience, so rebuilding that audience could coincide with the receipt")
+	selected := serial.Campaign.Audience().Groups()
+	if len(selected) != 1 || !sameUIDs(audienceMembers(t, stack, selected[0].Definition()), entryWho) {
+		t.Fatal("the campaign does not retain exactly its stated entry audience")
 	}
 
 	if _, err := serial.Runner.Run(serial.Campaign, serial.Next, "entry", audience.Live()); !errors.Is(err, campaign.ErrNotAnEntry) {
@@ -78,9 +71,6 @@ func TestReceiptSerialReachesOnlyThePeopleOnTheReceipt(t *testing.T) {
 	if len(overlap(got, failure)) != 0 {
 		t.Fatal("a failure receipt also started the later step")
 	}
-	if len(overlap(got, nextWho)) != 0 {
-		t.Fatal("the later step reached someone in its own audience, so it enumerated that definition instead of reading the receipt")
-	}
 	if !sameUIDs(deliveredUIDs(t, serial.Deliverers["recall-mail"]), got) {
 		t.Fatal("the deliverer and the execution log disagree on who the edge reached")
 	}
@@ -104,9 +94,8 @@ func TestRunningTheReceiptTargetFromTheScenarioIsRefused(t *testing.T) {
 	}
 }
 
-// One exit, two receipt edges. Each person is on exactly one later action.
-// The later treatments' audiences are different non-empty partitions, and
-// neither is who entered.
+// One exit, two receipt edges. Each person is on exactly one later action,
+// with one activity audience shared by the full flow.
 func TestReceiptBranchSendsEachOutcomeDownItsOwnEdge(t *testing.T) {
 	stack := newStack(t, 90)
 	branch := mustReceiptFlow(t, stack).Branch
@@ -127,19 +116,12 @@ func TestReceiptBranchSendsEachOutcomeDownItsOwnEdge(t *testing.T) {
 	}
 
 	entered := statedMembers(t, stack, "stated-branch-other", "tier", "other")
-	mailWho := statedMembers(t, stack, "stated-branch-new", "tier", "new")
-	smsWho := statedMembers(t, stack, "stated-branch-returning", "tier", "returning")
-	if len(entered) == 0 || len(mailWho) == 0 || len(smsWho) == 0 {
+	if len(entered) == 0 {
 		t.Fatal("an audience is empty, so a branch asserts nothing")
 	}
-	if len(overlap(entered, mailWho)) != 0 || len(overlap(entered, smsWho)) != 0 || len(overlap(mailWho, smsWho)) != 0 {
-		t.Fatal("the branch audiences are not three disjoint partitions")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-success").Audience().Definition()), mailWho) {
-		t.Fatal("the success treatment is not aimed at the new-tier audience")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, branch.Campaign, "branch-on-failure").Audience().Definition()), smsWho) {
-		t.Fatal("the failure treatment is not aimed at the returning audience")
+	selected := branch.Campaign.Audience().Groups()
+	if len(selected) != 1 || !sameUIDs(audienceMembers(t, stack, selected[0].Definition()), entered) {
+		t.Fatal("the branch campaign does not retain exactly its stated entry audience")
 	}
 
 	report, err := branch.Runner.Run(branch.Campaign, branch.Entry, "entry", audience.Live())
@@ -165,16 +147,13 @@ func TestReceiptBranchSendsEachOutcomeDownItsOwnEdge(t *testing.T) {
 	if len(overlap(mail, sms)) != 0 || len(overlap(mail, failure)) != 0 || len(overlap(sms, success)) != 0 {
 		t.Fatal("a person crossed onto the other outcome's action")
 	}
-	if len(overlap(mail, mailWho)) != 0 || len(overlap(sms, smsWho)) != 0 {
-		t.Fatal("a branch reached someone in the later treatment's own audience")
-	}
 	if !sameUIDs(deliveredUIDs(t, branch.Deliverers["branch-mail"]), mail) || !sameUIDs(deliveredUIDs(t, branch.Deliverers["branch-sms"]), sms) {
 		t.Fatal("the deliverers and the execution log disagree")
 	}
 }
 
-// Two entries, a parallel edge between them, separate audiences. Running one
-// does not start the other, and a success receipt does not either.
+// Two entries, a parallel edge between them, and one campaign audience.
+// Running one does not start the other, and a success receipt does not either.
 func TestParallelEntriesRunTheirOwnAudiences(t *testing.T) {
 	stack := newStack(t, 90)
 	parallel := mustReceiptFlow(t, stack).Parallel
@@ -193,33 +172,21 @@ func TestParallelEntriesRunTheirOwnAudiences(t *testing.T) {
 		t.Fatalf("entries = %v, want both treatments", entries)
 	}
 
-	leftWho := statedMembers(t, stack, "stated-parallel-new", "tier", "new")
-	rightWho := statedMembers(t, stack, "stated-parallel-cart", "added-to-cart", "yes")
-	if len(leftWho) == 0 || len(rightWho) == 0 {
-		t.Fatal("an entry audience is empty, so its run asserts nothing")
+	selected := parallel.Campaign.Audience().Groups()
+	if len(selected) != 1 {
+		t.Fatalf("campaign has %d selected groups, want one", len(selected))
 	}
-	if len(leftWho) == len(rightWho) {
-		t.Fatal("the two entry audiences are the same size, so one audience used for both runs would still match")
-	}
-	// Someone is in both. If a run skipped people the other treatment had
-	// already touched, that person's absence is the only thing the counts
-	// would notice.
-	if len(overlap(leftWho, rightWho)) == 0 {
-		t.Fatal("the two entry audiences do not overlap, so skipping people already touched would still match each count")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-left").Audience().Definition()), leftWho) {
-		t.Fatal("the left entry is not the new-tier audience")
-	}
-	if !sameUIDs(audienceMembers(t, stack, findTreatment(t, parallel.Campaign, "parallel-right").Audience().Definition()), rightWho) {
-		t.Fatal("the right entry is not the added-to-cart audience")
+	entryPeople := audienceMembers(t, stack, selected[0].Definition())
+	if len(entryPeople) == 0 {
+		t.Fatal("the campaign audience is empty, so the parallel entries assert nothing")
 	}
 
 	leftReport, err := parallel.Runner.Run(parallel.Campaign, parallel.Left, "entry", audience.Live())
 	if err != nil {
 		t.Fatalf("running the left entry: %v", err)
 	}
-	if !sameUIDs(executionUIDs(leftReport.Executions), leftWho) {
-		t.Fatalf("left entry reached %d people, its audience has %d", len(leftReport.Executions), len(leftWho))
+	if !sameUIDs(executionUIDs(leftReport.Executions), entryPeople) {
+		t.Fatalf("left entry reached %d people, the campaign audience has %d", len(leftReport.Executions), len(entryPeople))
 	}
 	if effects(t, parallel.Deliverers, "parallel-notice") != 0 {
 		t.Fatal("running the left entry started the right one")
@@ -240,17 +207,15 @@ func TestParallelEntriesRunTheirOwnAudiences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running the right entry: %v", err)
 	}
-	if !sameUIDs(executionUIDs(rightReport.Executions), rightWho) {
-		t.Fatalf("right entry reached %d people, its audience has %d", len(rightReport.Executions), len(rightWho))
+	if !sameUIDs(executionUIDs(rightReport.Executions), entryPeople) {
+		t.Fatalf("right entry reached %d people, the campaign audience has %d", len(rightReport.Executions), len(entryPeople))
 	}
 	leftAfter := executedUIDs(t, parallel.Log, "parallel-left", "parallel-benefit")
-	if !sameUIDs(leftAfter, leftWho) {
+	if !sameUIDs(leftAfter, entryPeople) {
 		t.Fatal("running the right entry changed who the left entry had reached")
 	}
-	for uid := range overlap(leftWho, rightWho) {
-		if !leftAfter[uid] || !executionUIDs(rightReport.Executions)[uid] {
-			t.Fatalf("%s is in both audiences but did not receive both actions", uid)
-		}
+	if !sameUIDs(executionUIDs(rightReport.Executions), leftAfter) {
+		t.Fatal("parallel entries over the same campaign audience reached different people")
 	}
 }
 
@@ -260,15 +225,20 @@ func TestParallelEntriesRunTheirOwnAudiences(t *testing.T) {
 func TestReceiptFlowTreatmentsEachCarryOneAction(t *testing.T) {
 	assertSingleCallField(t, reflect.TypeOf(campaign.Treatment{}))
 	assertSingleCallField(t, reflect.TypeOf(campaign.TreatmentSpec{}))
+	for _, typ := range []reflect.Type{reflect.TypeOf(campaign.Treatment{}), reflect.TypeOf(campaign.TreatmentSpec{})} {
+		for _, fieldName := range []string{"audience", "Audience", "who", "Who"} {
+			if _, exists := typ.FieldByName(fieldName); exists {
+				t.Fatalf("%s still carries treatment-level audience field %q", typ.Name(), fieldName)
+			}
+		}
+	}
+	if _, exists := reflect.TypeOf(campaign.CampaignSpec{}).FieldByName("Audience"); !exists {
+		t.Fatal("CampaignSpec has no single activity audience field")
+	}
 
 	stack := newStack(t, 30)
-	who, err := stack.Definition("one-action-who", mustCondition(t, "tier", "new"))
-	if err != nil {
-		t.Fatalf("building an audience: %v", err)
-	}
 	if _, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: "packed", Who: audience.Single(who),
-	}); !errors.Is(err, campaign.ErrMissingTreatmentCall) {
+		ID: "packed"}); !errors.Is(err, campaign.ErrMissingTreatmentCall) {
 		t.Fatalf("a treatment with no action: %v", err)
 	}
 

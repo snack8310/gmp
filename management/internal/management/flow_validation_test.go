@@ -11,21 +11,23 @@ func TestActivityFlowCanBeUpdatedAndInvalidEdgesLeaveCampaignUnchanged(t *testin
 	if problem != nil {
 		t.Fatal(problem)
 	}
+	expectedEntries := append([]EntryRoute{}, current.ActivityFlow.Entries...)
 	expectedEdges := append([]Edge{}, current.ActivityFlow.Edges...)
 	current.ActivityFlow.Edges = append(current.ActivityFlow.Edges, Edge{
 		ID: "edge-email-sms", FromTreatmentID: "treatment-email", ToTreatmentID: "treatment-sms", ConditionLabel: "成功",
 	})
-	if _, problem = store.UpdateFlow(current.ID, expectedEdges, *current.ActivityFlow); problem != nil {
+	if _, problem = store.UpdateFlow(current.ID, expectedEntries, expectedEdges, *current.ActivityFlow); problem != nil {
 		t.Fatalf("valid flow update rejected: %+v", problem)
 	}
 	stored, problem := store.Campaign(current.ID)
 	if problem != nil || len(stored.ActivityFlow.Edges) != 3 {
 		t.Fatalf("valid flow update not stored: %+v, problem=%+v", stored.ActivityFlow, problem)
 	}
-	staleFlow := Flow{ID: stored.ActivityFlow.ID, Edges: expectedEdges}
-	if _, problem = store.UpdateFlow(current.ID, expectedEdges, staleFlow); problem == nil || problem.Status != http.StatusConflict || problem.Code != "flow_conflict" {
+	staleFlow := Flow{ID: stored.ActivityFlow.ID, Entries: expectedEntries, Edges: expectedEdges}
+	if _, problem = store.UpdateFlow(current.ID, expectedEntries, expectedEdges, staleFlow); problem == nil || problem.Status != http.StatusConflict || problem.Code != "flow_conflict" {
 		t.Fatalf("stale flow update problem = %+v, want flow_conflict", problem)
 	}
+	storedEntries := append([]EntryRoute{}, stored.ActivityFlow.Entries...)
 	storedEdges := append([]Edge{}, stored.ActivityFlow.Edges...)
 
 	invalidCases := []struct {
@@ -37,7 +39,7 @@ func TestActivityFlowCanBeUpdatedAndInvalidEdgesLeaveCampaignUnchanged(t *testin
 	}{
 		{"undeclared outcome", Edge{ID: "edge-unknown", FromTreatmentID: "treatment-email", ToTreatmentID: "treatment-sms", ConditionLabel: "已读"}, "", http.StatusUnprocessableEntity, "invalid_edge_condition"},
 		{"duplicate route", Edge{ID: "edge-duplicate", FromTreatmentID: "treatment-rcs", ToTreatmentID: "treatment-email", ConditionLabel: "成功"}, "", http.StatusConflict, "duplicate_edge"},
-		{"cycle", Edge{ID: "edge-cycle", FromTreatmentID: "treatment-sms", ToTreatmentID: "treatment-rcs", ConditionLabel: "失败"}, "", http.StatusConflict, "flow_cycle"},
+		{"cycle", Edge{ID: "edge-cycle", FromTreatmentID: "treatment-sms", ToTreatmentID: "treatment-email", ConditionLabel: "失败"}, "", http.StatusConflict, "flow_cycle"},
 		{"flow ID change", Edge{}, "other-flow", http.StatusConflict, "flow_id_conflict"},
 	}
 	for _, testCase := range invalidCases {
@@ -51,7 +53,7 @@ func TestActivityFlowCanBeUpdatedAndInvalidEdgesLeaveCampaignUnchanged(t *testin
 			} else {
 				candidate.ActivityFlow.Edges = append(candidate.ActivityFlow.Edges, testCase.append)
 			}
-			if _, problem := store.UpdateFlow(current.ID, storedEdges, *candidate.ActivityFlow); problem == nil || problem.Status != testCase.status || problem.Code != testCase.code {
+			if _, problem := store.UpdateFlow(current.ID, storedEntries, storedEdges, *candidate.ActivityFlow); problem == nil || problem.Status != testCase.status || problem.Code != testCase.code {
 				t.Fatalf("problem = %+v, want HTTP %d code %s", problem, testCase.status, testCase.code)
 			}
 			unchanged, readProblem := store.Campaign(current.ID)
@@ -59,6 +61,30 @@ func TestActivityFlowCanBeUpdatedAndInvalidEdgesLeaveCampaignUnchanged(t *testin
 				t.Fatalf("invalid update changed stored edges: %+v (%v)", unchanged.ActivityFlow, readProblem)
 			}
 		})
+	}
+}
+
+func TestFlowEntryRoutesMatchSelectedActivityAudience(t *testing.T) {
+	store := NewStore()
+	current, p := store.Campaign("campaign-branch")
+	if p != nil {
+		t.Fatal(p)
+	}
+	expectedEntries := append([]EntryRoute{}, current.ActivityFlow.Entries...)
+	expectedEdges := append([]Edge{}, current.ActivityFlow.Edges...)
+	current.ActivityFlow.Entries[0].GroupID = "group-new"
+	if _, p = store.UpdateFlow(current.ID, expectedEntries, expectedEdges, *current.ActivityFlow); p == nil || p.Code != "entry_outside_audience" {
+		t.Fatalf("entry outside activity audience = %+v", p)
+	}
+
+	current, p = store.Campaign("campaign-no-edges")
+	if p != nil {
+		t.Fatal(p)
+	}
+	expectedEntries = append([]EntryRoute{}, current.ActivityFlow.Entries...)
+	expectedEdges = append([]Edge{}, current.ActivityFlow.Edges...)
+	if _, p = store.UpdateFlow(current.ID, expectedEntries, expectedEdges, *current.ActivityFlow); p != nil {
+		t.Fatalf("valid bundle routes rejected: %+v", p)
 	}
 }
 

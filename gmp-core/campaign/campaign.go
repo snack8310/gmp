@@ -15,6 +15,14 @@ var (
 	ErrDuplicateTreatment = errors.New("campaign: treatment appears twice in one campaign")
 	// ErrDuplicateTable is returned when a campaign has two tables for one slot.
 	ErrDuplicateTable = errors.New("campaign: campaign has more than one decision table for a slot")
+	// ErrMissingCampaignAudience is returned when the activity has no entry audience.
+	ErrMissingCampaignAudience = errors.New("campaign: campaign has no entry audience")
+	// ErrMissingCampaignFlow is returned when the activity has no flow object.
+	ErrMissingCampaignFlow = errors.New("campaign: campaign has no flow")
+	// ErrMissingCampaignTreatments is returned when the activity has no treatment nodes.
+	ErrMissingCampaignTreatments = errors.New("campaign: campaign has no treatments")
+	// ErrTreatmentUnreachable is returned when a treatment has neither an entry route nor a receipt predecessor.
+	ErrTreatmentUnreachable = errors.New("campaign: treatment is not reachable from an audience entry")
 	// ErrRowTreatmentWrongSlot is returned when a table routes outside its display slot.
 	ErrRowTreatmentWrongSlot = errors.New("campaign: decision table routes to a treatment outside its display slot")
 	// ErrSlotContestedWithinCampaign is returned when a campaign puts two
@@ -43,6 +51,7 @@ type CampaignID string
 type Campaign struct {
 	id         CampaignID
 	priority   Priority
+	audience   audience.Selection
 	rollout    audience.Group
 	hasRollout bool
 	treatments []Treatment
@@ -56,6 +65,8 @@ type CampaignSpec struct {
 	ID CampaignID
 	// Priority ranks it against other campaigns at every slot.
 	Priority Priority
+	// Audience is the campaign's single entry audience: one group or one bundle.
+	Audience audience.Selection
 	// Rollout, when set, is the group currently taken in, with a configuration
 	// over the shares admitted so far. Leave it unset to admit everyone.
 	Rollout audience.Group
@@ -63,8 +74,8 @@ type CampaignSpec struct {
 	Treatments []Treatment
 	// Tables order the treatments that share a slot.
 	Tables []DecisionTable
-	// Flow, when set, is this campaign's flow: the edges between its
-	// treatments. Leave it unset when every treatment is an entry.
+	// Flow is the campaign's required activity flow, including its audience
+	// entry routes and edges between treatments.
 	Flow Flow
 }
 
@@ -76,31 +87,41 @@ func NewCampaign(spec CampaignSpec) (Campaign, error) {
 	if err := spec.Priority.validate(); err != nil {
 		return Campaign{}, fmt.Errorf("%w: campaign %q", err, spec.ID)
 	}
+	if err := spec.Audience.Validate(); err != nil {
+		return Campaign{}, fmt.Errorf("%w: campaign %q: %v", ErrMissingCampaignAudience, spec.ID, err)
+	}
+	if spec.Flow.id == "" {
+		return Campaign{}, fmt.Errorf("%w: campaign %q", ErrMissingCampaignFlow, spec.ID)
+	}
 
 	treatments, byID, err := collectTreatments(spec.ID, spec.Treatments)
 	if err != nil {
 		return Campaign{}, err
 	}
+	if len(treatments) == 0 {
+		return Campaign{}, fmt.Errorf("%w: campaign %q", ErrMissingCampaignTreatments, spec.ID)
+	}
 	tables, err := collectTables(spec.ID, spec.Tables, byID)
 	if err != nil {
 		return Campaign{}, err
 	}
-	if err := checkDisplayContention(spec.ID, treatments, tables); err != nil {
+	if err := validateFlow(spec.ID, spec.Flow, byID, spec.Audience); err != nil {
 		return Campaign{}, err
 	}
-
-	var flow Flow
-	if spec.Flow.id != "" {
-		if err := validateFlow(spec.ID, spec.Flow, byID); err != nil {
-			return Campaign{}, err
-		}
-		flow = spec.Flow
-		flow.edges = append([]Edge(nil), spec.Flow.edges...)
+	flow := spec.Flow
+	flow.entries = spec.Flow.EntryRoutes()
+	flow.edges = append([]Edge(nil), spec.Flow.edges...)
+	if err := validateTableEntries(spec.ID, tables, flow); err != nil {
+		return Campaign{}, err
+	}
+	if err := checkDisplayContention(spec.ID, treatments, tables, flow, spec.Audience); err != nil {
+		return Campaign{}, err
 	}
 
 	return Campaign{
 		id:         spec.ID,
 		priority:   spec.Priority,
+		audience:   spec.Audience,
 		rollout:    spec.Rollout,
 		hasRollout: spec.Rollout.ID() != "",
 		treatments: treatments,
@@ -146,8 +167,18 @@ func collectTables(id CampaignID, input []DecisionTable, byID map[TreatmentID]Tr
 	return tables, nil
 }
 
-// Two display treatments on one slot need a table or provably exclusive audiences.
-func checkDisplayContention(id CampaignID, treatments []Treatment, tables map[SlotID]DecisionTable) error {
+// Two display treatments on one slot need a table or provably exclusive entry groups.
+func checkDisplayContention(id CampaignID, treatments []Treatment, tables map[SlotID]DecisionTable, flow Flow, selected audience.Selection) error {
+	groups := make(map[audience.GroupID]audience.Group)
+	for _, group := range selected.Groups() {
+		groups[group.ID()] = group
+	}
+	entryGroups := make(map[TreatmentID][]audience.Group)
+	for _, route := range flow.entries {
+		for _, treatment := range route.treatments {
+			entryGroups[treatment] = append(entryGroups[treatment], groups[route.group])
+		}
+	}
 	bySlot := map[SlotID][]Treatment{}
 	for _, treatment := range treatments {
 		if treatment.slot != "" {
@@ -163,10 +194,41 @@ func checkDisplayContention(id CampaignID, treatments []Treatment, tables map[Sl
 		}
 		for i := range sharing {
 			for j := i + 1; j < len(sharing); j++ {
-				if !audience.ProvablyExclusive(sharing[i].who.Definition(), sharing[j].who.Definition()) {
+				if !entryGroupsExclusive(entryGroups[sharing[i].id], entryGroups[sharing[j].id]) {
 					return fmt.Errorf("%w: %q and %q on slot %q in campaign %q; order them with a decision table, or give them shares of one assignment",
 						ErrSlotContestedWithinCampaign, sharing[i].id, sharing[j].id, slot, id)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func entryGroupsExclusive(left, right []audience.Group) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	for _, a := range left {
+		for _, b := range right {
+			if !audience.ProvablyExclusive(a.Definition(), b.Definition()) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validateTableEntries(id CampaignID, tables map[SlotID]DecisionTable, flow Flow) error {
+	entries := make(map[TreatmentID]bool)
+	for _, route := range flow.entries {
+		for _, treatment := range route.treatments {
+			entries[treatment] = true
+		}
+	}
+	for slot, table := range tables {
+		for _, treatment := range table.routes() {
+			if !entries[treatment] {
+				return fmt.Errorf("%w: decision table treatment %q on slot %q is not an entry candidate in campaign %q", ErrInvalidEntryRoute, treatment, slot, id)
 			}
 		}
 	}
@@ -178,6 +240,9 @@ func (c Campaign) ID() CampaignID { return c.id }
 
 // Priority reports how it ranks against other campaigns.
 func (c Campaign) Priority() Priority { return c.priority }
+
+// Audience reports this campaign's single entry audience.
+func (c Campaign) Audience() audience.Selection { return c.audience }
 
 // Rollout reports who is currently taken in, and whether the campaign limits
 // that at all.

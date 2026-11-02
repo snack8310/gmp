@@ -29,7 +29,7 @@ func TestAReceiptEdgeRunsTheNextStepWithoutANewAudience(t *testing.T) {
 		campaign.EdgeSpec{From: benefit.ID(), To: whatsapp.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
 		campaign.EdgeSpec{From: whatsapp.ID(), To: sms.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
 	)
-	built := mustCampaign(t, "serial-benefit", flow, benefit, whatsapp, sms)
+	built := mustCampaignWithAudience(t, "serial-benefit", flow, audience.SelectGroup(audience.Single(arm)), benefit, whatsapp, sms)
 	entries := entryIDs(built)
 	if !entries[benefit.ID()] || entries[whatsapp.ID()] || entries[sms.ID()] {
 		t.Fatalf("entries = %v, want only the benefit treatment", entries)
@@ -324,30 +324,17 @@ func TestEntriesWithNoEdgeRunWithoutWaiting(t *testing.T) {
 	}
 }
 
-// A campaign that never grew a flow still runs each of its treatments. The
-// flow is optional.
-func TestTwoTreatmentsWithNoFlowBothRun(t *testing.T) {
+// An activity cannot be built without its first-class flow, even when every
+// treatment could otherwise be interpreted as an independent entry.
+func TestCampaignRequiresAFlowForIndependentTreatments(t *testing.T) {
 	w := newWorld(t, 4)
 	benefitAction := registerPush(t, "grant-noflo", nil...)
 	smsAction := registerPush(t, "send-noflo", nil...)
 	everyone := w.definition("everyone-noflow")
 	benefit := treatmentOn(t, benefitAction, "benefit-noflow", everyone)
 	sms := treatmentOn(t, smsAction, "sms-noflow", everyone)
-	built := mustCampaign(t, "no-flow", campaign.Flow{}, benefit, sms)
-	if _, ok := built.Flow(); ok {
-		t.Fatal("a campaign built without a flow reports one")
-	}
-	if len(built.Entries()) != 2 {
-		t.Fatalf("entries = %d, want both treatments", len(built.Entries()))
-	}
-	runner, _, deliverers, _ := flowRunner(t, w.audiences, benefitAction, smsAction)
-	for _, treatment := range built.Entries() {
-		if _, err := runner.Run(built, treatment.ID(), "entry", audience.Live()); err != nil {
-			t.Fatalf("running entry %s: %v", treatment.ID(), err)
-		}
-	}
-	if deliverers[benefitAction.ID()].Effects() == 0 || deliverers[smsAction.ID()].Effects() == 0 {
-		t.Fatal("a treatment on a campaign with no flow was not delivered")
+	if _, err := buildCampaign("no-flow", campaign.Flow{}, benefit, sms); !errors.Is(err, campaign.ErrMissingCampaignFlow) {
+		t.Fatalf("campaign without a flow should be refused, got %v", err)
 	}
 }
 
@@ -431,7 +418,7 @@ func TestAReceiptOutcomeOutsideTheContractIsRefused(t *testing.T) {
 	action := registerPush(t, "send-strict", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-strict")
 	treatment := treatmentOn(t, action, "strict", everyone)
-	built := mustCampaign(t, "strict-contract", campaign.Flow{}, treatment)
+	built := mustCampaign(t, "strict-contract", mustFlow(t, "strict-contract-flow"), treatment)
 	runner, log, _, _ := flowRunner(t, w.audiences, action)
 	report, err := runner.Run(built, treatment.ID(), "entry", audience.Live())
 	if err != nil {
@@ -472,9 +459,9 @@ func TestAReceiptForAnotherCampaignIsRefused(t *testing.T) {
 	action := registerPush(t, "send-owned", campaign.OutcomeSuccess, campaign.OutcomeFailure)
 	everyone := w.definition("everyone-owned")
 	treatment := treatmentOn(t, action, "owned", everyone)
-	built := mustCampaign(t, "owner", campaign.Flow{}, treatment)
+	built := mustCampaign(t, "owner", mustFlow(t, "owner-flow"), treatment)
 	otherTreatment := treatmentOn(t, action, "other", everyone)
-	other := mustCampaign(t, "not-the-owner", campaign.Flow{}, otherTreatment)
+	other := mustCampaign(t, "not-the-owner", mustFlow(t, "not-the-owner-flow"), otherTreatment)
 	runner, _, deliverers, _ := flowRunner(t, w.audiences, action)
 	report, err := runner.Run(built, treatment.ID(), "entry", audience.Live())
 	if err != nil {
@@ -657,15 +644,13 @@ func registerPush(t *testing.T, id string, outcomes ...campaign.Outcome) campaig
 	return action
 }
 
-func treatmentOn(t *testing.T, action campaign.Action, id string, who audience.Definition) campaign.Treatment {
+func treatmentOn(t *testing.T, action campaign.Action, id string, _ audience.Definition) campaign.Treatment {
 	t.Helper()
 	call, err := action.Call(map[string]string{"copy": "预设文案"})
 	if err != nil {
 		t.Fatalf("filling in %s: %v", id, err)
 	}
-	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{
-		ID: campaign.TreatmentID(id), Who: audience.Single(who), Call: call,
-	})
+	treatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: campaign.TreatmentID(id), Call: call})
 	if err != nil {
 		t.Fatalf("building treatment %s: %v", id, err)
 	}
@@ -691,13 +676,60 @@ func mustCampaign(t *testing.T, id string, flow campaign.Flow, treatments ...cam
 }
 
 func buildCampaign(id string, flow campaign.Flow, treatments ...campaign.Treatment) (campaign.Campaign, error) {
+	definition, err := audience.NewDefinition(audience.DefinitionSpec{ID: "flow-entry", Source: sourceID})
+	if err != nil {
+		return campaign.Campaign{}, err
+	}
+	return buildCampaignWithAudience(id, flow, audience.SelectGroup(audience.Single(definition)), treatments...)
+}
+
+func mustCampaignWithAudience(t *testing.T, id string, flow campaign.Flow, selected audience.Selection, treatments ...campaign.Treatment) campaign.Campaign {
+	t.Helper()
+	built, err := buildCampaignWithAudience(id, flow, selected, treatments...)
+	if err != nil {
+		t.Fatalf("building campaign %s: %v", id, err)
+	}
+	return built
+}
+
+func buildCampaignWithAudience(id string, flow campaign.Flow, selected audience.Selection, treatments ...campaign.Treatment) (campaign.Campaign, error) {
 	spec := campaign.CampaignSpec{
 		ID:         campaign.CampaignID(id),
 		Priority:   campaign.NewPriority(10),
+		Audience:   selected,
 		Treatments: treatments,
 	}
 	if flow.ID() != "" {
-		spec.Flow = flow
+		if len(flow.EntryRoutes()) == 0 {
+			targeted := make(map[campaign.TreatmentID]bool)
+			edgeSpecs := make([]campaign.EdgeSpec, 0, len(flow.Edges()))
+			for _, edge := range flow.Edges() {
+				edgeSpecs = append(edgeSpecs, campaign.EdgeSpec{From: edge.From(), To: edge.To(), Kind: edge.Kind(), When: edge.When()})
+				if edge.Kind() == campaign.EdgeOnReceipt {
+					targeted[edge.To()] = true
+				}
+			}
+			var start []campaign.TreatmentID
+			for _, treatment := range treatments {
+				if !targeted[treatment.ID()] {
+					start = append(start, treatment.ID())
+				}
+			}
+			groups := selected.Groups()
+			entries := make([]campaign.EntrySpec, 0, len(groups))
+			for _, group := range groups {
+				if len(start) > 0 {
+					entries = append(entries, campaign.EntrySpec{Group: group.ID(), Kind: campaign.EntryStart, Treatments: start})
+				}
+			}
+			built, err := campaign.NewFlow(campaign.FlowSpec{ID: flow.ID(), Entries: entries, Edges: edgeSpecs})
+			if err != nil {
+				return campaign.Campaign{}, err
+			}
+			spec.Flow = built
+		} else {
+			spec.Flow = flow
+		}
 	}
 	return campaign.NewCampaign(spec)
 }

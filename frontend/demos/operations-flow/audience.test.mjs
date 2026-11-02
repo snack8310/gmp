@@ -287,13 +287,15 @@ test('published identity survives reload; stop invalidates old arms without revi
 });
 
 test('saved experiment reference alone is an ordinary group; cited bundles and groups resist deletion', () => {
-  const activities = [{ treatments: [{ audienceRef: { type: 'group', groupId: 'group-custom' } }] }];
+  const activities = [{ audience: { type: 'group', groupId: 'group-custom' }, treatments: [], activityFlow: { entries: [{ groupId: 'group-custom' }] } }];
   const store = createAudienceStore(memory(), activities);
   const saved = store.save({ ...base(), id: 'custom', name: '普通组', experimentId: 'exp-recall' });
   assert.equal(store.catalog().find(item => item.groupId === 'group-custom').type, 'group');
   assert.equal(store.catalog().filter(item => item.type === 'arm').length, 3);
   assert.throws(() => store.delete(saved.id), /不能删除/);
-  activities.push({ treatments: [{ audienceRef: { type: 'arm', bundleId: 'bundle-warmup', groupId: 'group-arm-a' } }] });
+  activities.push({ audience: { type: 'bundle', bundleId: 'bundle-warmup' }, treatments: [], activityFlow: { entries: [
+    { groupId: 'group-arm-a' }, { groupId: 'group-arm-b' }, { groupId: 'group-arm-control' },
+  ] } });
   assert.throws(() => store.deleteBundle('bundle-warmup'), /不能删除/);
   assert.throws(() => store.delete('aud-mx-dormant'), /不能删除/);
 });
