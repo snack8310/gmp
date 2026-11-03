@@ -29,6 +29,31 @@ export const DEFAULT_AUDIENCES = Object.freeze([
   { entry: { mode: 'event', eventType: 'app_opened' }, id: 'aud-whitelist-new', name: '白名单 · 新客体验', rules: { ...defaultRules, source: 'whitelist', lifecycle: 'new' } },
 ].map(value => Object.freeze({ ...value, experimentId: value.id === 'aud-mx-dormant' ? 'exp-recall' : null, entry: Object.freeze(value.entry.mode === 'batch' ? { ...value.entry, schedule: Object.freeze(value.entry.schedule) } : value.entry), rules: Object.freeze(value.rules) })));
 const clone = value => JSON.parse(JSON.stringify(value));
+function parseUniqueJSON(raw) {
+  const value = JSON.parse(raw);
+  const stack = [];
+  for (let index = 0; index < raw.length; index++) {
+    const character = raw[index];
+    if (character === '{') stack.push({ object: true, keys: new Set(), expectKey: true });
+    else if (character === '[') stack.push({ object: false });
+    else if (character === '}' || character === ']') stack.pop();
+    else if (character === ',' && stack.at(-1)?.object) stack.at(-1).expectKey = true;
+    else if (character === '"') {
+      const start = index;
+      for (index++; index < raw.length; index++) {
+        if (raw[index] === '\\') { index++; continue; }
+        if (raw[index] === '"') break;
+      }
+      const frame = stack.at(-1);
+      if (frame?.object && frame.expectKey) {
+        const key = JSON.parse(raw.slice(start, index + 1));
+        if (frame.keys.has(key)) throw new SyntaxError('Duplicate JSON key');
+        frame.keys.add(key); frame.expectKey = false;
+      }
+    }
+  }
+  return value;
+}
 const owns = (object, key) => typeof key === 'string' && Object.hasOwn(object, key);
 const activityUsesGroup = (activity, groupId) => activity.audience?.type === 'group' && activity.audience.groupId === groupId
   || activity.activityFlow?.entries?.some(entry => entry.groupId === groupId);
@@ -179,7 +204,7 @@ export function createAudienceStore(storage, activities = []) {
     const raw = storage.getItem(STORAGE_KEY);
     logStorage('read', 'ok');
     if (raw !== null) {
-      const value = JSON.parse(raw);
+      const value = parseUniqueJSON(raw);
       if (!value || ![1, 2, 3, 4, 5].includes(value.version)) throw new SyntaxError('Unknown stored version');
       // Legacy schemas had no entry field. Explicit malformed fields are never defaulted.
       const loadedAudiences = value.version < 3 && Array.isArray(value.audiences)
@@ -268,6 +293,7 @@ export function createAudienceStore(storage, activities = []) {
     assignExperimentGroup(id, uid) {
       const experiment = experiments.find(item => item.id === id);
       if (!experiment) throw new RangeError('实验不存在。');
+      if (experiment.runtimeStatus !== 'running') throw new RangeError('仅运行中的实验可模拟分配。');
       const part = this.peekExperimentGroup(id, uid);
       if (experiment.colored && !Object.hasOwn(coloring[id] ?? {}, uid)) {
         (coloring[id] ??= {})[uid] = part;
@@ -278,6 +304,7 @@ export function createAudienceStore(storage, activities = []) {
     updateExperimentSplit(id, split) {
       const experiment = experiments.find(item => item.id === id);
       if (!experiment) throw new RangeError('实验不存在。');
+      if (experiment.runtimeStatus !== 'running') throw new RangeError('仅运行中的实验可调整比例。');
       const errors = validateSplit(split);
       if (errors.length) throw new RangeError(errors.join(' '));
       experiment.split = { a: split.a, b: split.b, control: split.control };
