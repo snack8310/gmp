@@ -105,6 +105,18 @@ test('deleting a colored experiment removes its records and reloads cleanly', ()
   assert.ok(!Object.hasOwn(JSON.parse(storage.getItem(STORAGE_KEY)).coloring, experiment.id));
 });
 
+test('a reserved-word experiment ID keeps coloring in its own record without prototype mutation', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ id: '__proto__', name: '特殊 ID', split: { a: 100, b: 0, control: 0 }, colored: true });
+  try {
+    assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+    assert.equal(Object.hasOwn(Object.prototype, 'SIM-0001'), false);
+    assert.deepEqual(store.experimentColoring(experiment.id), { 'SIM-0001': 'a' });
+    store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 });
+    assert.equal(createAudienceStore(storage).peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+  } finally { delete Object.prototype['SIM-0001']; }
+});
+
 test('v5 missing fields, invalid split and unknown coloring fail closed', () => {
   const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '新格式', runtimeStatus: 'stopped', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
   for (const payload of [

@@ -169,7 +169,7 @@ export function buildReferenceCatalog(definitions, experiments, bundles) {
   return [...groups, ...arms];
 }
 export function createAudienceStore(storage, activities = []) {
-  let definitions = clone(DEFAULT_AUDIENCES), experiments = clone(DEFAULT_EXPERIMENTS), bundles = clone(DEFAULT_BUNDLES), coloring = {}, warning = '', usable = true, legacyRaw = null;
+  let definitions = clone(DEFAULT_AUDIENCES), experiments = clone(DEFAULT_EXPERIMENTS), bundles = clone(DEFAULT_BUNDLES), coloring = Object.create(null), warning = '', usable = true, legacyRaw = null;
   const logStorage = (operation, outcome) => globalThis.console?.info?.(JSON.stringify({ component: 'audience-demo', operation, outcome }));
   const unavailable = () => { usable = false; warning = '浏览器存储不可用：修改仅保留在当前会话，刷新后会丢失。'; };
   try {
@@ -211,7 +211,7 @@ export function createAudienceStore(storage, activities = []) {
       definitions = loadedAudiences.map(def => normalize(def, def.id));
       experiments = normalizedExperiments;
       bundles = clone(checkedBundles);
-      coloring = clone(loadedColoring);
+      coloring = Object.assign(Object.create(null), loadedColoring);
       if (value.version < 5) {
         legacyRaw = raw;
         warning = '旧版配置已兼容载入；实验比例按 45/45/10、不记录染色解释。尚未改写本地缓存，下次保存前会备份原文。';
