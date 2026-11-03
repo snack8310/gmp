@@ -221,10 +221,12 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   value?.activityFlow?.entries?.map(entry => [entry.groupId, entry.kind, entry.treatmentIds]),
   value?.activityFlow?.edges?.map(edge => [edge.id, edge.fromTreatmentId, edge.toTreatmentId, edge.conditionLabel])]);
  const mountedFlowIdentity = flowIdentity(activity);
- root.innerHTML = markup(activity, references, Boolean(draftStore?.nodes(activity.id).length));
+ const mountedDraftNodes = draftStore?.nodes(activity.id) ?? [];
+ root.innerHTML = markup(activity, references, Boolean(mountedDraftNodes.length));
  const q = selector => root.querySelector(selector);
  const currentExperiments = () => experimentStore.currentExperiments?.() ?? experimentStore.experiments();
- const graph = draftStore ? composeFlowExperimentGraph(activity, actions, references, currentExperiments(), draftStore.nodes(activity.id)) : buildActivityGraph(activity, actions, references);
+ const mountedDraftIdentity = JSON.stringify(mountedDraftNodes);
+ const graph = draftStore ? composeFlowExperimentGraph(activity, actions, references, currentExperiments(), mountedDraftNodes) : buildActivityGraph(activity, actions, references);
  let selected = graph.nodes[0]?.id || null, selectedEdge = null, editingEdgeId = null, savingFlow = false, checkingFlow = false, mounted = true;
  let yaw = -.28, pitch = .55, zoom = 1, playing = false, time = 0, speed = 1, frame = 0, lastFrame = 0;
  let dragging = false, dragStart = null, moved = false, pressed = null;
@@ -517,7 +519,9 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
       throw new RangeError('实验人群包已删除或不可用，请刷新活动后重新选择受众。');
      }
      const latestReferences = references.map(ref => ({ ...ref, available: Boolean(ref.available && snapshot.catalog.some(item => item.type === ref.type && item.groupId === ref.groupId && (ref.type !== 'arm' || item.bundleId === ref.bundleId) && item.available)) }));
-     const latestGraph = composeFlowExperimentGraph(activity, actions, latestReferences, definitions, draftStore.nodes(activity.id));
+     const latestDraftNodes = draftStore.nodes(activity.id);
+     if (JSON.stringify(latestDraftNodes) !== mountedDraftIdentity) throw new Error('此浏览器的实验草稿已变化，请刷新页面后再演练。');
+     const latestGraph = composeFlowExperimentGraph(activity, actions, latestReferences, definitions, latestDraftNodes);
      if (!latestGraph.canRehearse) {
       q('[data-flow-note]').textContent = latestGraph.readinessIssue || '实验引用不可用，请修复后演练。';
       q('.flow-save-status').textContent = q('[data-flow-note]').textContent;
@@ -529,7 +533,7 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
      runs = result.runs; visits = result.visits;
      duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
      if (draftStore.warning) { q('[data-flow-note]').textContent = draftStore.warning; q('.flow-save-status').textContent = draftStore.warning; }
-    } catch (error) { q('[data-flow-note]').textContent = error.message; q('.flow-save-status').textContent = error.message; return; }
+    } catch (error) { if (!mounted) return; q('[data-flow-note]').textContent = error.message; q('.flow-save-status').textContent = error.message; return; }
     finally { checkingFlow = false; if (mounted) render(); }
    }
    if (!runs.length) return;

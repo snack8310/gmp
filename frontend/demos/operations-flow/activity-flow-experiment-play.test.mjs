@@ -82,6 +82,40 @@ test('playback refuses an activity flow changed in the management API', async ()
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
 
+test('playback refuses a draft changed before the canvas refreshes', async () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const first = createFlowExperimentStore(storage), second = createFlowExperimentStore(storage);
+ first.saveNode(activity.id, node);
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ globalThis.requestAnimationFrame = () => 1;
+ globalThis.cancelAnimationFrame = () => {};
+ mountActivityFlowCanvas({ root, activity, actions, references, api: { get: async () => activity }, draftStore: first,
+  experimentStore: { experiments: () => [experiment], bundles: () => [], catalog: () => references } });
+ second.saveNode(activity.id, { ...node, routes: { ...node.routes, a: 'flow-terminal' } });
+ await element('[data-flow-play]').listeners.click();
+ assert.match(element('[data-flow-note]').textContent, /草稿已变化|刷新页面/);
+ assert.equal(element('[data-play-state]').textContent, '已暂停');
+});
+
+test('a failed API read after canvas unmount does not write to removed elements', async () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const draftStore = createFlowExperimentStore(storage); draftStore.saveNode(activity.id, node);
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ globalThis.requestAnimationFrame = () => 1;
+ globalThis.cancelAnimationFrame = () => {};
+ let rejectRead;
+ const pendingRead = new Promise((resolve, reject) => { rejectRead = reject; });
+ const unmount = mountActivityFlowCanvas({ root, activity, actions, references, api: { get: () => pendingRead }, draftStore,
+  experimentStore: { experiments: () => [experiment], bundles: () => [], catalog: () => references } });
+ const playing = element('[data-flow-play]').listeners.click();
+ unmount();
+ root.querySelector = () => null;
+ rejectRead(new Error('API unavailable'));
+ await assert.doesNotReject(playing);
+});
+
 test('playback refuses a definition stopped in another tab', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage);
