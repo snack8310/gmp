@@ -1,0 +1,19 @@
+.flow-experiment-panel { display: grid; gap: var(--ui-section-gap); }
+.flow-experiment-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.flow-experiment-heading h3 { margin: 0 0 8px; }
+.flow-experiment-heading p { margin: 0; }
+.flow-experiment-local { margin: 0; color: var(--muted); font-size: 12px; }
+.flow-experiment-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.7; }
+.flow-experiment-row strong { font-size: 14px; }
+.flow-experiment-row p { margin: 6px 0; color: var(--secondary); font-size: 12px; line-height: 1.8; }
+.flow-experiment-id { color: var(--muted); font: 10px ui-monospace, monospace; overflow-wrap: anywhere; }
+.flow-experiment-state { color: var(--muted); font-size: 11px; }
+.flow-experiment-form { display: grid; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.flow-experiment-form h4 { margin: 0; }
+.flow-experiment-form label { display: grid; gap: 6px; color: var(--secondary); font-size: 12px; }
+.flow-experiment-form select { width: 100%; min-width: 0; min-height: var(--ui-field-height); padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--ui-radius-control); background: var(--card); }
+.flow-experiment-routes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 600px) {
+ .flow-experiment-heading, .flow-experiment-row { flex-direction: column; }
+ .flow-experiment-routes { grid-template-columns: 1fr; }
+}

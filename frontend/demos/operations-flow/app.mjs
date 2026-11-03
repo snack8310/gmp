@@ -4,7 +4,8 @@ import { CampaignApi, browserCampaignApiBase } from './campaign-api-client.mjs';
 import { mountCampaigns } from './campaign-controller.mjs';
 import { mountActivityNavigation } from './activity-navigation.mjs';
 import { activityRoute, assetRoute, parseActivityRoute } from './activity-routing.mjs';
-import { groupIdOf } from './audience.mjs';
+import { groupIdOf, STORAGE_KEY } from './audience.mjs';
+import { createFlowExperimentStore, FLOW_EXPERIMENT_KEY } from './flow-experiment-draft.mjs';
 
 const $ = id => document.getElementById(id);
 const assetDomains = { audience: 'audience-section', experimentation: 'experimentation-section' };
@@ -94,13 +95,17 @@ function navigate(route) {
 }
 
 window.addEventListener('hashchange', renderDomain);
+window.addEventListener('storage', event => { if (event.key === FLOW_EXPERIMENT_KEY || event.key === STORAGE_KEY) renderDomain(); });
 const campaignApi = new CampaignApi(browserCampaignApiBase(window.location, window.CAMPAIGN_API_BASE));
+let flowStorage;
+try { flowStorage = window.localStorage; } catch { flowStorage = null; }
+const flowDraftStore = createFlowExperimentStore(flowStorage);
 activityNavigation = mountActivityNavigation({ api: campaignApi });
 audienceUI = mountAudiences({ api: campaignApi,
  onLoaded: audiences => campaignApi.base ? Promise.all(audiences.map(item => campaignApi.upsertGroupAudienceReference(groupIdOf(item.id), item.name))) : undefined,
  onSaved: item => campaignApi.base ? campaignApi.upsertGroupAudienceReference(groupIdOf(item.id), item.name) : undefined,
  onDeleted: id => campaignApi.base ? campaignApi.deleteGroupAudienceReference(groupIdOf(id)) : undefined, onNavigate: navigate });
-campaignUI = mountCampaigns({ api: campaignApi, audienceStore: audienceUI.store, onNavigate: navigate,
+campaignUI = mountCampaigns({ api: campaignApi, audienceStore: audienceUI.store, flowDraftStore, onNavigate: navigate,
  onChanged: () => audienceUI.refreshProtection() });
-experimentUI = mountExperiments({ store: audienceUI.store, onChanged: () => audienceUI.refreshExperiments() });
+experimentUI = mountExperiments({ store: audienceUI.store, flowDraftStore, onChanged: () => audienceUI.refreshExperiments() });
 renderDomain();

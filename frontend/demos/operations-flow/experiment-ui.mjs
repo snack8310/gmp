@@ -17,7 +17,7 @@ export function mountExperimentPicker({rootId,store,onChange,onNavigate}) {
  refresh();return {getValue:()=>el('select').value||null,setValue:id=>refresh(id),refresh};
 }
 
-export function mountExperiments({store,onChanged}) {
+export function mountExperiments({store,flowDraftStore,onChanged}) {
  const root=document.getElementById('experiment-page');
  let route={assetView:'list',experimentId:null,returnTo:null};
  let query='';
@@ -70,7 +70,11 @@ export function mountExperiments({store,onChanged}) {
   const id=route.experimentId;const experiment=store.experiments().find(item=>item.id===id);if(!experiment)return;
   try{
    if(button.dataset.action==='toggle')store.setExperimentStatus(id,experiment.runtimeStatus==='running'?'stopped':'running');
-   if(button.dataset.action==='delete'){store.deleteExperiment(id);onChanged?.();window.location.hash=listLink();return;}
+   if(button.dataset.action==='delete'){
+    const flowRefs=flowDraftStore?.references(id) || [];
+    if(flowRefs.length)throw new RangeError(`该实验被 ${flowRefs.length} 个活动流程节点引用，请先移除节点。`);
+    store.deleteExperiment(id);onChanged?.();window.location.hash=listLink();return;
+   }
    if(button.dataset.action==='assign'){
     const selected=root.querySelector('#experiment-sim-id')?.value;
     const first=MOCK_USERS.find(user=>user.uid===selected)??MOCK_USERS[0];

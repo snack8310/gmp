@@ -135,14 +135,16 @@ export function summarizeRules(rules) {
   if (validateRules(rules).length) return '筛选条件无效';
   return `${SOURCES[rules.source]} · ${rules.country === 'all' ? '全部国家' : COUNTRIES[rules.country]} · ${rules.lifecycle === 'all' ? '全部生命周期' : LIFECYCLES[rules.lifecycle]} · 未活跃 ${rules.minInactive}–${rules.maxInactive} 天`;
 }
-export function assignGroup(uid, experimentId = null, split = DEFAULT_SPLIT) {
+export function assignGroup(uid, experimentId = null, split = DEFAULT_SPLIT, scope = []) {
   if (experimentId === null) return 'direct';
   if (!validId(experimentId)) throw new RangeError('实验标识无效。');
   if (typeof uid !== 'string' || !uid) throw new RangeError('模拟用户标识不能为空。');
   if (validateSplit(split).length) throw new RangeError(validateSplit(split).join(' '));
+  if (!Array.isArray(scope) || scope.length !== 0 && (scope.length !== 2 || scope.some(part => typeof part !== 'string' || !part))) throw new RangeError('流程分配范围无效。');
+  const identity = scope.length ? JSON.stringify([experimentId, ...scope]) : experimentId;
   // Fixed presentation-only salt/version, experiment identity, independent from names, ordering and filters.
   let hash = 2166136261;
-  for (const character of `gmp-demo-split-v1:${experimentId}:${uid}`) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
+  for (const character of `gmp-demo-split-v1:${identity}:${uid}`) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
   const bucket = hash % 10000;
   return bucket < split.a * 100 ? 'a' : bucket < (split.a + split.b) * 100 ? 'b' : 'control';
 }
@@ -261,6 +263,23 @@ export function createAudienceStore(storage, activities = []) {
   return {
     list: () => clone(definitions),
     experiments: () => clone(experiments),
+    currentExperiments() {
+      if (!usable) return [];
+      const current = createAudienceStore(storage);
+      return current.isUsable ? current.experiments() : [];
+    },
+    currentExperimentSnapshot() {
+      if (!usable) throw new RangeError(warning);
+      const current = createAudienceStore(storage);
+      if (!current.isUsable) throw new RangeError(current.warning);
+      return {
+        experiments: current.experiments(),
+        bundles: current.bundles(),
+        catalog: current.catalog(),
+        peekExperimentGroup: (id, uid) => current.peekExperimentGroup(id, uid),
+      };
+    },
+    get isUsable() { return usable; },
     bundles: () => clone(bundles),
     experimentColoring: id => {
       if (!experiments.some(item => item.id === id)) throw new RangeError('实验不存在。');
