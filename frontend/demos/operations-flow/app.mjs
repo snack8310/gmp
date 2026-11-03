@@ -12,6 +12,7 @@ let renderSerial = 0;
 let activityNavigation;
 let campaignUI;
 let audienceUI;
+let experimentUI;
 
 async function renderDomain() {
  const version = ++renderSerial;
@@ -40,6 +41,7 @@ async function renderDomain() {
  if (route.screen === 'global') {
   workspace.hidden = false;
   $(assetDomains[route.module]).hidden = false;
+  if (route.module === 'experimentation') experimentUI.render(route);
   $('experiment-audience-link').href = `#${assetRoute('audience', route.returnTo)}`;
   if (route.returnTo) {
    $('asset-return').hidden = false;
@@ -100,5 +102,5 @@ audienceUI = mountAudiences({ api: campaignApi,
  onDeleted: id => campaignApi.base ? campaignApi.deleteGroupAudienceReference(groupIdOf(id)) : undefined, onNavigate: navigate });
 campaignUI = mountCampaigns({ api: campaignApi, audienceStore: audienceUI.store, onNavigate: navigate,
  onChanged: () => audienceUI.refreshProtection() });
-mountExperiments({ store: audienceUI.store, onChanged: () => audienceUI.refreshExperiments() });
+experimentUI = mountExperiments({ store: audienceUI.store, onChanged: () => audienceUI.refreshExperiments() });
 renderDomain();

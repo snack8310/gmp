@@ -35,9 +35,10 @@ function returnRoute(value) {
  return 'activities/' + encodeURIComponent(workspace.activityId) + '/' + workspace.domain;
 }
 
-function parseAssetRoute(module, search = '') {
+function parseAssetRoute(module, search = '', assetView = 'list', experimentId = null) {
  const params = new URLSearchParams(search);
- return { screen: 'global', module, returnTo: returnRoute(params.get('return')), activityId: null, domain: null, campaignRoute: '' };
+ const base = { screen: 'global', module, returnTo: returnRoute(params.get('return')), activityId: null, domain: null, campaignRoute: '' };
+ return module === 'experimentation' ? { ...base, assetView, experimentId } : base;
 }
 
 export function parseActivityRoute(hash = '') {
@@ -51,6 +52,11 @@ export function parseActivityRoute(hash = '') {
  if (route === 'audience' || route === 'experimentation') return parseAssetRoute(route, search);
 
  const parts = route.split('/');
+ if (parts[0] === 'experimentation') {
+  if (parts.length === 2 && parts[1] === 'new') return parseAssetRoute('experimentation', search, 'new');
+  const decoded = parts.length === 2 ? decode(parts[1]) : { value: '', valid: false };
+  return parseAssetRoute('experimentation', search, 'detail', decoded.valid && /^[a-zA-Z0-9_-]{1,64}$/.test(decoded.value) ? decoded.value : null);
+ }
  if (parts[0] === 'activities') {
   if (parts.length === 1) return { screen: 'list', activityId: null, domain: null, campaignRoute: '' };
   if (parts.length === 2 && parts[1] === 'new') return { screen: 'new', activityId: null, domain: null, campaignRoute: 'campaign/activities/new' };

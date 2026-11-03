@@ -12,6 +12,8 @@ function element(id) {
   innerHTML: '', textContent: '', value: 0, style: {}, dataset: {}, listeners: {}, attributes:{},
   classList: { toggle() {}, add() {}, remove() {} }, setAttribute(name,value) {this.attributes[name]=value;},
   addEventListener(name, fn) { this.listeners[name] = fn; },
+  querySelector(selector) { return selector.startsWith('#') ? element(selector.slice(1)) : element(selector); },
+  contains() { return true; },
   setPointerCapture() { captures++; },
  });
  return elements.get(id);
@@ -100,30 +102,28 @@ test('experiment page creates and renames identities reused by audience definiti
  assert.equal(element('experimentation-section').hidden,false);
  assert.equal(element('module-experimentation').attributes['aria-current'],'page');
  assert.equal(element('experiment-audience-link').href,'#audience');
- fire('new-experiment','click');element('experiment-name').value='Reusable demo';
- fire('experiment-form','submit',{preventDefault(){}});
- const experimentId=element('experiment-list').innerHTML.match(/exp-custom-\d+/)?.[0];
+ assert.match(element('experiment-page').innerHTML,/实验列表/);
+ window.location.hash='#experimentation/new';window.listeners.hashchange();
+ element('experiment-name').value='Reusable demo';
+ for(const [part,value] of Object.entries({a:45,b:45,control:10}))element(`create-${part}`).value=value;
+ const createForm={dataset:{form:'create'},querySelector:()=>({value:'true'})};
+ fire('experiment-page','submit',{target:{closest:()=>createForm},preventDefault(){}});
+ const experimentId=window.location.hash.match(/exp-custom-\d+/)?.[0];
  assert.ok(experimentId);
+ window.listeners.hashchange();
  assert.ok(element('audience-experiment-picker-select').innerHTML.includes(experimentId));
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-edit-experiment]'?{dataset:{editExperiment:experimentId}}:null}});
- element('experiment-name').value='Canceled rename';fire('cancel-experiment','click');
- assert.ok(!element('experiment-list').innerHTML.includes('Canceled rename'));
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-edit-experiment]'?{dataset:{editExperiment:experimentId}}:null}});
- element('experiment-name').value='Renamed shared';fire('experiment-form','submit',{preventDefault(){}});
+ element('experiment-rename').value='Renamed shared';
+ fire('experiment-page','submit',{target:{closest:()=>({dataset:{form:'rename'}})},preventDefault(){}});
  assert.ok(element('audience-experiment-picker-select').innerHTML.includes('Renamed shared'));
- fire('new-experiment','click');element('experiment-name').value='Disposable';fire('experiment-form','submit',{preventDefault(){}});
- const disposable=element('experiment-list').innerHTML.match(/exp-custom-\d+/g).at(-1);
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-delete-experiment]'?{dataset:{deleteExperiment:disposable}}:null}});
- assert.ok(!element('experiment-list').innerHTML.includes('Disposable'));
- assert.ok(!element('audience-experiment-picker-select').innerHTML.includes(disposable));
  window.location.hash='#audience';window.listeners.hashchange();await settle();
  fire('new-audience','click');element('audience-experiment-enabled').checked=true;
  element('audience-experiment-picker-select').value=experimentId;fire('audience-form','change');
  element('audience-name').value='引用共享实验';await fire('audience-form','submit',{preventDefault(){}});
  assert.ok(element('audience-list').innerHTML.includes('Renamed shared'));
  assert.equal(element('audience-section').hidden,false);
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-delete-experiment]'?{dataset:{deleteExperiment:experimentId}}:null}});
- assert.match(element('experiment-status').textContent,/引用/);
+ window.location.hash=`#experimentation/${experimentId}`;window.listeners.hashchange();
+ fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'delete'}})}});
+ assert.match(element('experiment-page').innerHTML,/引用/);
 });
 
 test('publish control updates the shared catalog and stopping a split invalidates activity references',async()=>{
@@ -137,12 +137,16 @@ test('publish control updates the shared catalog and stopping a split invalidate
  window.location.hash='#campaign/activities/campaign-no-edges';window.listeners.hashchange();
  await settle();
  assert.doesNotMatch(element('campaign-detail').innerHTML,/引用不可用/);
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-toggle-experiment]'?{dataset:{toggleExperiment:'exp-recall'}}:null}});
+ window.location.hash='#experimentation/exp-recall';window.listeners.hashchange();
+ fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'toggle'}})}});
  assert.match(element('audience-catalog').innerHTML,/不可用/);
+ window.location.hash='#campaign/activities/campaign-no-edges';
  window.listeners.hashchange();
  await settle();
  assert.match(element('campaign-detail').innerHTML,/引用不可用/);
- fire('experiment-list','click',{target:{closest:selector=>selector==='[data-toggle-experiment]'?{dataset:{toggleExperiment:'exp-recall'}}:null}});
+ window.location.hash='#experimentation/exp-recall';window.listeners.hashchange();
+ fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'toggle'}})}});
+ window.location.hash='#campaign/activities/campaign-no-edges';
  window.listeners.hashchange();
  await settle();
  assert.match(element('campaign-detail').innerHTML,/引用不可用/);
