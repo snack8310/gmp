@@ -140,6 +140,16 @@ test('v5 missing fields, invalid split and unknown coloring fail closed', () => 
   assert.deepEqual(createAudienceStore(storage).experimentColoring('exp-one'), { 'SIM-0001': 'a' });
 });
 
+test('duplicate coloring keys keep the original v5 cache and fail closed', () => {
+  const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '重复染色', runtimeStatus: 'running', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
+  const raw = JSON.stringify(valid).replace('"SIM-0001":"a"', '"SIM-0001":"a","SIM-0001":"b"');
+  const storage = memory(); storage.setItem(STORAGE_KEY, raw);
+  const store = createAudienceStore(storage);
+  assert.match(store.warning, /损坏|当前会话/);
+  store.save(store.list()[0]);
+  assert.equal(storage.getItem(STORAGE_KEY), raw);
+});
+
 test('fixtures are synthetic, unique, frozen and deterministically cover each selector', () => {
   assert.equal(MOCK_USERS.length, 240);
   assert.equal(new Set(MOCK_USERS.map(user => user.uid)).size, MOCK_USERS.length);

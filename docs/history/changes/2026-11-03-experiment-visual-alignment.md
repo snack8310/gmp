@@ -14,9 +14,9 @@
 
 | 检查 | 结果 |
 |---|---|
-| `node --test frontend/demos/operations-flow/*.test.mjs` | 84/84 通过，退出码 0 |
+| `node --test frontend/demos/operations-flow/*.test.mjs` | 前端回归通过，退出码 0 |
 | `node --check frontend/demos/operations-flow/experiment-ui.mjs`、单文件导出 | 均退出码 0；离线页面列表、新建、详情在 Chrome 中运行 |
-| `python3 test/docs/consistency_check.py`、`git diff --check` | 文档一致性 10 项通过；无空白错误 |
+| `python3 test/docs/consistency_check.py`、`git diff --check` | 文档一致性通过；无空白错误 |
 | Chrome 桌面截图对照 | 实验列表与活动列表使用相同表格、强调色和链接样式；详情无旧青绿色与阴影 |
 | Chrome 390px | 页面宽 390px、viewport 390px；表格内容宽 790px、容器宽 364px，可在容器内横向滚动 |
 | Chrome 操作 | 搜索、详情跳转、历史返回、活动返回路径及离线新建/详情均通过 |
