@@ -94,6 +94,17 @@ test('failed coloring write leaves a visible current-session warning', () => {
   assert.deepEqual(createAudienceStore({ getItem: storage.getItem, setItem: () => {} }).experimentColoring(experiment.id), {});
 });
 
+test('deleting a colored experiment removes its records and reloads cleanly', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '一次性染色', split, colored: true });
+  store.assignExperimentGroup(experiment.id, 'SIM-0001');
+  store.deleteExperiment(experiment.id);
+  const reloaded = createAudienceStore(storage);
+  assert.equal(reloaded.warning, '');
+  assert.ok(!reloaded.experiments().some(item => item.id === experiment.id));
+  assert.ok(!Object.hasOwn(JSON.parse(storage.getItem(STORAGE_KEY)).coloring, experiment.id));
+});
+
 test('v5 missing fields, invalid split and unknown coloring fail closed', () => {
   const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '新格式', runtimeStatus: 'stopped', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
   for (const payload of [
@@ -103,6 +114,7 @@ test('v5 missing fields, invalid split and unknown coloring fail closed', () => 
     { ...valid, experiments: [{ id: 'exp-one', name: '缺运行元数据', split, colored: true }] },
     { ...valid, coloring: { missing: { 'SIM-0001': 'a' } } },
     { ...valid, coloring: { 'exp-one': { 'real-uid': 'a' } } },
+    { ...valid, coloring: { 'exp-one': { 'SIM-9999': 'a' } } },
     { ...valid, coloring: { 'exp-one': { 'SIM-0001': 'unknown' } } },
   ]) {
     const storage = memory(), raw = JSON.stringify(payload);

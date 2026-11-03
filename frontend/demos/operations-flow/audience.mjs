@@ -11,6 +11,7 @@ export const MOCK_USERS = Object.freeze(Array.from({ length: 240 }, (_, id) => {
     country: ['MX', 'BR', 'CO'][id % 3], source: id % 5 === 0 ? 'whitelist' : 'app',
     lifecycle: id % 7 === 0 ? 'new' : inactiveDays >= 30 ? 'dormant' : 'active', inactiveDays });
 }));
+const MOCK_USER_IDS = new Set(MOCK_USERS.map(user => user.uid));
 export const DEFAULT_EXPERIMENTS = Object.freeze([
   Object.freeze({ id: 'exp-recall', name: '召回策略实验', runtimeStatus: 'running', generation: 0, split: DEFAULT_SPLIT, colored: false }),
   Object.freeze({ id: 'exp-onboarding', name: '新客体验实验', runtimeStatus: 'stopped', generation: 0, split: DEFAULT_SPLIT, colored: false }),
@@ -194,7 +195,7 @@ export function createAudienceStore(storage, activities = []) {
         && Object.keys(loadedColoring).every(id => loadedExperiments?.some(experiment => experiment?.id === id && experiment.colored)
           && loadedColoring[id] && typeof loadedColoring[id] === 'object' && !Array.isArray(loadedColoring[id])
           && Object.keys(loadedColoring[id]).length <= MOCK_USERS.length
-          && Object.entries(loadedColoring[id]).every(([uid, part]) => /^SIM-\d{4}$/.test(uid) && ['a', 'b', 'control'].includes(part)));
+          && Object.entries(loadedColoring[id]).every(([uid, part]) => MOCK_USER_IDS.has(uid) && ['a', 'b', 'control'].includes(part)));
       if (!completeV5Experiments || !validCollection(loadedExperiments, validateExperiment)
         || !validCollection(loadedAudiences, def => validateAudience(def, loadedExperiments))
         || (value.version === 1 && value.audiences.some(def => def.experimentId != null))
@@ -243,7 +244,7 @@ export function createAudienceStore(storage, activities = []) {
     peekExperimentGroup(id, uid) {
       const experiment = experiments.find(item => item.id === id);
       if (!experiment) throw new RangeError('实验不存在。');
-      if (!/^SIM-\d{4}$/.test(uid)) throw new RangeError('仅支持构造 SIM 用户标识。');
+      if (!MOCK_USER_IDS.has(uid)) throw new RangeError('仅支持样本池内的构造 SIM 用户标识。');
       return coloring[id]?.[uid] ?? assignGroup(uid, id, experiment.split);
     },
     assignExperimentGroup(id, uid) {
@@ -307,6 +308,7 @@ export function createAudienceStore(storage, activities = []) {
       if (index < 0) throw new RangeError('实验不存在。');
       if (definitions.some(value => value.experimentId === id) || bundles.some(value => value.experimentId === id)) throw new RangeError('实验已被人群或包引用，请先移除引用。');
       experiments.splice(index, 1);
+      delete coloring[id];
       persist();
     },
     setExperimentStatus(id, status) {
