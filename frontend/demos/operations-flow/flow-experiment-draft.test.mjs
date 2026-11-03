@@ -67,6 +67,17 @@ test('removing an activity releases its local experiment references', () => {
  assert.deepEqual(store.references('exp-demo'), []);
 });
 
+test('failed activity draft cleanup reports the persisted reference', () => {
+ const memory = storage(), store = createFlowExperimentStore(memory);
+ store.saveNode('campaign-one', node);
+ const durable = memory.values.get(FLOW_EXPERIMENT_KEY);
+ memory.setItem = () => { throw Error('quota'); };
+ assert.throws(() => store.removeActivity('campaign-one'), /当前会话|写入失败/);
+ assert.equal(memory.values.get(FLOW_EXPERIMENT_KEY), durable);
+ assert.throws(() => store.references('exp-demo'), /无法确认/);
+ assert.equal(createFlowExperimentStore(memory).references('exp-demo').length, 1);
+});
+
 test('scoped identities encode tuple boundaries instead of joining ambiguous IDs', () => {
  const left = MOCK_USERS.map(user => assignGroup(user.uid, 'a_b', DEFAULT_SPLIT, ['c', 'd']));
  const right = MOCK_USERS.map(user => assignGroup(user.uid, 'a', DEFAULT_SPLIT, ['b_c', 'd']));

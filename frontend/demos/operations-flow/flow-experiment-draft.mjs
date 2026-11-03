@@ -131,7 +131,8 @@ export function createFlowExperimentStore(storage) {
    sync();
    if (!this.canUse) throw new RangeError(warning);
    if (!Object.hasOwn(data.activities, activityId)) return;
-   const next = flowCopy(data); delete next.activities[activityId]; data = next; persist();
+   const next = flowCopy(data); delete next.activities[activityId]; data = next;
+   if (!persist()) throw new Error(warning);
   },
   coloring(activityId, nodeId) { return flowCopy(activity(activityId).coloring[nodeId] ?? {}); },
   group(activityId, node, uid, experiments, record = false) {

@@ -49,6 +49,16 @@ test('a flow consumer reads the latest experiment status from another tab', () =
   assert.equal(first.currentExperiments().find(item => item.id === 'exp-recall').runtimeStatus, 'stopped');
 });
 
+test('a flow rehearsal snapshots current definitions and entry assignment together', () => {
+  const storage = memory(), first = createAudienceStore(storage);
+  const second = createAudienceStore(storage);
+  second.updateExperimentSplit('exp-recall', { a: 0, b: 100, control: 0 });
+  assert.notDeepEqual(first.experiments().find(item => item.id === 'exp-recall').split, { a: 0, b: 100, control: 0 });
+  const snapshot = first.currentExperimentSnapshot();
+  assert.deepEqual(snapshot.experiments.find(item => item.id === 'exp-recall').split, { a: 0, b: 100, control: 0 });
+  assert.equal(snapshot.peekExperimentGroup('exp-recall', 'SIM-0001'), 'b');
+});
+
 test('invalid update preserves experiment and published bundle availability', () => {
   const store = createAudienceStore(memory());
   const before = store.experiments();

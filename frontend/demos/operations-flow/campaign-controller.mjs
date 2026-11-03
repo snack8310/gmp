@@ -138,7 +138,7 @@ export function mountCampaigns({ api, audienceStore, flowDraftStore, onNavigate,
     await api.delete(button.dataset.deleteActivity);
     let note = '活动已删除。';
     try { flowDraftStore.removeActivity(button.dataset.deleteActivity); }
-    catch { note = '活动已删除；本地实验草稿损坏，引用记录未能清理。'; }
+    catch (failure) { note = `活动已删除；本地实验引用未能清理：${failure.message}`; }
     await changed(note, 'activities', version);
    }
    catch (failure) { if (serial === version) status(`删除失败：${failure.message}`); }

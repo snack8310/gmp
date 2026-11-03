@@ -497,17 +497,21 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   else {
    if (graph.draftNodes?.length) {
     try {
-     const definitions = currentExperiments();
+     const snapshot = experimentStore.currentExperimentSnapshot?.() ?? {
+      experiments: currentExperiments(), bundles: experimentStore.bundles(),
+      peekExperimentGroup: (id, uid) => experimentStore.peekExperimentGroup(id, uid),
+     };
+     const definitions = snapshot.experiments;
      const latestGraph = composeFlowExperimentGraph(activity, actions, references, definitions, draftStore.nodes(activity.id));
      if (!latestGraph.canRehearse) {
       q('[data-flow-note]').textContent = latestGraph.readinessIssue || '实验引用不可用，请修复后演练。';
       q('.flow-save-status').textContent = q('[data-flow-note]').textContent;
       return;
      }
-     const bundle = activity.audience?.type === 'bundle' ? experimentStore.bundles().find(item => item.id === activity.audience.bundleId) : null;
+     const bundle = activity.audience?.type === 'bundle' ? snapshot.bundles.find(item => item.id === activity.audience.bundleId) : null;
      const result = simulateFlowRuns(latestGraph, MOCK_USERS.slice(0, 12),
       (node, uid) => draftStore.group(activity.id, node, uid, definitions, true),
-      (groupId, uid) => !bundle || experimentStore.peekExperimentGroup(bundle.experimentId, uid) === bundle.arms.find(arm => arm.groupId === groupId)?.part);
+      (groupId, uid) => !bundle || snapshot.peekExperimentGroup(bundle.experimentId, uid) === bundle.arms.find(arm => arm.groupId === groupId)?.part);
      runs = result.runs; visits = result.visits;
      duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
      if (draftStore.warning) { q('[data-flow-note]').textContent = draftStore.warning; q('.flow-save-status').textContent = draftStore.warning; }

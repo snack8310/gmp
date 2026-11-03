@@ -243,6 +243,16 @@ export function createAudienceStore(storage, activities = []) {
       const current = createAudienceStore(storage);
       return current.isUsable ? current.experiments() : [];
     },
+    currentExperimentSnapshot() {
+      if (!usable) throw new RangeError(warning);
+      const current = createAudienceStore(storage);
+      if (!current.isUsable) throw new RangeError(current.warning);
+      return {
+        experiments: current.experiments(),
+        bundles: current.bundles(),
+        peekExperimentGroup: (id, uid) => current.peekExperimentGroup(id, uid),
+      };
+    },
     get isUsable() { return usable; },
     bundles: () => clone(bundles),
     experimentColoring: id => {

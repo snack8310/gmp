@@ -29,6 +29,17 @@ test('missing reference, broken anchor, unreachable treatment and cycles block r
  assert.match(composeFlowExperimentGraph(activity, actions, refs, experiments, [{ ...draft, routes: { a: 'treatment-one', b: 'treatment-two', control: 'flow-terminal' } }]).readinessIssue, /循环/);
 });
 
+test('a draft branch cannot route into an audience bundle entry', () => {
+ const bundle = { ...activity, audience: { type: 'bundle', bundleId: 'bundle-one' }, activityFlow: { ...activity.activityFlow,
+  entries: [{ groupId: 'arm-a', kind: 'start', treatmentIds: ['treatment-one'] }, { groupId: 'arm-b', kind: 'start', treatmentIds: ['treatment-two'] }, { groupId: 'arm-control', kind: 'control', treatmentIds: [] }], edges: [] } };
+ const bundleRefs = ['a', 'b', 'control'].map(part => ({ type: 'arm', bundleId: 'bundle-one', groupId: `arm-${part}`, part, armName: part, available: true }));
+ const first = sign(bundle, bundleRefs, [], { ...draft, anchorId: 'entry:arm-a:treatment-one',
+  routes: { a: 'treatment-one', b: 'entry:arm-b', control: 'flow-terminal' } });
+ const graph = composeFlowExperimentGraph(bundle, actions, bundleRefs, experiments, [first]);
+ assert.equal(graph.canRehearse, false);
+ assert.match(graph.readinessIssue, /去向/);
+});
+
 test('an API edge retaining its ID cannot silently move a local experiment to a changed path', () => {
  const changed = { ...activity, activityFlow: { ...activity.activityFlow,
   edges: [{ ...activity.activityFlow.edges[0], conditionLabel: '失败' }] } };

@@ -40,8 +40,9 @@ export function composeFlowExperimentGraph(activity, actions, references, experi
   const id = `flow-experiment:${draft.id}`;
   const targetSet = new Set(flowGraphParts.map(part => draft.routes?.[part]));
   if (targetSet.has(undefined) || targetSet.has(null)) { issues.push(`节点 ${draft.id} 的三组去向未配齐。`); continue; }
-  const missing = [...targetSet].filter(target => target !== flowTerminal && !byId.has(target) && !draftNodes.some(other => `flow-experiment:${other.id}` === target));
-  if (missing.length) { issues.push(`节点 ${draft.id} 的去向已不存在，请重新连接。`); continue; }
+  const invalid = [...targetSet].filter(target => target !== flowTerminal && !['treatment', 'experiment'].includes(byId.get(target)?.kind)
+   && !draftNodes.some(other => `flow-experiment:${other.id}` === target));
+  if (invalid.length) { issues.push(`节点 ${draft.id} 的去向无效或已不存在，请重新连接。`); continue; }
   const x = (byId.get(anchor.from)?.x + byId.get(anchor.to)?.x) / 2 || 0;
   const z = (byId.get(anchor.from)?.z + byId.get(anchor.to)?.z) / 2 || 0;
   const node = { id, name: experiment?.name || draft.experimentId, kind: 'experiment', x, z, w: 80, d: 74, h: 44,
