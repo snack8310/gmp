@@ -8,7 +8,7 @@ test('activity, audience and experimentation are independent top-level routes', 
   screen: 'global', module: 'audience', returnTo: null, activityId: null, domain: null, campaignRoute: '',
  });
  assert.deepEqual(parseActivityRoute('#experimentation'), {
-  screen: 'global', module: 'experimentation', returnTo: null, activityId: null, domain: null, campaignRoute: '',
+  screen: 'global', module: 'experimentation', returnTo: null, activityId: null, domain: null, campaignRoute: '', assetView: 'list', experimentId: null,
  });
 });
 
@@ -50,7 +50,7 @@ test('old activity asset routes return to the activity and old top-level domains
   screen: 'global', module: 'audience', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '',
  });
  assert.deepEqual(parseActivityRoute('#activities/campaign-branch/experimentation'), {
-  screen: 'global', module: 'experimentation', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '',
+  screen: 'global', module: 'experimentation', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '', assetView: 'list', experimentId: null,
  });
  assert.equal(parseActivityRoute('#campaign').screen, 'list');
  assert.equal(parseActivityRoute('#compose').screen, 'list');
@@ -72,4 +72,16 @@ test('old activity details, malformed IDs and unknown workspace domains have exp
  assert.equal(parseActivityRoute('#activities/campaign-branch/campaign/treatments/%ZZ/edit').screen, 'invalid');
  assert.throws(() => activityRoute('', 'campaign'), TypeError);
  assert.throws(() => activityRoute('campaign-branch', 'audience'), TypeError);
+});
+
+test('experiment list, new and detail routes preserve return and decode one ID segment', () => {
+ const suffix = '?return=activities%2Fcampaign-branch%2Fcampaign';
+ assert.deepEqual(parseActivityRoute('#experimentation/new' + suffix), {
+  screen: 'global', module: 'experimentation', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '', assetView: 'new', experimentId: null,
+ });
+ assert.deepEqual(parseActivityRoute('#experimentation/exp-custom' + suffix), {
+  screen: 'global', module: 'experimentation', returnTo: 'activities/campaign-branch/campaign', activityId: null, domain: null, campaignRoute: '', assetView: 'detail', experimentId: 'exp-custom',
+ });
+ assert.equal(parseActivityRoute('#experimentation/%ZZ').experimentId, null);
+ assert.equal(parseActivityRoute('#experimentation/exp-custom/extra').experimentId, null);
 });

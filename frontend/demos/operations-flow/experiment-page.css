@@ -1,0 +1,36 @@
+#experiment-page{min-width:0}
+.experiment-primary-link{white-space:nowrap}
+#experiment-search{width:230px}
+.experiment-table{min-width:790px}
+.experiment-table th:first-child{width:26%}
+.experiment-table td:nth-child(3){white-space:nowrap}
+.experiment-empty{color:var(--muted);text-align:center;padding:28px!important}
+.experiment-badge{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border:1px solid var(--line);border-radius:var(--ui-radius-control);background:var(--soft);color:var(--secondary);font-size:12px;white-space:nowrap}
+.experiment-badge.running{color:var(--ink)}
+.experiment-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.experiment-actions [data-action=delete]{border-color:#e8c4bc;color:#9b2c20}
+.experiment-detail-grid{display:grid;gap:var(--ui-section-gap)}
+.experiment-panel{min-width:0;margin:0}
+.experiment-panel p{font-size:12px;line-height:1.7;color:var(--secondary)}
+.experiment-inline{display:flex;gap:8px;margin:8px 0}
+.experiment-inline input{flex:1;min-width:0}
+.experiment-split-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.experiment-field{display:grid;gap:7px;font-size:12px;color:var(--secondary)}
+.experiment-field input{width:100%}
+.experiment-panel-head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.experiment-panel-head p{margin:0}
+.experiment-sample-picker{display:grid;gap:5px;font-size:11px;color:var(--secondary)}
+.experiment-sample-picker select{min-width:110px}
+.experiment-create{max-width:700px}
+.experiment-create form{display:grid;gap:12px}
+.experiment-create form>input{width:100%}
+.experiment-create fieldset{display:flex;gap:var(--ui-section-gap);border:1px solid var(--line);border-radius:var(--ui-radius-control);padding:12px}
+.experiment-create fieldset label{display:flex;align-items:center;gap:6px;font-size:12px}
+.experiment-create input[type=radio]{min-height:auto}
+.experiment-create button{justify-self:start}
+.experiment-panel .sample-table{width:100%}
+@media(max-width:700px){
+ .experiment-page-head,.experiment-panel-head{align-items:flex-start;flex-direction:column}
+ .experiment-split-fields{grid-template-columns:1fr}
+ .experiment-create fieldset{flex-direction:column;gap:10px}
+}

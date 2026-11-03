@@ -45,10 +45,11 @@ test('list and detail show one activity audience, action treatments and the orig
  assert.match(detail, /id="activity-flow-canvas"/);
  assert.match(detail, /投放项定义活动里的动作；入口分配和后续回执路径在下方活动流程画布配置。/);
  assert.match(detail, /受众库 · 新建或管理/);
- assert.match(detail, /实验库 · 新建或管理/);
+ assert.doesNotMatch(detail, /实验库 · 新建或管理|href="#experimentation\?return=/);
  assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/edit">编辑活动<\/a>/);
  assert.match(editableDetail, /<a class="primary-link" href="#activities\/campaign-branch\/campaign\/treatments\/new">＋ 添加投放项<\/a>/);
  assert.match(editableDetail, /href="#audience\?return=activities%2Fcampaign-branch%2Fcampaign"/);
+ assert.doesNotMatch(editableDetail, /href="#experimentation\?return=/);
 });
 
 test('empty and unavailable states stay explicit without changing stable audience IDs', () => {

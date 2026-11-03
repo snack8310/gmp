@@ -3,6 +3,171 @@ import assert from 'node:assert/strict';
 import { MOCK_USERS, DEFAULT_AUDIENCES, DEFAULT_EXPERIMENTS, validateExperiment, validateEntry, summarizeEntry, STORAGE_KEY, validateAudience, filterAudience, summarizeRules, assignGroup, createAudienceStore } from './audience.mjs';
 const base = () => structuredClone(DEFAULT_AUDIENCES[0]);
 const memory = () => { const data = new Map(); return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) }; };
+const split = { a: 45, b: 45, control: 10 };
+const draftExperiment = name => ({ name, split, colored: false });
+
+test('new experiment requires valid split and explicit coloring choice', () => {
+  const store = createAudienceStore(memory());
+  const before = store.experiments();
+  for (const invalid of [undefined, null, {}, { a: 50, b: 50, control: 1 }, { a: 50.5, b: 49.5, control: 0 }, { a: -1, b: 101, control: 0 }]) {
+    assert.throws(() => store.saveExperiment({ name: '错误比例', split: invalid, colored: false }), RangeError);
+  }
+  assert.throws(() => store.saveExperiment({ name: '未选染色', split }), RangeError);
+  assert.deepEqual(store.experiments(), before);
+  const saved = store.saveExperiment(draftExperiment('可创建'));
+  assert.deepEqual(saved.split, split);
+  assert.equal(saved.colored, false);
+});
+
+test('peek is read-only; first assignment survives split changes and reload', () => {
+  const storage = memory();
+  const store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '染色实验', split: { a: 100, b: 0, control: 0 }, colored: true });
+  assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+  assert.deepEqual(store.experimentColoring(experiment.id), {});
+  const raw = storage.getItem(STORAGE_KEY);
+  assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0002'), 'a');
+  assert.equal(storage.getItem(STORAGE_KEY), raw);
+  store.setExperimentStatus(experiment.id, 'running');
+  assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+  const generation = store.experiments().find(item => item.id === experiment.id).generation;
+  store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 });
+  assert.equal(store.experiments().find(item => item.id === experiment.id).generation, generation);
+  assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+  assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0002'), 'b');
+  assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0002'), 'b');
+  assert.deepEqual(createAudienceStore(storage).experimentColoring(experiment.id), { 'SIM-0001': 'a', 'SIM-0002': 'b' });
+  assert.throws(() => store.saveExperiment({ ...experiment, colored: false }), RangeError);
+});
+
+test('invalid update preserves experiment and published bundle availability', () => {
+  const store = createAudienceStore(memory());
+  const before = store.experiments();
+  const catalog = store.catalog();
+  assert.throws(() => store.updateExperimentSplit('exp-recall', { a: 70, b: 20, control: 20 }), RangeError);
+  assert.deepEqual(store.experiments(), before);
+  store.updateExperimentSplit('exp-recall', { a: 50, b: 40, control: 10 });
+  assert.equal(store.experiments()[0].generation, before[0].generation);
+  assert.deepEqual(store.catalog(), catalog);
+  assert.throws(() => store.assignExperimentGroup('exp-recall', 'real-user-id'), RangeError);
+});
+
+test('v4 migration backs up raw bytes before first v5 write and failed backup keeps raw', () => {
+  const storage = memory();
+  const raw = JSON.stringify({ version: 4, audiences: [base()], experiments: [{ id: 'exp-old', name: '旧实验' }], bundles: [] });
+  storage.setItem(STORAGE_KEY, raw);
+  const store = createAudienceStore(storage);
+  assert.equal(storage.getItem(STORAGE_KEY), raw);
+  assert.deepEqual(store.experiments()[0].split, split);
+  assert.equal(store.experiments()[0].colored, false);
+  store.save(store.list()[0]);
+  assert.equal(storage.getItem(`${STORAGE_KEY}-backup-v4`), raw);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
+  const denied = { getItem: key => key === STORAGE_KEY ? raw : null, setItem: key => { if (key.includes('backup')) throw new Error('quota'); } };
+  const failed = createAudienceStore(denied);
+  failed.save(failed.list()[0]);
+  assert.match(failed.warning, /当前会话/);
+  assert.equal(denied.getItem(STORAGE_KEY), raw);
+});
+
+test('a stale backup is replaced with the exact legacy raw before a new upgrade', () => {
+  const storage = memory();
+  const raw = JSON.stringify({ version: 4, audiences: [base()], experiments: [{ id: 'exp-old', name: '再次修改的旧实验' }], bundles: [] });
+  storage.setItem(STORAGE_KEY, raw);
+  storage.setItem(`${STORAGE_KEY}-backup-v4`, 'stale backup');
+  const store = createAudienceStore(storage);
+  store.setExperimentStatus('exp-old', 'running');
+  assert.equal(storage.getItem(`${STORAGE_KEY}-backup-v4`), raw);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
+});
+
+test('failed coloring write leaves a visible current-session warning', () => {
+  let fail = false;
+  const storage = memory();
+  const originalSet = storage.setItem;
+  storage.setItem = (key, value) => { if (fail) throw new Error('quota'); originalSet(key, value); };
+  const store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '染色写入失败', split, colored: true });
+  store.setExperimentStatus(experiment.id, 'running');
+  fail = true;
+  assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), store.peekExperimentGroup(experiment.id, 'SIM-0001'));
+  assert.match(store.warning, /当前会话/);
+  assert.deepEqual(createAudienceStore({ getItem: storage.getItem, setItem: () => {} }).experimentColoring(experiment.id), {});
+});
+
+test('deleting a colored experiment removes its records and reloads cleanly', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '一次性染色', split, colored: true });
+  store.setExperimentStatus(experiment.id, 'running');
+  store.assignExperimentGroup(experiment.id, 'SIM-0001');
+  store.deleteExperiment(experiment.id);
+  const reloaded = createAudienceStore(storage);
+  assert.equal(reloaded.warning, '');
+  assert.ok(!reloaded.experiments().some(item => item.id === experiment.id));
+  assert.ok(!Object.hasOwn(JSON.parse(storage.getItem(STORAGE_KEY)).coloring, experiment.id));
+});
+
+test('a reserved-word experiment ID keeps coloring in its own record without prototype mutation', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ id: '__proto__', name: '特殊 ID', split: { a: 100, b: 0, control: 0 }, colored: true });
+  try {
+    store.setExperimentStatus(experiment.id, 'running');
+    assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+    assert.equal(Object.hasOwn(Object.prototype, 'SIM-0001'), false);
+    assert.deepEqual(store.experimentColoring(experiment.id), { 'SIM-0001': 'a' });
+    store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 });
+    assert.equal(createAudienceStore(storage).peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
+  } finally { delete Object.prototype['SIM-0001']; }
+});
+
+test('stopped experiments reject split updates and simulated coloring writes', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '未运行实验', split, colored: true });
+  const before = storage.getItem(STORAGE_KEY);
+  assert.throws(() => store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 }), /运行中/);
+  assert.throws(() => store.assignExperimentGroup(experiment.id, 'SIM-0001'), /运行中/);
+  assert.equal(storage.getItem(STORAGE_KEY), before);
+  assert.deepEqual(store.experimentColoring(experiment.id), {});
+  store.setExperimentStatus(experiment.id, 'running');
+  store.assignExperimentGroup(experiment.id, 'SIM-0001');
+  store.setExperimentStatus(experiment.id, 'stopped');
+  const stopped = storage.getItem(STORAGE_KEY);
+  assert.throws(() => store.assignExperimentGroup(experiment.id, 'SIM-0002'), /运行中/);
+  assert.equal(storage.getItem(STORAGE_KEY), stopped);
+});
+
+test('v5 missing fields, invalid split and unknown coloring fail closed', () => {
+  const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '新格式', runtimeStatus: 'stopped', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
+  for (const payload of [
+    { ...valid, coloring: undefined },
+    { ...valid, bundles: undefined },
+    { ...valid, experiments: [{ ...valid.experiments[0], split: { a: 50, b: 50, control: 50 } }] },
+    { ...valid, experiments: [{ id: 'exp-one', name: '缺运行元数据', split, colored: true }] },
+    { ...valid, coloring: { missing: { 'SIM-0001': 'a' } } },
+    { ...valid, coloring: { 'exp-one': { 'real-uid': 'a' } } },
+    { ...valid, coloring: { 'exp-one': { 'SIM-9999': 'a' } } },
+    { ...valid, coloring: { 'exp-one': { 'SIM-0001': 'unknown' } } },
+  ]) {
+    const storage = memory(), raw = JSON.stringify(payload);
+    storage.setItem(STORAGE_KEY, raw);
+    const store = createAudienceStore(storage);
+    assert.match(store.warning, /当前会话/);
+    store.save(store.list()[0]);
+    assert.equal(storage.getItem(STORAGE_KEY), raw);
+  }
+  const storage = memory(); storage.setItem(STORAGE_KEY, JSON.stringify(valid));
+  assert.deepEqual(createAudienceStore(storage).experimentColoring('exp-one'), { 'SIM-0001': 'a' });
+});
+
+test('duplicate coloring keys keep the original v5 cache and fail closed', () => {
+  const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '重复染色', runtimeStatus: 'running', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
+  const raw = JSON.stringify(valid).replace('"SIM-0001":"a"', '"SIM-0001":"a","SIM-0001":"b"');
+  const storage = memory(); storage.setItem(STORAGE_KEY, raw);
+  const store = createAudienceStore(storage);
+  assert.match(store.warning, /损坏|当前会话/);
+  store.save(store.list()[0]);
+  assert.equal(storage.getItem(STORAGE_KEY), raw);
+});
 
 test('fixtures are synthetic, unique, frozen and deterministically cover each selector', () => {
   assert.equal(MOCK_USERS.length, 240);
@@ -91,7 +256,7 @@ test('a valid empty saved list stays empty, new IDs remain unique', () => {
 test('experiments are reusable independent identities, renaming keeps assignments', () => {
   const storage = memory(), store = createAudienceStore(storage);
   assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
-  const experiment = store.saveExperiment({ name: '  新实验  ' });
+  const experiment = store.saveExperiment(draftExperiment('  新实验  '));
   assert.equal(experiment.name, '新实验');
   const first = store.save({ ...base(), id: '', experimentId: experiment.id });
   const second = store.save({ ...base(), id: '', experimentId: experiment.id });
@@ -112,7 +277,7 @@ test('experiments are reusable independent identities, renaming keeps assignment
 
 test('deleting an experiment protects saved references and persists removal', () => {
   const storage = memory(), store = createAudienceStore(storage);
-  const experiment = store.saveExperiment({ name: '待删除实验' });
+  const experiment = store.saveExperiment(draftExperiment('待删除实验'));
   const audience = store.save({ ...base(), experimentId: experiment.id });
   assert.throws(() => store.deleteExperiment(experiment.id), /引用/);
   assert.equal(store.experiments().at(-1).id, experiment.id);
@@ -147,7 +312,7 @@ test('experiment validation and orphan references fail before any mutation', () 
   assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
 });
 
-test('v1 caches migrate without writes and default to stopped experiments; explicit save writes v4', () => {
+test('v1 caches migrate without writes and default to stopped experiments; explicit save writes v5', () => {
   const storage = memory();
   const oldAudience = base(); delete oldAudience.experimentId; delete oldAudience.entry;
   const raw = JSON.stringify({ version: 1, audiences: [oldAudience] });
@@ -158,7 +323,7 @@ test('v1 caches migrate without writes and default to stopped experiments; expli
   assert.deepEqual(store.bundles(), []);
   assert.equal(storage.getItem(STORAGE_KEY), raw);
   store.save(store.list()[0]);
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
   assert.deepEqual(createAudienceStore(storage).list(), store.list());
 });
 
@@ -175,7 +340,7 @@ test('corrupt v2 experiments or orphan references fall back atomically without o
     assert.match(store.warning, /当前会话/);
     assert.deepEqual(store.list(), DEFAULT_AUDIENCES);
     assert.deepEqual(store.experiments(), DEFAULT_EXPERIMENTS);
-    store.saveExperiment({ name: '仅本会话' });
+    store.saveExperiment(draftExperiment('仅本会话'));
     assert.equal(storage.getItem(STORAGE_KEY), raw);
   }
 });
@@ -209,7 +374,7 @@ test('entry normalization keeps only chosen branch and returns deep isolated val
   assert.deepEqual(batch.entry, { mode: 'batch', schedule: { type: 'manual' } });
   batch.entry.schedule.type = 'daily';
   assert.deepEqual(createAudienceStore(storage).list()[0].entry, { mode: 'batch', schedule: { type: 'manual' } });
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
   assert.throws(() => { DEFAULT_AUDIENCES[1].entry.schedule.time = '00:00'; }, TypeError);
 });
 
@@ -225,7 +390,7 @@ test('v2 migration preserves experiment identity, warns clearly and leaves origi
   assert.equal(storage.getItem(STORAGE_KEY), raw);
   store.save(store.list()[0]);
   assert.equal(store.warning, '');
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
   assert.deepEqual(createAudienceStore(storage).list(), store.list());
 });
 
@@ -275,7 +440,7 @@ test('published identity survives reload; stop invalidates old arms without revi
   const audience = store.list().find(item => item.id === 'aud-mx-dormant');
   const arms = ['a', 'b', 'control'].map(part => ({ part, name: part, audienceId: audience.id }));
   const bundle = store.publishBundle({ name: '持久包', experimentId: 'exp-recall', arms });
-  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
   assert.deepEqual(createAudienceStore(storage).bundles().find(item => item.id === bundle.id), bundle);
   store.setExperimentStatus('exp-recall', 'stopped');
   assert.ok(store.catalog().filter(item => item.bundleId === bundle.id).every(item => !item.available));
@@ -323,7 +488,7 @@ test('v2-v4 missing runtime is stopped and damaged cache is never overwritten', 
     assert.deepEqual(store.bundles(), []);
     assert.equal(storage.getItem(STORAGE_KEY), raw);
     store.save(store.list()[0]);
-    assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 4);
+    assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
   }
   for (const raw of ['{broken', JSON.stringify({ version: 99, audiences: [] }), JSON.stringify({ version: 4, audiences: [base()], experiments: [{ id: 'exp-recall', name: '旧分流' }], bundles: null })]) {
     const storage = memory(); storage.setItem(STORAGE_KEY, raw);

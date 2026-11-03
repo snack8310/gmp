@@ -1,4 +1,4 @@
-import { MOCK_USERS, createAudienceStore, groupIdOf, validateAudience, filterAudience, summarizeRules, assignGroup, summarizeEntry } from './audience.mjs';
+import { MOCK_USERS, createAudienceStore, groupIdOf, validateAudience, filterAudience, summarizeRules, summarizeEntry } from './audience.mjs';
 import { mountExperimentPicker, escapeHTML } from './experiment-ui.mjs';
 import { referenceKey } from './campaign-ui.mjs';
 
@@ -72,8 +72,8 @@ export function mountAudiences({ api, onSaved = () => {}, onDeleted = () => {}, 
   el('preview-bar').style.width = `${users.length/MOCK_USERS.length*100}%`;
   el('preview-ratio').textContent = ruleErrors.length ? '请先修正规则，再预览人数。' : `占模拟样本池 ${(users.length/MOCK_USERS.length*100).toFixed(1)}% / ${MOCK_USERS.length} 位`;
   const experiment=store.experiments().find(e=>e.id===value.experimentId);
-  const groups={a:0,b:0,control:0};if(experiment)for(const user of users)groups[assignGroup(user.uid,experiment.id)]++;
-  el('preview-assignment').textContent=experiment?`引用 ${experiment.name} · 分母 ${users.length} 位符合条件用户 → A ${groups.a} / B ${groups.b} / 对照 ${groups.control}（不触达）`:el('audience-experiment-enabled').checked?'请选择实验后预览分配。':'未引用实验 · 符合条件用户不做分组';
+  const groups={a:0,b:0,control:0};if(experiment)for(const user of users)groups[store.peekExperimentGroup(experiment.id,user.uid)]++;
+  el('preview-assignment').textContent=experiment?`引用 ${experiment.name} · 当前比例 A ${experiment.split.a}% / B ${experiment.split.b}% / 对照 ${experiment.split.control}% · 分母 ${users.length} 位符合条件用户 → A ${groups.a} / B ${groups.b} / 对照 ${groups.control}（只读预测，不触达）`:el('audience-experiment-enabled').checked?'请选择实验后预览分配。':'未引用实验 · 符合条件用户不做分组';
   el('preview-rules').textContent = ruleErrors.length ? '条件暂不可计算' : summarizeRules(value.rules);
   el('preview-message').textContent = ruleErrors.length ? ruleErrors.join('；') : users.length ? value.entry.mode==='event'?'以下是可判定资格样本，不是已收到的事件或真实进入人数；不模拟事件分发。':'所有条件同时满足，以下是符合条件的构造样本。' : '当前条件没有匹配用户。可放宽条件，或保存这个空人群。';
   el('preview-samples').innerHTML = users.slice(0,6).map(u=>`<tr><td>${escapeHTML(u.uid)}</td><td>${escapeHTML(u.country)}</td><td>${lifecycleLabel[u.lifecycle]}</td><td>${u.inactiveDays} 天</td></tr>`).join('') || '<tr><td colspan="4">暂无可展示样本</td></tr>';
