@@ -93,6 +93,17 @@ test('a new node can be inserted before an existing node on an occupied entry pa
  assert.deepEqual(result.runs[0].path.slice(0, 3), ['audience:activity', 'flow-experiment:node-before', 'flow-experiment:node-one']);
 });
 
+test('rerouting an upstream branch cannot leave a downstream experiment unreachable', () => {
+ const existing = sign(activity, refs, [], { ...draft, anchorId: 'entry:group-one:treatment-one',
+  routes: { a: 'treatment-one', b: 'flow-terminal', control: 'flow-terminal' } });
+ const upstream = sign(activity, refs, [existing], { id: 'node-before', experimentId: 'exp-one', anchorId: 'experiment-in:node-one',
+  routes: { a: 'flow-experiment:node-one', b: 'flow-terminal', control: 'flow-terminal' } });
+ const changed = { ...upstream, routes: { ...upstream.routes, a: 'treatment-one' } };
+ const graph = composeFlowExperimentGraph(activity, actions, refs, experiments, [existing, changed]);
+ assert.match(graph.readinessIssue, /节点 node-one.*不可达/);
+ assert.equal(graph.canRehearse, false);
+});
+
 test('one UID entering by multiple paths is counted once per node but each arrival remains visible', () => {
  const parallel = { ...activity, treatments: [{ id: 'treatment-one', name: '投放一', actionId: 'action-one' }],
   activityFlow: { id: 'flow-one', entries: [{ groupId: 'group-one', kind: 'start', treatmentIds: ['treatment-one'] }], edges: [] } };

@@ -156,6 +156,22 @@ test('a failed API read after canvas unmount does not write to removed elements'
  await assert.doesNotReject(playing);
 });
 
+test('a damaged local draft shows its original-data warning and disables rehearsal', async () => {
+ const values = new Map([[FLOW_EXPERIMENT_KEY, '{broken']]);
+ const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const draftStore = createFlowExperimentStore(storage), experimentStore = { experiments: () => [experiment], bundles: () => [] };
+ const listRoot = { innerHTML: '', addEventListener() {}, removeEventListener() {} };
+ mountFlowExperiments({ root: listRoot, activity, actions, references, experimentStore, draftStore, onChange() {} });
+ assert.match(listRoot.innerHTML, /草稿损坏|原文已保留/);
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ mountActivityFlowCanvas({ root, activity, actions, references, api: { get: async () => activity }, draftStore, experimentStore });
+ assert.equal(element('[data-flow-play]').disabled, true);
+ await element('[data-flow-play]').listeners.click();
+ assert.notEqual(element('[data-play-state]').textContent, '本地演练中');
+ assert.equal(values.get(FLOW_EXPERIMENT_KEY), '{broken');
+});
+
 test('playback refuses a definition stopped in another tab', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage);

@@ -75,6 +75,10 @@ export function composeFlowExperimentGraph(activity, actions, references, experi
   const id = queue.shift(); if (reachable.has(id)) continue; reachable.add(id);
   queue.push(...outgoing.get(id) || []);
  }
+ for (const draft of draftNodes) {
+  const id = `flow-experiment:${draft.id}`;
+  if (byId.has(id) && !reachable.has(id)) issues.push(`实验节点 ${draft.id} 不可达，请重新连接。`);
+ }
  const baseNext = new Map(base.nodes.map(item => [item.id, base.connections.filter(edge => edge.from === item.id).map(edge => edge.to)]));
  const originallyReachable = new Set(), baseQueue = base.audienceNode ? [base.audienceNode.id] : [];
  while (baseQueue.length) {
