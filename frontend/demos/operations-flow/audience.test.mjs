@@ -40,6 +40,15 @@ test('peek is read-only; first assignment survives split changes and reload', ()
   assert.throws(() => store.saveExperiment({ ...experiment, colored: false }), RangeError);
 });
 
+test('a flow consumer reads the latest experiment status from another tab', () => {
+  const storage = memory();
+  const first = createAudienceStore(storage);
+  const second = createAudienceStore(storage);
+  second.setExperimentStatus('exp-recall', 'stopped');
+  assert.equal(first.experiments().find(item => item.id === 'exp-recall').runtimeStatus, 'running');
+  assert.equal(first.currentExperiments().find(item => item.id === 'exp-recall').runtimeStatus, 'stopped');
+});
+
 test('invalid update preserves experiment and published bundle availability', () => {
   const store = createAudienceStore(memory());
   const before = store.experiments();

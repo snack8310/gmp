@@ -2,14 +2,15 @@ import { escapeHTML } from './experiment-ui.mjs';
 import { referenceKey, renderActivitiesList, renderActivityDetail, validateTreatmentDraft } from './campaign-ui.mjs';
 import { assetRoute } from './activity-routing.mjs';
 import { mountActivityFlowCanvas } from './activity-flow-canvas.mjs';
+import { mountFlowExperiments } from './flow-experiment-ui.mjs';
 
 const url = id => encodeURIComponent(id);
 
-export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
+export function mountCampaigns({ api, audienceStore, flowDraftStore, onNavigate, onChanged }) {
  const safe = value => escapeHTML(String(value ?? ''));
  const el = id => document.getElementById(id);
  const section = el('campaign-section');
- let serial = 0, activity = null, treatment = null, actions = [], serverRefs = [], destroyFlowCanvas = () => {};
+ let serial = 0, activity = null, treatment = null, actions = [], serverRefs = [], destroyFlowCanvas = () => {}, destroyFlowExperiments = () => {};
  const references = () => audienceStore.catalog().map(local => {
   const remote = serverRefs.find(item => referenceKey(item) === referenceKey(local));
   return { ...local, available: Boolean(local.available && remote?.available) };
@@ -51,6 +52,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
 
  async function render(route) {
   destroyFlowCanvas(); destroyFlowCanvas = () => {};
+  destroyFlowExperiments(); destroyFlowExperiments = () => {};
   const request = ++serial;
   const parts = route.split('/');
   const view = route === 'campaign/activities' ? 'list' : route === 'campaign/activities/new' || parts[3] === 'edit' || parts[3] === 'treatments' ? 'edit' : parts.length === 3 && parts[0] === 'campaign' && parts[1] === 'activities' ? 'detail' : 'overview';
@@ -84,8 +86,17 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
    if (view === 'detail') {
     target.innerHTML = renderActivityDetail(id, [activity], audienceStore.catalog(), true, actions, serverRefs, request);
     const canvasRoot = target.querySelector?.('#activity-flow-canvas');
-    if (canvasRoot?.querySelector) destroyFlowCanvas = mountActivityFlowCanvas({ root: canvasRoot, activity, actions, references: references(), api,
-     onSaved: () => changed('活动流程边已保存。', `activities/${url(activity.id)}/campaign`, request) });
+    const experimentRoot = target.querySelector?.('#activity-flow-experiments');
+    const redraw = () => {
+     destroyFlowCanvas();
+     if (canvasRoot?.querySelector) destroyFlowCanvas = mountActivityFlowCanvas({ root: canvasRoot, activity, actions, references: references(), api,
+      experimentStore: audienceStore, draftStore: flowDraftStore,
+      onExperimentAction: (action, nodeId) => experimentRoot?.querySelector?.(`[data-flow-${action}="${nodeId}"]`)?.click?.(),
+      onSaved: () => changed('活动流程边已保存。', `activities/${url(activity.id)}/campaign`, request) });
+    };
+    redraw();
+    destroyFlowExperiments = mountFlowExperiments({ root: experimentRoot, activity, actions,
+     references: references(), experimentStore: audienceStore, draftStore: flowDraftStore, onChange: redraw });
    }
    else if (parts[3] === 'edit' && parts.length === 4) activityEditor(request);
    else if (parts[3] === 'treatments' && (parts[4] === 'new' || parts[5] === 'edit')) {
@@ -100,6 +111,7 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
 
  function clear() {
   destroyFlowCanvas(); destroyFlowCanvas = () => {};
+  destroyFlowExperiments(); destroyFlowExperiments = () => {};
   serial++;
   activity = null; treatment = null;
   for (const id of ['campaign-overview', 'campaign-activities', 'campaign-detail', 'campaign-editor']) el(id).hidden = true;
@@ -122,7 +134,13 @@ export function mountCampaigns({ api, audienceStore, onNavigate, onChanged }) {
    if (!isCurrentControl(button)) return;
    if (!window.confirm('删除整项活动及其投放项、活动流程边？')) return;
    const version = serial;
-   try { await api.delete(button.dataset.deleteActivity); await changed('活动已删除。', 'activities', version); }
+   try {
+    await api.delete(button.dataset.deleteActivity);
+    let note = '活动已删除。';
+    try { flowDraftStore.removeActivity(button.dataset.deleteActivity); }
+    catch { note = '活动已删除；本地实验草稿损坏，引用记录未能清理。'; }
+    await changed(note, 'activities', version);
+   }
    catch (failure) { if (serial === version) status(`删除失败：${failure.message}`); }
   }
   if (button.dataset.deleteTreatment && activity) {

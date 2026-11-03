@@ -1,4 +1,6 @@
 import { activityRoute, assetRoute } from './activity-routing.mjs';
+import { composeFlowExperimentGraph, simulateFlowRuns } from './flow-experiment-graph.mjs';
+import { MOCK_USERS } from './audience.mjs';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const colors = { blue: '#2c4a7c', paper: '#fbfaf7', white: '#ffffff', line: '#cfc9be', side: '#e4e0d8', ink: '#55504a' };
@@ -192,17 +194,17 @@ export function buildEntryRoutes(routeRefs, treatmentIdsByGroup) {
  });
 }
 
-function markup(activity, references) {
+function markup(activity, references, hasDraft = false) {
  const route = activityRoute(activity.id, 'campaign');
  return `<section class="activity-flow-canvas" aria-label="活动流程 3D 画布">
- <div class="flow-canvas-heading"><div><p class="eyebrow">ACTIVITY FLOW / LOCAL REHEARSAL</p><h3>活动流程</h3><p>活动受众只选一次；入口路由把普通人群或实验臂送到起始投放项，后续再按回执边推进。</p></div><div class="flow-canvas-actions"><a class="primary-link" href="#${route}/treatments/new">＋ 添加投放项</a><a class="primary-link flow-audience-link" href="#${assetRoute('audience', route)}">管理受众</a></div></div>
+ <div class="flow-canvas-heading"><div><p class="eyebrow">ACTIVITY FLOW / LOCAL REHEARSAL</p><h3>活动流程</h3><p>活动受众只选一次；流程实验可在到达节点时独立分组，再沿分组路径或回执边推进。</p></div><div class="flow-canvas-actions"><a class="primary-link" href="#${route}/treatments/new">＋ 添加投放项</a><a class="primary-link flow-audience-link" href="#${assetRoute('audience', route)}">管理受众</a></div></div>
  <p class="flow-rehearsal-warning" role="note">本地演练 · 只使用构造样本和预设回执，不会触达真实用户或真实渠道。</p>
  <div class="flow-audience-form flow-entry-form" hidden><form id="activity-entry-form"><strong>入口路由</strong><div data-entry-route-fields></div><button class="primary" type="submit">保存入口路由</button><button type="button" data-entry-cancel>取消</button><p class="inline-error" role="alert"></p></form></div>
  <div class="flow-edge-form" hidden><form id="activity-flow-form"><p class="flow-edge-form-title" data-flow-form-title>添加回执边</p><label>起点投放项<select name="fromTreatmentId"></select></label><label>回执条件<select name="conditionLabel"></select></label><label>后续投放项<select name="toTreatmentId"></select></label><button class="primary" type="submit">添加回执边</button><button type="button" data-flow-cancel>取消</button><p class="inline-error" role="alert"></p></form></div>
  <div class="flow-edge-toolbar"><button type="button" data-flow-config-entry>配置入口投放项</button><button type="button" data-flow-add-edge>＋ 添加回执边</button><span class="flow-save-status" role="status" aria-live="polite"></span></div>
  <section class="metrics" aria-label="本地演练统计"><div class="metric"><span>构造路径</span><strong data-flow-total>0</strong><small>本地虚构样本</small></div><div class="metric"><span>等待进入</span><strong data-flow-queued>0</strong><small>尚未开始</small></div><div class="metric"><span>演练中</span><strong data-flow-active>0</strong><small>沿当前图形流转</small></div><div class="metric"><span>已完成</span><strong data-flow-complete>0</strong><small>抵达流程终点</small></div><div class="metric"><span>已走回执边</span><strong data-flow-edges>0</strong><small>本地脚本统计</small></div><div class="balance"><span>状态<strong data-flow-state>已暂停</strong></span></div></section>
  <section class="workspace flow-canvas-workspace">
-  <aside class="left-panel"><div class="panel-label"><span>流程节点</span><span data-node-total>0</span></div><div class="node-list" data-node-list aria-label="选择流程节点"></div><div class="left-note"><span class="tiny-heading">本地活动演练</span><p>图形读取当前活动 API 状态。播放时按动作回执条件轮流演示路径，不代表真实分布概率。</p><span class="version">SCENE MODEL / V1.0</span></div></aside>
+  <aside class="left-panel"><div class="panel-label"><span>流程节点</span><span data-node-total>0</span></div><div class="node-list" data-node-list aria-label="选择流程节点"></div><div class="left-note"><span class="tiny-heading">本地活动演练</span><p>${hasDraft ? '图形合并活动 API 流程与此浏览器实验草稿。' : '图形读取当前活动 API 状态。'}播放时按动作回执条件轮流演示路径，不代表真实分布概率。</p><span class="version">SCENE MODEL / V1.0</span></div></aside>
   <div class="world-wrap"><div class="world-toolbar"><div class="world-title"><span class="live-dot"></span><span data-play-state>已暂停</span><span class="divider">/</span><span>活动流程立体画布</span></div><div class="view-controls" aria-label="视角控制"><button type="button" data-view="iso" class="active" aria-pressed="true">立体</button><button type="button" data-view="top" aria-pressed="false">俯视</button><button type="button" data-zoom="out" aria-label="缩小">−</button><button type="button" data-zoom="in" aria-label="放大">+</button><button type="button" data-view="reset">复位</button></div></div>
    <div class="world" data-world><svg data-scene viewBox="0 0 1100 680" role="img" aria-label="当前活动的立体流程图"><defs><pattern data-grid width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#e4e0d8" stroke-width=".6"/></pattern></defs><g data-ground></g><g data-routes></g><g data-objects></g><g data-labels></g></svg></div>
    <div class="world-foot"><span><span class="legend-dot"></span>构造样本 <span class="legend-line"></span>活动流程边 <span class="legend-dash"></span>失败回执条件</span><span>拖动旋转 · 点选节点或边</span></div><div class="scenario-note"><span>场景说明</span><p data-flow-note>图形来自当前活动；活动流程边决定回执后续步骤。</p></div>
@@ -213,11 +215,12 @@ function markup(activity, references) {
  </section>`;
 }
 
-export function mountActivityFlowCanvas({ root, activity, actions = [], references = [], api, onSaved = () => {} }) {
+export function mountActivityFlowCanvas({ root, activity, actions = [], references = [], api, onSaved = () => {}, onExperimentAction = () => {}, experimentStore = null, draftStore = null }) {
  if (!root || !activity) return () => {};
- root.innerHTML = markup(activity, references);
+ root.innerHTML = markup(activity, references, Boolean(draftStore?.nodes(activity.id).length));
  const q = selector => root.querySelector(selector);
- const graph = buildActivityGraph(activity, actions, references);
+ const currentExperiments = () => experimentStore.currentExperiments?.() ?? experimentStore.experiments();
+ const graph = draftStore ? composeFlowExperimentGraph(activity, actions, references, currentExperiments(), draftStore.nodes(activity.id)) : buildActivityGraph(activity, actions, references);
  let selected = graph.nodes[0]?.id || null, selectedEdge = null, editingEdgeId = null, savingFlow = false;
  let yaw = -.28, pitch = .55, zoom = 1, playing = false, time = 0, speed = 1, frame = 0, lastFrame = 0;
  let dragging = false, dragStart = null, moved = false, pressed = null;
@@ -245,11 +248,12 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
  function nodeIcon(node) {
   if (node.kind === 'audience') return cube(node.x - 54, node.z - 54, 6, 8, 30, 15) + cube(node.x + 54, node.z - 54, 6, 8, 30, 15) + cube(node.x, node.z - 54, 114, 8, 8, 45, true);
   if (node.kind === 'entry') return cube(node.x, node.z, 34, 28, 28, 15, true);
+  if (node.kind === 'experiment') return cube(node.x, node.z, 58, 58, 14, 15, true) + cube(node.x, node.z, 32, 32, 23, 29, true);
   if (node.kind === 'terminal') return [0,1,2].map(index => cube(node.x - 22 + index * 22, node.z, 18, 34, 16 + index * 8, 15, true)).join('');
   return cube(node.x, node.z, 44, 38, 52, 15) + cube(node.x, node.z, 48, 42, 6, 67, true);
  }
  function renderNode(node) {
-  const symbol = node.kind === 'treatment' ? esc((node.actionName || node.name).slice(0, 1).toUpperCase()) : node.kind === 'terminal' ? '✓' : node.kind === 'entry' ? '分' : '人';
+  const symbol = node.kind === 'treatment' ? esc((node.actionName || node.name).slice(0, 1).toUpperCase()) : node.kind === 'terminal' ? '✓' : node.kind === 'experiment' ? '实' : node.kind === 'entry' ? '分' : '人';
   let svg = cube(node.x, node.z, node.w + 16, node.d + 16, 8, 0) + cube(node.x, node.z, node.w, node.d, 7, 8) + nodeIcon(node);
   const [sx, sy] = project(node.x, node.kind === 'treatment' ? 52 : 49, node.z);
   svg += `<text x="${sx.toFixed(1)}" y="${sy.toFixed(1)}" text-anchor="middle" font-family="Georgia,serif" font-size="22" fill="${colors.blue}">${symbol}</text>`;
@@ -262,13 +266,19 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
  function renderConnection(connection) {
   const path = segment(connection.from, connection.to);
   if (!path.length) return '';
+  if (connection.kind === 'experiment') {
+   const offset = connection.part === 'a' ? -26 : connection.part === 'control' ? 26 : 0;
+   path[1] = [path[1][0], path[1][1], path[1][2] + offset];
+   path[2] = [path[2][0], path[2][1], path[2][2] + offset];
+  }
   const failure = normalizedOutcome(connection.label) === 'failure';
   const color = failure ? colors.ink : colors.blue;
   let output = line(path, colors.white, 9) + line(path, color, 1.25, failure ? '4 5' : '');
-  if (connection.kind === 'receipt' || connection.kind === 'split' || connection.kind === 'control') {
-   const [x, y] = project((graph.byId.get(connection.from).x + graph.byId.get(connection.to).x) / 2, 20, (graph.byId.get(connection.from).z + graph.byId.get(connection.to).z) / 2);
+  if (connection.kind === 'receipt' || connection.kind === 'split' || connection.kind === 'control' || connection.kind === 'experiment') {
+   const [x, y] = connection.kind === 'experiment' ? project((path[1][0] + path[2][0]) / 2, 20, (path[1][2] + path[2][2]) / 2)
+    : project((graph.byId.get(connection.from).x + graph.byId.get(connection.to).x) / 2, 20, (graph.byId.get(connection.from).z + graph.byId.get(connection.to).z) / 2);
    const width = Math.max(56, Math.min(140, connection.label.length * 9 + 16));
-   const clickable = connection.kind === 'receipt' ? ` data-flow-edge="${esc(connection.id)}" tabindex="0" role="button" aria-label="回执边：${esc(connection.label)}"` : '';
+   const clickable = connection.kind === 'receipt' ? ` data-flow-edge="${esc(connection.edge?.id || connection.id)}" tabindex="0" role="button" aria-label="回执边：${esc(connection.label)}"` : '';
    output += `<g class="scene-node"${clickable}><rect class="node-label-back node-outline" x="${(x - width / 2).toFixed(1)}" y="${(y - 17).toFixed(1)}" width="${width}" height="20" rx="3"/><text class="scene-sub" text-anchor="middle" x="${x.toFixed(1)}" y="${(y - 3).toFixed(1)}">${esc(connection.label)}</text></g>`;
   }
   return output;
@@ -277,7 +287,7 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   return graph.nodes.map(node => {
    const [x, y] = node.kind === 'treatment' ? project(node.x, 0, node.z + node.d / 2 + 20) : project(node.x, 0, node.z + node.d / 2 + 20);
    const width = Math.max(88, Math.min(150, node.name.length * 9 + 20));
-   const sub = node.kind === 'treatment' ? node.actionName : node.kind === 'audience' ? '活动唯一受众' : node.kind === 'entry' ? '实验臂入口' : '当前流程终点';
+   const sub = node.kind === 'treatment' ? node.actionName : node.kind === 'audience' ? '活动唯一受众' : node.kind === 'experiment' ? '流程实验 · 本地草稿' : node.kind === 'entry' ? '实验臂入口' : '当前流程终点';
    return `<g class="scene-node ${node.id === selected ? 'selected-label' : ''}" data-flow-node="${esc(node.id)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><rect class="node-label-back node-outline" x="${(-width / 2).toFixed(1)}" y="-2" width="${width}" height="38" rx="3"/><text class="scene-label" text-anchor="middle" y="13">${esc(node.name)}</text><text class="scene-sub" text-anchor="middle" y="28">${esc(sub || '')}</text></g>`;
   }).join('');
  }
@@ -317,8 +327,9 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   }
   return runs;
  }
- const runs = buildRuns();
- const duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
+ let runs = graph.draftNodes?.length ? [] : buildRuns();
+ let visits = new Map();
+ let duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
  function pathPosition(vertices, progress) {
   const distances = vertices.slice(1).map((vertex, index) => Math.hypot(...vertex.map((value, axis) => value - vertices[index][axis])));
   let remaining = progress * distances.reduce((sum, distance) => sum + distance, 0);
@@ -355,16 +366,27 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   q('[data-detail-desc]').textContent = node.desc;
   q('[data-detail-kind]').textContent = graph.byId.has(node.id) ? `${String(node.kind).toUpperCase()} · ${activity.id}` : 'ACTIVITY FLOW';
   q('[data-detail-index]').textContent = String(graph.nodes.indexOf(node) + 1).padStart(2, '0');
-  q('[data-detail-type]').textContent = node.kind === 'treatment' ? 'TREATMENT NODE' : node.kind === 'audience' ? 'ACTIVITY AUDIENCE' : node.kind === 'entry' ? 'EXPERIMENT ARM ROUTE' : 'FLOW TERMINAL';
+  q('[data-detail-type]').textContent = node.kind === 'treatment' ? 'TREATMENT NODE' : node.kind === 'experiment' ? 'FLOW EXPERIMENT' : node.kind === 'audience' ? 'ACTIVITY AUDIENCE' : node.kind === 'entry' ? 'EXPERIMENT ARM ROUTE' : 'FLOW TERMINAL';
   q('[data-detail-icon]').innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8m-8 4h8m-8 4h4"/></svg>';
-  q('[data-detail-rules]').innerHTML = (node.rules || []).map(([label,value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+  const visit = node.kind === 'experiment' ? visits.get(node.draft.id) : null;
+  q('[data-detail-rules]').innerHTML = (node.rules || []).map(([label,value]) => `<div><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')
+   + (visit ? `<div><span>分组人数</span><strong>${visit.people.size}</strong></div><div><span>路径到达次数</span><strong>${visit.arrivals}</strong></div>${['a','b','control'].map(part => `<div><span>${part === 'control' ? '对照组' : part.toUpperCase() + ' 组'}</span><strong>${visit.groups[part].size}</strong></div>`).join('')}` : '');
   const at = graph.treatments.findIndex(item => item.id === node.id);
   const treatment = at >= 0 ? graph.treatments[at] : null;
   const edit = treatment ? `<a class="primary-link" href="#${activityRoute(activity.id, 'campaign')}/treatments/${encodeURIComponent(treatment.id)}/edit">编辑此投放项</a>` : '';
   const edges = selectedEdge ? graph.edges.filter(edge => edge.id === selectedEdge) : [];
   const edgeMarkup = edges.map(edge => `<div class="flow-selected-edge"><p>活动流程边 · ${esc(edge.conditionLabel)}</p><p>${esc(graph.byId.get(edge.fromTreatmentId)?.name)} → ${esc(graph.byId.get(edge.toTreatmentId)?.name)}</p><div class="flow-edge-actions"><button type="button" data-edit-edge="${esc(edge.id)}">编辑这条边</button><button type="button" data-delete-edge="${esc(edge.id)}">删除这条边</button></div></div>`).join('');
-  q('[data-edge-detail]').innerHTML = `${edit}${edgeMarkup}`;
-  q('[data-detail-arrived]').textContent = playing ? String(Math.min(runs.length, Math.floor(time / duration * runs.length))) : '0';
+  let experimentMarkup = '';
+  if (node.kind === 'experiment') {
+   const route = part => graph.byId.get(node.draft.routes[part])?.name || node.draft.routes[part];
+   let preview = '引用不可用，暂时不能预测分组。';
+   try {
+    preview = MOCK_USERS.slice(0, 6).map(user => `${user.uid} → ${({ a: 'A 组', b: 'B 组', control: '对照组' })[draftStore.group(activity.id, node.draft, user.uid, currentExperiments())]}`).join('；');
+   } catch { /* Invalid references are reported by graph validation. */ }
+   experimentMarkup = `<div class="flow-selected-edge"><p>A 组 → ${esc(route('a'))}</p><p>B 组 → ${esc(route('b'))}</p><p>对照组 → ${esc(route('control'))}</p><p>构造样本只读预测：${esc(preview)}</p><div class="flow-edge-actions"><button type="button" data-edit-experiment="${esc(node.draft.id)}">编辑此实验节点</button><button type="button" data-remove-experiment="${esc(node.draft.id)}">移除此实验节点</button></div></div>`;
+  }
+  q('[data-edge-detail]').innerHTML = `${edit}${edgeMarkup}${experimentMarkup}`;
+  q('[data-detail-arrived]').textContent = visit ? String(visit.people.size) : playing ? String(Math.min(runs.length, Math.floor(time / duration * runs.length))) : '0';
   q('[data-detail-active]').textContent = playing && time < duration ? String(runs.length) : '0';
   q('[data-detail-progress]').style.width = `${playing ? Math.min(100, time / duration * 100) : 0}%`;
  }
@@ -374,11 +396,12 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   q('[data-flow-queued]').textContent = String(Math.floor(runs.length * (1 - progress)));
   q('[data-flow-active]').textContent = playing && progress < 1 ? String(runs.length) : '0';
   q('[data-flow-complete]').textContent = String(Math.floor(runs.length * progress));
-  q('[data-flow-edges]').textContent = String(Math.floor(graph.edges.length * progress));
+  const traversedReceipts = graph.draftNodes?.length ? runs.reduce((sum, run) => sum + run.path.slice(1).filter((id, index) => graph.connections.some(edge => edge.kind === 'receipt' && edge.from === run.path[index] && edge.to === id)).length, 0) : graph.edges.length;
+  q('[data-flow-edges]').textContent = String(Math.floor(traversedReceipts * progress));
   q('[data-flow-state]').textContent = graph.hasCycle ? '配置含环' : playing ? progress >= 1 ? '演练完成' : '演练中' : '已暂停';
   q('[data-play-state]').textContent = playing ? '本地演练中' : progress >= 1 ? '演练结束' : '已暂停';
   q('[data-flow-play]').textContent = graph.hasCycle ? '请先修正循环边' : !graph.canRehearse ? '补全流程后演练' : playing ? '暂停演练' : progress >= 1 ? '重新演练' : '开始本地演练';
-  q('[data-flow-play]').disabled = !graph.canRehearse && !playing;
+  q('[data-flow-play]').disabled = (!graph.canRehearse || draftStore && !draftStore.canUse) && !playing;
   q('[data-flow-time]').textContent = `${String(Math.floor(time / 60)).padStart(2,'0')}:${(time % 60).toFixed(1).padStart(4,'0')}`;
   q('[data-flow-duration]').textContent = `${String(Math.floor(duration / 60)).padStart(2,'0')}:${(duration % 60).toFixed(1).padStart(4,'0')}`;
   q('[data-flow-timeline]').max = String(duration); q('[data-flow-timeline]').value = String(time);
@@ -468,7 +491,34 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   }).join('');
  }
 
- q('[data-flow-play]').addEventListener('click', () => { if (!graph.canRehearse || !runs.length) { if (playing) stop(); else return; } else if (playing) { stop(); } else { if (time >= duration) time = 0; playing = true; lastFrame = 0; frame = requestAnimationFrame(tick); } render(); });
+ q('[data-flow-play]').addEventListener('click', () => {
+  if (!graph.canRehearse || draftStore && !draftStore.canUse) return;
+  if (playing) stop();
+  else {
+   if (graph.draftNodes?.length) {
+    try {
+     const definitions = currentExperiments();
+     const latestGraph = composeFlowExperimentGraph(activity, actions, references, definitions, draftStore.nodes(activity.id));
+     if (!latestGraph.canRehearse) {
+      q('[data-flow-note]').textContent = latestGraph.readinessIssue || '实验引用不可用，请修复后演练。';
+      q('.flow-save-status').textContent = q('[data-flow-note]').textContent;
+      return;
+     }
+     const bundle = activity.audience?.type === 'bundle' ? experimentStore.bundles().find(item => item.id === activity.audience.bundleId) : null;
+     const result = simulateFlowRuns(latestGraph, MOCK_USERS.slice(0, 12),
+      (node, uid) => draftStore.group(activity.id, node, uid, definitions, true),
+      (groupId, uid) => !bundle || experimentStore.peekExperimentGroup(bundle.experimentId, uid) === bundle.arms.find(arm => arm.groupId === groupId)?.part);
+     runs = result.runs; visits = result.visits;
+     duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
+     if (draftStore.warning) { q('[data-flow-note]').textContent = draftStore.warning; q('.flow-save-status').textContent = draftStore.warning; }
+    } catch (error) { q('[data-flow-note]').textContent = error.message; return; }
+   }
+   if (!runs.length) return;
+   if (time >= duration) time = 0;
+   playing = true; lastFrame = 0; frame = requestAnimationFrame(tick);
+  }
+  render();
+ });
  q('[data-flow-reset]').addEventListener('click', () => { stop(); time = 0; lastFrame = 0; render(); });
  q('[data-flow-timeline]').addEventListener('input', event => { stop(); time = Number(event.target.value); render(); });
  q('[data-flow-speed]').addEventListener('change', event => { speed = Number(event.target.value); });
@@ -535,13 +585,17 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   await saveFlow(graph.entries, nextEdges);
  });
  q('[data-edge-detail]').addEventListener('click', async event => {
+  const editExperiment = event.target.closest('[data-edit-experiment]');
+  if (editExperiment) { onExperimentAction('edit', editExperiment.dataset.editExperiment); return; }
+  const removeExperiment = event.target.closest('[data-remove-experiment]');
+  if (removeExperiment) { onExperimentAction('remove', removeExperiment.dataset.removeExperiment); return; }
   const edit = event.target.closest('[data-edit-edge]');
   if (edit) { const edge = graph.edges.find(item => item.id === edit.dataset.editEdge); if (edge) edgeForm(true, edge); return; }
   const remove = event.target.closest('[data-delete-edge]');
   if (remove) await saveFlow(graph.entries, graph.edges.filter(edge => edge.id !== remove.dataset.deleteEdge));
  });
- if (graph.empty) q('[data-flow-note]').textContent = '当前活动尚无投放项。先添加投放项，画布会按活动 API 状态显示节点。';
- else if (!graph.canRehearse) q('[data-flow-note]').textContent = graph.readinessIssue;
+ if (graph.empty && !graph.draftNodes?.length) q('[data-flow-note]').textContent = '当前活动尚无投放项。先添加投放项，画布会按活动 API 状态显示节点。';
+ else if (!graph.canRehearse || draftStore && !draftStore.canUse) q('[data-flow-note]').textContent = draftStore && !draftStore.canUse ? draftStore.warning : graph.readinessIssue;
  else q('[data-flow-note]').textContent = '本地回执按动作声明的结果依次轮转，用于查看当前边的路径；不表示实际发送或回执概率。';
  render();
  return () => { stop(); root.innerHTML = ''; };
