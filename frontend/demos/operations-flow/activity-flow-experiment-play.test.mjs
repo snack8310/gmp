@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildActivityGraph, mountActivityFlowCanvas } from './activity-flow-canvas.mjs';
 import { createFlowExperimentStore, FLOW_EXPERIMENT_KEY } from './flow-experiment-draft.mjs';
-import { flowAnchorSignature } from './flow-experiment-graph.mjs';
+import { composeFlowExperimentGraph, flowAnchorSignature } from './flow-experiment-graph.mjs';
 import { createAudienceStore } from './audience.mjs';
+import { mountFlowExperiments } from './flow-experiment-ui.mjs';
 
 const activity = { id: 'campaign-demo', name: '演示活动', audience: { type: 'group', groupId: 'group-demo' },
  treatments: [{ id: 'treatment-demo', name: '欢迎短信', actionId: 'action-demo' }],
@@ -46,6 +47,27 @@ test('node inspection is read only and offers routes, preview, edit and remove',
  assert.equal(values.get(FLOW_EXPERIMENT_KEY), before);
  element('[data-edge-detail]').listeners.click({ target: { closest: selector => selector === '[data-edit-experiment]' ? { dataset: { editExperiment: 'node-demo' } } : null } });
  assert.deepEqual(actionsTaken, [['edit', 'node-demo']]);
+});
+
+test('list and node inspection show the inserted experiment as the actual first hop', () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const store = createFlowExperimentStore(storage);
+ const secondExperiment = { ...experiment, id: 'exp-second', name: '第二实验' };
+ const definitions = [experiment, secondExperiment];
+ const firstGraph = composeFlowExperimentGraph(activity, actions, references, definitions, [node]);
+ const branch = firstGraph.connections.find(item => item.id === 'experiment:node-demo:a');
+ const second = { id: 'node-second', experimentId: secondExperiment.id, anchorId: branch.id, anchorSignature: flowAnchorSignature(branch),
+  routes: { a: 'treatment-demo', b: 'flow-terminal', control: 'flow-terminal' } };
+ store.saveNode(activity.id, node); store.saveNode(activity.id, second);
+ const experiments = { experiments: () => definitions, bundles: () => [] };
+ const listRoot = { innerHTML: '', addEventListener() {}, removeEventListener() {} };
+ mountFlowExperiments({ root: listRoot, activity, actions, references, experimentStore: experiments, draftStore: store, onChange() {} });
+ assert.match(listRoot.innerHTML, /A 组 → 第二实验/);
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ mountActivityFlowCanvas({ root, activity, actions, references, api: {}, draftStore: store, experimentStore: experiments });
+ element('[data-node-list]').listeners.click({ target: { closest: () => ({ dataset: { selectNode: 'flow-experiment:node-demo' } }) } });
+ assert.match(element('[data-edge-detail]').innerHTML, /A 组 → 第二实验/);
 });
 
 test('a coloring write failure is shown immediately during playback', async () => {

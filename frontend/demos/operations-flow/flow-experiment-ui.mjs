@@ -1,4 +1,4 @@
-import { composeFlowExperimentGraph, flowAnchorSignature } from './flow-experiment-graph.mjs';
+import { composeFlowExperimentGraph, flowAnchorSignature, flowExperimentRouteTarget } from './flow-experiment-graph.mjs';
 import { escapeHTML } from './experiment-ui.mjs';
 import { activityRoute } from './activity-routing.mjs';
 
@@ -27,7 +27,7 @@ export function mountFlowExperiments({ root, activity, actions, references, expe
    const previous = graph(list.slice(0, list.indexOf(node)));
    const source = previous.connections.find(item => item.id === node.anchorId);
    const position = source ? `${previous.byId.get(source.from)?.name || source.from}的「${source.label}」路径` : '需要重新连接';
-   return `<div class="flow-experiment-row"><div><strong>${flowSafe(definition?.name || node.experimentId)}</strong> <small class="flow-experiment-id">· ${flowSafe(node.id)}</small><p>位置：${flowSafe(position)}<br>${flowUiParts.map(([part, label]) => `${label} → ${flowSafe(routeName(node.routes[part], current))}`).join('；')}</p><small class="flow-experiment-state">${definition?.runtimeStatus === 'running' && anchorInfo ? '共享实验库配置 · 此节点独立分组' : '引用或路径不可用 · 请修复后演练'}</small></div><div class="campaign-actions"><button type="button" data-flow-edit="${flowSafe(node.id)}">编辑</button><button type="button" data-flow-remove="${flowSafe(node.id)}">移除</button></div></div>`;
+   return `<div class="flow-experiment-row"><div><strong>${flowSafe(definition?.name || node.experimentId)}</strong> <small class="flow-experiment-id">· ${flowSafe(node.id)}</small><p>位置：${flowSafe(position)}<br>${flowUiParts.map(([part, label]) => `${label} → ${flowSafe(routeName(flowExperimentRouteTarget(current, node, part), current))}`).join('；')}</p><small class="flow-experiment-state">${definition?.runtimeStatus === 'running' && anchorInfo ? '共享实验库配置 · 此节点独立分组' : '引用或路径不可用 · 请修复后演练'}</small></div><div class="campaign-actions"><button type="button" data-flow-edit="${flowSafe(node.id)}">编辑</button><button type="button" data-flow-remove="${flowSafe(node.id)}">移除</button></div></div>`;
   }).join('') || '<p class="campaign-empty">尚无流程实验节点。</p>';
   const experimentOptions = (draft && !available.some(item => item.id === draft.experimentId) ? '<option value="" selected>引用不可用，请重新选择运行中的实验</option>' : '')
    + available.map(item => `<option value="${flowSafe(item.id)}" ${item.id === draft?.experimentId ? 'selected' : ''}>${flowSafe(item.name)} · A ${item.split.a}% / B ${item.split.b}% / 对照 ${item.split.control}% · ${item.colored ? '记录首次分配' : '不记录分配'}</option>`).join('');

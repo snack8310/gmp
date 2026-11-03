@@ -1,5 +1,5 @@
 import { activityRoute, assetRoute } from './activity-routing.mjs';
-import { composeFlowExperimentGraph, simulateFlowRuns } from './flow-experiment-graph.mjs';
+import { composeFlowExperimentGraph, flowExperimentRouteTarget, simulateFlowRuns } from './flow-experiment-graph.mjs';
 import { MOCK_USERS } from './audience.mjs';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -384,7 +384,10 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   const edgeMarkup = edges.map(edge => `<div class="flow-selected-edge"><p>活动流程边 · ${esc(edge.conditionLabel)}</p><p>${esc(graph.byId.get(edge.fromTreatmentId)?.name)} → ${esc(graph.byId.get(edge.toTreatmentId)?.name)}</p><div class="flow-edge-actions"><button type="button" data-edit-edge="${esc(edge.id)}">编辑这条边</button><button type="button" data-delete-edge="${esc(edge.id)}">删除这条边</button></div></div>`).join('');
   let experimentMarkup = '';
   if (node.kind === 'experiment') {
-   const route = part => graph.byId.get(node.draft.routes[part])?.name || node.draft.routes[part];
+   const route = part => {
+    const target = flowExperimentRouteTarget(graph, node.draft, part);
+    return target === 'flow-terminal' ? '在此结束' : graph.byId.get(target)?.name || target;
+   };
    let preview = '引用不可用，暂时不能预测分组。';
    try {
     preview = MOCK_USERS.slice(0, 6).map(user => `${user.uid} → ${({ a: 'A 组', b: 'B 组', control: '对照组' })[draftStore.group(activity.id, node.draft, user.uid, currentExperiments())]}`).join('；');

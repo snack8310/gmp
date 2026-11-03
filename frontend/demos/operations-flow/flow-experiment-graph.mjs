@@ -6,6 +6,10 @@ const flowTerminal = 'flow-terminal';
 const flowBranchId = (nodeId, part) => `experiment:${nodeId}:${part}`;
 export const flowAnchorSignature = edge => JSON.stringify([edge.from, edge.to, edge.kind, edge.label]);
 
+export function flowExperimentRouteTarget(graph, draft, part) {
+ return graph.connections.find(edge => edge.from === `flow-experiment:${draft.id}` && edge.kind === 'experiment' && edge.part === part)?.to ?? draft.routes[part];
+}
+
 export function flowAnchors(base) {
  const anchors = base.connections.filter(item => item.kind === 'entry' || item.kind === 'receipt' || item.kind === 'complete' || item.kind === 'experiment');
  if (base.audienceNode && !anchors.some(item => item.id === 'empty:entry') && !base.connections.some(item => item.kind === 'entry' || item.kind === 'split') && base.entries.length === 0) {
