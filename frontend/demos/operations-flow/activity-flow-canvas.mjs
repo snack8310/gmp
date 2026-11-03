@@ -217,11 +217,15 @@ function markup(activity, references, hasDraft = false) {
 
 export function mountActivityFlowCanvas({ root, activity, actions = [], references = [], api, onSaved = () => {}, onExperimentAction = () => {}, experimentStore = null, draftStore = null }) {
  if (!root || !activity) return () => {};
+ const flowIdentity = value => JSON.stringify([value?.audience, value?.treatments?.map(item => [item.id, item.actionId, item.slotId]), value?.activityFlow?.id,
+  value?.activityFlow?.entries?.map(entry => [entry.groupId, entry.kind, entry.treatmentIds]),
+  value?.activityFlow?.edges?.map(edge => [edge.id, edge.fromTreatmentId, edge.toTreatmentId, edge.conditionLabel])]);
+ const mountedFlowIdentity = flowIdentity(activity);
  root.innerHTML = markup(activity, references, Boolean(draftStore?.nodes(activity.id).length));
  const q = selector => root.querySelector(selector);
  const currentExperiments = () => experimentStore.currentExperiments?.() ?? experimentStore.experiments();
  const graph = draftStore ? composeFlowExperimentGraph(activity, actions, references, currentExperiments(), draftStore.nodes(activity.id)) : buildActivityGraph(activity, actions, references);
- let selected = graph.nodes[0]?.id || null, selectedEdge = null, editingEdgeId = null, savingFlow = false;
+ let selected = graph.nodes[0]?.id || null, selectedEdge = null, editingEdgeId = null, savingFlow = false, checkingFlow = false, mounted = true;
  let yaw = -.28, pitch = .55, zoom = 1, playing = false, time = 0, speed = 1, frame = 0, lastFrame = 0;
  let dragging = false, dragStart = null, moved = false, pressed = null;
  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -401,7 +405,7 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   q('[data-flow-state]').textContent = graph.hasCycle ? '配置含环' : playing ? progress >= 1 ? '演练完成' : '演练中' : '已暂停';
   q('[data-play-state]').textContent = playing ? '本地演练中' : progress >= 1 ? '演练结束' : '已暂停';
   q('[data-flow-play]').textContent = graph.hasCycle ? '请先修正循环边' : !graph.canRehearse ? '补全流程后演练' : playing ? '暂停演练' : progress >= 1 ? '重新演练' : '开始本地演练';
-  q('[data-flow-play]').disabled = (!graph.canRehearse || draftStore && !draftStore.canUse) && !playing;
+  q('[data-flow-play]').disabled = checkingFlow || (!graph.canRehearse || draftStore && !draftStore.canUse) && !playing;
   q('[data-flow-time]').textContent = `${String(Math.floor(time / 60)).padStart(2,'0')}:${(time % 60).toFixed(1).padStart(4,'0')}`;
   q('[data-flow-duration]').textContent = `${String(Math.floor(duration / 60)).padStart(2,'0')}:${(duration % 60).toFixed(1).padStart(4,'0')}`;
   q('[data-flow-timeline]').max = String(duration); q('[data-flow-timeline]').value = String(time);
@@ -491,12 +495,17 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
   }).join('');
  }
 
- q('[data-flow-play]').addEventListener('click', () => {
-  if (!graph.canRehearse || draftStore && !draftStore.canUse) return;
+ q('[data-flow-play]').addEventListener('click', async () => {
+  if (checkingFlow || !graph.canRehearse || draftStore && !draftStore.canUse) return;
   if (playing) stop();
   else {
    if (graph.draftNodes?.length) {
+    checkingFlow = true; render();
     try {
+     if (typeof api?.get !== 'function') throw new Error('无法读取管理 API 当前活动，请刷新页面后再演练。');
+     const currentActivity = await api.get(activity.id);
+     if (!mounted) return;
+     if (flowIdentity(currentActivity) !== mountedFlowIdentity) throw new Error('活动流程已变化，请刷新页面重新连接实验节点。');
      const snapshot = experimentStore.currentExperimentSnapshot?.() ?? {
       experiments: currentExperiments(), bundles: experimentStore.bundles(),
       catalog: experimentStore.catalog?.() ?? references,
@@ -520,7 +529,8 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
      runs = result.runs; visits = result.visits;
      duration = Math.max(8, Math.min(30, Math.max(...runs.map(run => run.path.length), 1) * 2.2));
      if (draftStore.warning) { q('[data-flow-note]').textContent = draftStore.warning; q('.flow-save-status').textContent = draftStore.warning; }
-    } catch (error) { q('[data-flow-note]').textContent = error.message; return; }
+    } catch (error) { q('[data-flow-note]').textContent = error.message; q('.flow-save-status').textContent = error.message; return; }
+    finally { checkingFlow = false; if (mounted) render(); }
    }
    if (!runs.length) return;
    if (time >= duration) time = 0;
@@ -607,5 +617,5 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
  else if (!graph.canRehearse || draftStore && !draftStore.canUse) q('[data-flow-note]').textContent = draftStore && !draftStore.canUse ? draftStore.warning : graph.readinessIssue;
  else q('[data-flow-note]').textContent = '本地回执按动作声明的结果依次轮转，仅用于查看路径；不代表当前实验的分桶人数、真实发送或回执概率。';
  render();
- return () => { stop(); root.innerHTML = ''; };
+ return () => { mounted = false; stop(); root.innerHTML = ''; };
 }

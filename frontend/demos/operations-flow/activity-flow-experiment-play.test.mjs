@@ -48,7 +48,7 @@ test('node inspection is read only and offers routes, preview, edit and remove',
  assert.deepEqual(actionsTaken, [['edit', 'node-demo']]);
 });
 
-test('a coloring write failure is shown immediately during playback', () => {
+test('a coloring write failure is shown immediately during playback', async () => {
  const values = new Map(); let fail = false;
  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => { if (fail) throw Error('quota'); values.set(key, value); } };
  const store = createFlowExperimentStore(storage); store.saveNode(activity.id, node);
@@ -56,15 +56,33 @@ test('a coloring write failure is shown immediately during playback', () => {
  globalThis.matchMedia = () => ({ matches: true });
  globalThis.requestAnimationFrame = () => 1;
  globalThis.cancelAnimationFrame = () => {};
- mountActivityFlowCanvas({ root, activity, actions, references, api: {}, draftStore: store,
+ mountActivityFlowCanvas({ root, activity, actions, references, api: { get: async () => activity }, draftStore: store,
   experimentStore: { experiments: () => [experiment], bundles: () => [] } });
  fail = true;
- element('[data-flow-play]').listeners.click();
+ await element('[data-flow-play]').listeners.click();
  assert.match(element('[data-flow-note]').textContent, /浏览器写入失败/);
  assert.match(element('.flow-save-status').textContent, /刷新后可能丢失/);
 });
 
-test('playback refuses a definition stopped in another tab', () => {
+test('playback refuses an activity flow changed in the management API', async () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const draftStore = createFlowExperimentStore(storage); draftStore.saveNode(activity.id, node);
+ let serverActivity = activity, reads = 0;
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ globalThis.requestAnimationFrame = () => 1;
+ globalThis.cancelAnimationFrame = () => {};
+ mountActivityFlowCanvas({ root, activity, actions, references,
+  api: { async get() { reads++; return serverActivity; } }, draftStore,
+  experimentStore: { experiments: () => [experiment], bundles: () => [], catalog: () => references } });
+ serverActivity = { ...activity, treatments: [], activityFlow: { ...activity.activityFlow, entries: [] } };
+ await element('[data-flow-play]').listeners.click();
+ assert.equal(reads, 1);
+ assert.match(element('[data-flow-note]').textContent, /流程已变化|重新连接/);
+ assert.equal(element('[data-play-state]').textContent, '已暂停');
+});
+
+test('playback refuses a definition stopped in another tab', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage);
  first.saveExperiment(experiment);
@@ -75,14 +93,14 @@ test('playback refuses a definition stopped in another tab', () => {
  globalThis.matchMedia = () => ({ matches: true });
  globalThis.requestAnimationFrame = () => 1;
  globalThis.cancelAnimationFrame = () => {};
- mountActivityFlowCanvas({ root, activity, actions, references, api: {}, draftStore, experimentStore: first });
+ mountActivityFlowCanvas({ root, activity, actions, references, api: { get: async () => activity }, draftStore, experimentStore: first });
  second.setExperimentStatus(experiment.id, 'stopped');
- element('[data-flow-play]').listeners.click();
+ await element('[data-flow-play]').listeners.click();
  assert.match(element('[data-flow-note]').textContent, /停用|不可用/);
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
 
-test('playback refuses a bundle removed in another tab', () => {
+test('playback refuses a bundle removed in another tab', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage), second = createAudienceStore(storage);
  const bundleActivity = { ...activity, audience: { type: 'bundle', bundleId: 'bundle-warmup' },
@@ -99,14 +117,14 @@ test('playback refuses a bundle removed in another tab', () => {
  globalThis.matchMedia = () => ({ matches: true });
  globalThis.requestAnimationFrame = () => 1;
  globalThis.cancelAnimationFrame = () => {};
- mountActivityFlowCanvas({ root, activity: bundleActivity, actions, references: bundleRefs, api: {}, draftStore, experimentStore: first });
+ mountActivityFlowCanvas({ root, activity: bundleActivity, actions, references: bundleRefs, api: { get: async () => bundleActivity }, draftStore, experimentStore: first });
  second.deleteBundle('bundle-warmup');
- element('[data-flow-play]').listeners.click();
+ await element('[data-flow-play]').listeners.click();
  assert.match(element('[data-flow-note]').textContent, /人群包.*不可用|已删除/);
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
 
-test('playback refuses a bundle invalidated by a later experiment generation', () => {
+test('playback refuses a bundle invalidated by a later experiment generation', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage), second = createAudienceStore(storage);
  const bundleActivity = { ...activity, audience: { type: 'bundle', bundleId: 'bundle-warmup' },
@@ -123,15 +141,15 @@ test('playback refuses a bundle invalidated by a later experiment generation', (
  globalThis.matchMedia = () => ({ matches: true });
  globalThis.requestAnimationFrame = () => 1;
  globalThis.cancelAnimationFrame = () => {};
- mountActivityFlowCanvas({ root, activity: bundleActivity, actions, references: bundleRefs, api: {}, draftStore, experimentStore: first });
+ mountActivityFlowCanvas({ root, activity: bundleActivity, actions, references: bundleRefs, api: { get: async () => bundleActivity }, draftStore, experimentStore: first });
  second.setExperimentStatus('exp-recall', 'stopped');
  second.setExperimentStatus('exp-recall', 'running');
- element('[data-flow-play]').listeners.click();
+ await element('[data-flow-play]').listeners.click();
  assert.match(element('[data-flow-note]').textContent, /不可用|失效/);
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
 
-test('playback refuses an ordinary audience removed in another tab', () => {
+test('playback refuses an ordinary audience removed in another tab', async () => {
  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
  const first = createAudienceStore(storage), second = createAudienceStore(storage);
  const groupActivity = { ...activity, audience: { type: 'group', groupId: 'group-aud-app' },
@@ -144,9 +162,9 @@ test('playback refuses an ordinary audience removed in another tab', () => {
  globalThis.matchMedia = () => ({ matches: true });
  globalThis.requestAnimationFrame = () => 1;
  globalThis.cancelAnimationFrame = () => {};
- mountActivityFlowCanvas({ root, activity: groupActivity, actions, references: groupRefs, api: {}, draftStore, experimentStore: first });
+ mountActivityFlowCanvas({ root, activity: groupActivity, actions, references: groupRefs, api: { get: async () => groupActivity }, draftStore, experimentStore: first });
  second.delete('aud-app');
- element('[data-flow-play]').listeners.click();
+ await element('[data-flow-play]').listeners.click();
  assert.match(element('[data-flow-note]').textContent, /受众不可用/);
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
