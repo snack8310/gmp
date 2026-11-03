@@ -70,6 +70,24 @@ test('list and node inspection show the inserted experiment as the actual first 
  assert.match(element('[data-edge-detail]').innerHTML, /A 组 → 第二实验/);
 });
 
+test('list shows the current incoming branch when a node is inserted before an existing experiment', () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const store = createFlowExperimentStore(storage);
+ const secondExperiment = { ...experiment, id: 'exp-before', name: '前置实验' };
+ const definitions = [experiment, secondExperiment];
+ const firstGraph = composeFlowExperimentGraph(activity, actions, references, definitions, [node]);
+ const incoming = firstGraph.connections.find(item => item.id === 'experiment-in:node-demo');
+ const before = { id: 'node-before', experimentId: secondExperiment.id, anchorId: incoming.id, anchorSignature: flowAnchorSignature(incoming),
+  routes: { a: 'flow-experiment:node-demo', b: 'flow-terminal', control: 'flow-terminal' } };
+ store.saveNode(activity.id, node); store.saveNode(activity.id, before);
+ assert.equal(composeFlowExperimentGraph(activity, actions, references, definitions, [node, before]).canRehearse, true);
+ const listRoot = { innerHTML: '', addEventListener() {}, removeEventListener() {} };
+ mountFlowExperiments({ root: listRoot, activity, actions, references,
+  experimentStore: { experiments: () => definitions }, draftStore: store, onChange() {} });
+ assert.match(listRoot.innerHTML, /node-demo[\s\S]*?位置：前置实验的「A 组」路径/);
+ assert.doesNotMatch(listRoot.innerHTML, /引用或路径不可用/);
+});
+
 test('a coloring write failure is shown immediately during playback', async () => {
  const values = new Map(); let fail = false;
  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => { if (fail) throw Error('quota'); values.set(key, value); } };
