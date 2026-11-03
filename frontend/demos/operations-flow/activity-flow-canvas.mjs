@@ -509,6 +509,7 @@ export function mountActivityFlowCanvas({ root, activity, actions = [], referenc
       return;
      }
      const bundle = activity.audience?.type === 'bundle' ? snapshot.bundles.find(item => item.id === activity.audience.bundleId) : null;
+     if (activity.audience?.type === 'bundle' && !bundle) throw new RangeError('实验人群包已删除或不可用，请刷新活动后重新选择受众。');
      const result = simulateFlowRuns(latestGraph, MOCK_USERS.slice(0, 12),
       (node, uid) => draftStore.group(activity.id, node, uid, definitions, true),
       (groupId, uid) => !bundle || snapshot.peekExperimentGroup(bundle.experimentId, uid) === bundle.arms.find(arm => arm.groupId === groupId)?.part);

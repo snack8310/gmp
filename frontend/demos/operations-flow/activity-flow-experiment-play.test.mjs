@@ -81,3 +81,27 @@ test('playback refuses a definition stopped in another tab', () => {
  assert.match(element('[data-flow-note]').textContent, /停用|不可用/);
  assert.equal(element('[data-play-state]').textContent, '已暂停');
 });
+
+test('playback refuses a bundle removed in another tab', () => {
+ const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+ const first = createAudienceStore(storage), second = createAudienceStore(storage);
+ const bundleActivity = { ...activity, audience: { type: 'bundle', bundleId: 'bundle-warmup' },
+  treatments: [...activity.treatments, { id: 'treatment-b', name: '另一短信', actionId: 'action-demo' }],
+  activityFlow: { ...activity.activityFlow, entries: [
+   { groupId: 'group-arm-a', kind: 'start', treatmentIds: ['treatment-demo'] },
+   { groupId: 'group-arm-b', kind: 'start', treatmentIds: ['treatment-b'] },
+   { groupId: 'group-arm-control', kind: 'control', treatmentIds: [] } ] } };
+ const bundleRefs = first.catalog().filter(item => item.bundleId === 'bundle-warmup');
+ const entry = buildActivityGraph(bundleActivity, actions, bundleRefs).connections.find(item => item.id === 'entry:group-arm-a:treatment-demo');
+ const draft = { ...node, experimentId: 'exp-recall', anchorId: entry.id, anchorSignature: flowAnchorSignature(entry) };
+ const draftStore = createFlowExperimentStore(storage); draftStore.saveNode(bundleActivity.id, draft);
+ const { root, element } = fakeRoot();
+ globalThis.matchMedia = () => ({ matches: true });
+ globalThis.requestAnimationFrame = () => 1;
+ globalThis.cancelAnimationFrame = () => {};
+ mountActivityFlowCanvas({ root, activity: bundleActivity, actions, references: bundleRefs, api: {}, draftStore, experimentStore: first });
+ second.deleteBundle('bundle-warmup');
+ element('[data-flow-play]').listeners.click();
+ assert.match(element('[data-flow-note]').textContent, /人群包.*不可用|已删除/);
+ assert.equal(element('[data-play-state]').textContent, '已暂停');
+});
