@@ -2,7 +2,7 @@
 
 ## 状态
 
-**草稿。** 最后修订对应 issue #30。
+**草稿。** 样式基线对应 issue #30；浏览器演示的共用尺寸对应 issue #80。
 
 本文档是样式取值的**出处**。设计画布、原型、将来的前端代码都是它的渲染，不是它的来源——见 [`README.md`](README.md)「取值以本目录为准」。
 
@@ -118,6 +118,20 @@
 | 表格 | 表头底 `#F5F3EE`，行间 `#F0EDE7`，单元格内边距 15/18 |
 
 **图标一律用描边式内联 SVG**，16/20/24 栅格，同一种笔触。不使用 emoji 或符号字体——它们在不同系统上长相不一，而这套界面里图形常常携带语义。
+
+### 浏览器演示的共用尺寸
+
+`frontend/demos/operations-flow/style.css` 中的 `:root` 保存演示页共用尺寸。活动、人群、实验页面共用页头 `.section-heading`、详情面板 `.campaign-detail-block`、按钮和输入框的基础样式；新页面先复用这些构件，再添加自身布局。
+
+| CSS 变量 | 当前值 | 用途 |
+|---|---:|---|
+| `--ui-radius-control` / `--ui-radius-panel` | 3px / 4px | 控件与面板圆角 |
+| `--ui-control-height` / `--ui-field-height` | 34px / 38px | 按钮与输入框高度 |
+| `--ui-panel-padding` / `--ui-panel-padding-narrow` | 24px / 16px | 面板常规与窄屏内边距 |
+| `--ui-section-gap` | 24px | 页头和相邻详情面板间距 |
+| `--ui-section-title-size` / `--ui-page-heading-size` / `--ui-page-heading-size-narrow` | 16px / 23px / 21px | 详情区块、域内页标题及窄屏标题字号 |
+
+表格宽度、字段列数等由内容决定的尺寸仍留在页面样式中。
 
 ## 版式
 
