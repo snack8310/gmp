@@ -28,11 +28,11 @@ test('peek is read-only; first assignment survives split changes and reload', ()
   const raw = storage.getItem(STORAGE_KEY);
   assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0002'), 'a');
   assert.equal(storage.getItem(STORAGE_KEY), raw);
+  store.setExperimentStatus(experiment.id, 'running');
   assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), 'a');
   const generation = store.experiments().find(item => item.id === experiment.id).generation;
-  store.setExperimentStatus(experiment.id, 'running');
   store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 });
-  assert.equal(store.experiments().find(item => item.id === experiment.id).generation, generation + 1);
+  assert.equal(store.experiments().find(item => item.id === experiment.id).generation, generation);
   assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
   assert.equal(store.peekExperimentGroup(experiment.id, 'SIM-0002'), 'b');
   assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0002'), 'b');
@@ -76,7 +76,7 @@ test('a stale backup is replaced with the exact legacy raw before a new upgrade'
   storage.setItem(STORAGE_KEY, raw);
   storage.setItem(`${STORAGE_KEY}-backup-v4`, 'stale backup');
   const store = createAudienceStore(storage);
-  store.updateExperimentSplit('exp-old', { a: 50, b: 40, control: 10 });
+  store.setExperimentStatus('exp-old', 'running');
   assert.equal(storage.getItem(`${STORAGE_KEY}-backup-v4`), raw);
   assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
 });
@@ -88,6 +88,7 @@ test('failed coloring write leaves a visible current-session warning', () => {
   storage.setItem = (key, value) => { if (fail) throw new Error('quota'); originalSet(key, value); };
   const store = createAudienceStore(storage);
   const experiment = store.saveExperiment({ name: '染色写入失败', split, colored: true });
+  store.setExperimentStatus(experiment.id, 'running');
   fail = true;
   assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), store.peekExperimentGroup(experiment.id, 'SIM-0001'));
   assert.match(store.warning, /当前会话/);
@@ -97,6 +98,7 @@ test('failed coloring write leaves a visible current-session warning', () => {
 test('deleting a colored experiment removes its records and reloads cleanly', () => {
   const storage = memory(), store = createAudienceStore(storage);
   const experiment = store.saveExperiment({ name: '一次性染色', split, colored: true });
+  store.setExperimentStatus(experiment.id, 'running');
   store.assignExperimentGroup(experiment.id, 'SIM-0001');
   store.deleteExperiment(experiment.id);
   const reloaded = createAudienceStore(storage);
@@ -109,12 +111,29 @@ test('a reserved-word experiment ID keeps coloring in its own record without pro
   const storage = memory(), store = createAudienceStore(storage);
   const experiment = store.saveExperiment({ id: '__proto__', name: '特殊 ID', split: { a: 100, b: 0, control: 0 }, colored: true });
   try {
+    store.setExperimentStatus(experiment.id, 'running');
     assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), 'a');
     assert.equal(Object.hasOwn(Object.prototype, 'SIM-0001'), false);
     assert.deepEqual(store.experimentColoring(experiment.id), { 'SIM-0001': 'a' });
     store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 });
     assert.equal(createAudienceStore(storage).peekExperimentGroup(experiment.id, 'SIM-0001'), 'a');
   } finally { delete Object.prototype['SIM-0001']; }
+});
+
+test('stopped experiments reject split updates and simulated coloring writes', () => {
+  const storage = memory(), store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '未运行实验', split, colored: true });
+  const before = storage.getItem(STORAGE_KEY);
+  assert.throws(() => store.updateExperimentSplit(experiment.id, { a: 0, b: 100, control: 0 }), /运行中/);
+  assert.throws(() => store.assignExperimentGroup(experiment.id, 'SIM-0001'), /运行中/);
+  assert.equal(storage.getItem(STORAGE_KEY), before);
+  assert.deepEqual(store.experimentColoring(experiment.id), {});
+  store.setExperimentStatus(experiment.id, 'running');
+  store.assignExperimentGroup(experiment.id, 'SIM-0001');
+  store.setExperimentStatus(experiment.id, 'stopped');
+  const stopped = storage.getItem(STORAGE_KEY);
+  assert.throws(() => store.assignExperimentGroup(experiment.id, 'SIM-0002'), /运行中/);
+  assert.equal(storage.getItem(STORAGE_KEY), stopped);
 });
 
 test('v5 missing fields, invalid split and unknown coloring fail closed', () => {

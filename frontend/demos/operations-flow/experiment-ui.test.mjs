@@ -17,6 +17,8 @@ test('experiment detail escapes the editable name in its heading', () => {
     assert.equal((root.innerHTML.match(/<h2>/g) ?? []).length, 1);
     assert.equal((root.innerHTML.match(/class="campaign-detail-block experiment-panel"/g) ?? []).length, 4);
     assert.doesNotMatch(root.innerHTML, /experiment-detail-title/);
+    assert.match(root.innerHTML, /type="submit" disabled>保存比例/);
+    assert.match(root.innerHTML, /data-action="assign" type="button" disabled>/);
   } finally { globalThis.document = previous; }
 });
 

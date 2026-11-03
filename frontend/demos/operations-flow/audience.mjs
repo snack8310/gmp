@@ -275,6 +275,7 @@ export function createAudienceStore(storage, activities = []) {
     assignExperimentGroup(id, uid) {
       const experiment = experiments.find(item => item.id === id);
       if (!experiment) throw new RangeError('实验不存在。');
+      if (experiment.runtimeStatus !== 'running') throw new RangeError('仅运行中的实验可模拟分配。');
       const part = this.peekExperimentGroup(id, uid);
       if (experiment.colored && !Object.hasOwn(coloring[id] ?? {}, uid)) {
         (coloring[id] ??= {})[uid] = part;
@@ -285,6 +286,7 @@ export function createAudienceStore(storage, activities = []) {
     updateExperimentSplit(id, split) {
       const experiment = experiments.find(item => item.id === id);
       if (!experiment) throw new RangeError('实验不存在。');
+      if (experiment.runtimeStatus !== 'running') throw new RangeError('仅运行中的实验可调整比例。');
       const errors = validateSplit(split);
       if (errors.length) throw new RangeError(errors.join(' '));
       experiment.split = { a: split.a, b: split.b, control: split.control };

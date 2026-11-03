@@ -428,6 +428,7 @@ test('failed local coloring write never reports durable success',async()=>{
  const colored=experiments.find(item=>item.colored);
  assert.ok(colored);
  window.location.hash=`#experimentation/${colored.id}`;window.listeners.hashchange();
+ if(colored.runtimeStatus!=='running')fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'toggle'}})}});
  denyStorageWrite=true;
  fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'assign'}})}});
  assert.match(element('experiment-page').innerHTML,/当前会话/);
