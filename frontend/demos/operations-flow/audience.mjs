@@ -275,6 +275,7 @@ export function createAudienceStore(storage, activities = []) {
       return {
         experiments: current.experiments(),
         bundles: current.bundles(),
+        catalog: current.catalog(),
         peekExperimentGroup: (id, uid) => current.peekExperimentGroup(id, uid),
       };
     },
