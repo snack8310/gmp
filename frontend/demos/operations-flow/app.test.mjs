@@ -312,6 +312,8 @@ test('deleting an unreferenced audience succeeds and an API-referenced audience 
 
 test('campaign writes follow API success, while 4xx and cancel keep server state',async()=>{
  window.location.hash='#activities/new';window.listeners.hashchange();await settle();
+ assert.match(element('campaign-editor').innerHTML,/新建或管理受众/);
+ assert.doesNotMatch(element('campaign-editor').innerHTML,/管理实验|href="#experimentation\?return=/);
  element('campaign-name').value='接口创建活动';element('campaign-audience').value='group:group-new';
  const form=formTarget('campaign-form');
  const before=writes;
@@ -325,6 +327,8 @@ test('campaign writes follow API success, while 4xx and cancel keep server state
  assert.match(id,/^campaign-test-/);
  assert.match(element('campaign-detail').innerHTML,/接口创建活动/);
  window.location.hash+= '/edit';window.listeners.hashchange();await settle();
+ assert.match(element('campaign-editor').innerHTML,/新建或管理受众/);
+ assert.doesNotMatch(element('campaign-editor').innerHTML,/管理实验|href="#experimentation\?return=/);
  const editForm=formTarget('campaign-form');
  nextFailure=true;
  await fire('campaign-section','submit',{target:editForm,preventDefault(){}});
