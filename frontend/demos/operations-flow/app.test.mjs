@@ -7,6 +7,7 @@ import { STORAGE_KEY } from './audience.mjs';
 const elements = new Map(), pending = new Map();
 let frameID = 0, captures = 0;
 const browserStorage = new Map(), storageWrites = [];
+let denyStorageWrite = false;
 function element(id) {
  if (!elements.has(id)) elements.set(id, {
   innerHTML: '', textContent: '', value: 0, style: {}, dataset: {}, listeners: {}, attributes:{},
@@ -20,7 +21,7 @@ function element(id) {
 }
 const media = { matches: false, addEventListener(name,fn) { this.change=fn; } };
 globalThis.document = { getElementById:element, querySelector:element, querySelectorAll:()=>[], addEventListener() {} };
-globalThis.window = { location:{hash:'#activities/campaign-branch/campaign',protocol:'http:',origin:'http://127.0.0.1:9191'}, localStorage:{getItem:key=>browserStorage.get(key)??null,setItem:(key,value)=>{storageWrites.push(key);browserStorage.set(key,value);},removeItem:key=>browserStorage.delete(key)}, addEventListener(name,fn) {this.listeners[name]=fn;}, listeners:{} };
+globalThis.window = { location:{hash:'#activities/campaign-branch/campaign',protocol:'http:',origin:'http://127.0.0.1:9191'}, localStorage:{getItem:key=>browserStorage.get(key)??null,setItem:(key,value)=>{if(denyStorageWrite)throw Error('quota');storageWrites.push(key);browserStorage.set(key,value);},removeItem:key=>browserStorage.delete(key)}, addEventListener(name,fn) {this.listeners[name]=fn;}, listeners:{} };
 globalThis.matchMedia = () => media;
 globalThis.requestAnimationFrame = fn => { pending.set(++frameID,fn); return frameID; };
 globalThis.cancelAnimationFrame = id => pending.delete(id);
@@ -416,4 +417,16 @@ test('treatment completion keeps another domain open after HTTP write',async()=>
  assert.ok(apiCampaigns.find(item=>item.id==='campaign-empty').treatments.some(item=>item.name==='跨域切换短信'));
  assert.ok(usageCalls>before);
  assert.equal(window.location.hash,'#activities/campaign-branch/audience');
+});
+
+test('failed local coloring write never reports durable success',async()=>{
+ const experiments=JSON.parse(browserStorage.get(STORAGE_KEY)).experiments;
+ const colored=experiments.find(item=>item.colored);
+ assert.ok(colored);
+ window.location.hash=`#experimentation/${colored.id}`;window.listeners.hashchange();
+ denyStorageWrite=true;
+ fire('experiment-page','click',{target:{closest:()=>({dataset:{action:'assign'}})}});
+ assert.match(element('experiment-page').innerHTML,/当前会话/);
+ assert.doesNotMatch(element('experiment-page').innerHTML,/已模拟 SIM-/);
+ denyStorageWrite=false;
 });

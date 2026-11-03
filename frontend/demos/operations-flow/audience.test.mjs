@@ -70,12 +70,37 @@ test('v4 migration backs up raw bytes before first v5 write and failed backup ke
   assert.equal(denied.getItem(STORAGE_KEY), raw);
 });
 
+test('a stale backup is replaced with the exact legacy raw before a new upgrade', () => {
+  const storage = memory();
+  const raw = JSON.stringify({ version: 4, audiences: [base()], experiments: [{ id: 'exp-old', name: '再次修改的旧实验' }], bundles: [] });
+  storage.setItem(STORAGE_KEY, raw);
+  storage.setItem(`${STORAGE_KEY}-backup-v4`, 'stale backup');
+  const store = createAudienceStore(storage);
+  store.updateExperimentSplit('exp-old', { a: 50, b: 40, control: 10 });
+  assert.equal(storage.getItem(`${STORAGE_KEY}-backup-v4`), raw);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).version, 5);
+});
+
+test('failed coloring write leaves a visible current-session warning', () => {
+  let fail = false;
+  const storage = memory();
+  const originalSet = storage.setItem;
+  storage.setItem = (key, value) => { if (fail) throw new Error('quota'); originalSet(key, value); };
+  const store = createAudienceStore(storage);
+  const experiment = store.saveExperiment({ name: '染色写入失败', split, colored: true });
+  fail = true;
+  assert.equal(store.assignExperimentGroup(experiment.id, 'SIM-0001'), store.peekExperimentGroup(experiment.id, 'SIM-0001'));
+  assert.match(store.warning, /当前会话/);
+  assert.deepEqual(createAudienceStore({ getItem: storage.getItem, setItem: () => {} }).experimentColoring(experiment.id), {});
+});
+
 test('v5 missing fields, invalid split and unknown coloring fail closed', () => {
   const valid = { version: 5, audiences: [base()], experiments: [{ id: 'exp-one', name: '新格式', runtimeStatus: 'stopped', generation: 0, split, colored: true }], bundles: [], coloring: { 'exp-one': { 'SIM-0001': 'a' } } };
   for (const payload of [
     { ...valid, coloring: undefined },
     { ...valid, bundles: undefined },
     { ...valid, experiments: [{ ...valid.experiments[0], split: { a: 50, b: 50, control: 50 } }] },
+    { ...valid, experiments: [{ id: 'exp-one', name: '缺运行元数据', split, colored: true }] },
     { ...valid, coloring: { missing: { 'SIM-0001': 'a' } } },
     { ...valid, coloring: { 'exp-one': { 'real-uid': 'a' } } },
     { ...valid, coloring: { 'exp-one': { 'SIM-0001': 'unknown' } } },

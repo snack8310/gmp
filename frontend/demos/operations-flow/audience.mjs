@@ -187,12 +187,15 @@ export function createAudienceStore(storage, activities = []) {
         ? oldExperiments.map(item => item && typeof item === 'object' && !Array.isArray(item) ? { ...item, split: DEFAULT_SPLIT, colored: false } : item) : oldExperiments;
       const loadedBundles = value.version >= 4 && Object.hasOwn(value, 'bundles') ? value.bundles : value.version === 5 ? null : [];
       const loadedColoring = value.version === 5 ? value.coloring : {};
+      const completeV5Experiments = value.version !== 5 || Array.isArray(loadedExperiments)
+        && loadedExperiments.every(experiment => experiment && typeof experiment === 'object'
+          && Object.hasOwn(experiment, 'runtimeStatus') && Object.hasOwn(experiment, 'generation'));
       const validColoring = loadedColoring && typeof loadedColoring === 'object' && !Array.isArray(loadedColoring)
         && Object.keys(loadedColoring).every(id => loadedExperiments?.some(experiment => experiment?.id === id && experiment.colored)
           && loadedColoring[id] && typeof loadedColoring[id] === 'object' && !Array.isArray(loadedColoring[id])
           && Object.keys(loadedColoring[id]).length <= MOCK_USERS.length
           && Object.entries(loadedColoring[id]).every(([uid, part]) => /^SIM-\d{4}$/.test(uid) && ['a', 'b', 'control'].includes(part)));
-      if (!validCollection(loadedExperiments, validateExperiment)
+      if (!completeV5Experiments || !validCollection(loadedExperiments, validateExperiment)
         || !validCollection(loadedAudiences, def => validateAudience(def, loadedExperiments))
         || (value.version === 1 && value.audiences.some(def => def.experimentId != null))
         || !Array.isArray(loadedBundles) || loadedBundles.length > 100 || !validColoring
@@ -223,7 +226,7 @@ export function createAudienceStore(storage, activities = []) {
   function persist() {
     if (!usable) return;
     try {
-      if (legacyRaw !== null && storage.getItem(BACKUP_KEY) === null) { storage.setItem(BACKUP_KEY, legacyRaw); logStorage('backup', 'ok'); }
+      if (legacyRaw !== null) { storage.setItem(BACKUP_KEY, legacyRaw); logStorage('backup', 'ok'); }
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 5, audiences: definitions, experiments, bundles, coloring }));
       legacyRaw = null; warning = ''; logStorage('write', 'ok');
     }

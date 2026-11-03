@@ -1,6 +1,6 @@
 # 实验列表与详情：本地可操作页面设计
 
-关联 [issue #80](https://github.com/snack8310/gmp/issues/80) 与[任务入口检查](../../ai-loop/task-cards/80-experiment-list-detail.md)。本设计待用户批准；批准前不修改产品代码。
+关联 [issue #80](https://github.com/snack8310/gmp/issues/80) 与[任务入口检查](../../ai-loop/task-cards/80-experiment-list-detail.md)。用户已于 2026-11-03 批准本设计并确认旧缓存回滚限制。
 
 ## 意图与边界
 
