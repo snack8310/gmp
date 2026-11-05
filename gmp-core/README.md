@@ -10,10 +10,10 @@
 
 | 层 | 允许依赖 | 本轮状态 |
 |---|---|---|
-| `scenarios` | 以下全部 | 未建立 |
-| `campaign` | `audience` | 未建立 |
-| `audience` | `experimentation` | 未建立 |
-| `experimentation` | **无** | 已建立 |
+| `scenarios` | 以下全部 | 已建立（跨层业务回归仍有未覆盖场景） |
+| `campaign` | `audience` | 已建立（当前为内存领域模型） |
+| `audience` | `experimentation` | 已建立（当前为内存领域模型） |
+| `experimentation` | **无** | 已建立（稳定分配与染色） |
 
 **`experimentation` 的零依赖不是约定，是一条检查**：[`internal/arch`](internal/arch) 解析该包下每个 Go 文件的 import，命中上层即失败；包被改名或删除时检查同样失败，而不是「零个文件、全部通过」。该检查随 `go test ./...` 在 CI 上真跑。
 
@@ -46,7 +46,8 @@
 
 ## 本轮未覆盖
 
-- `audience` / `campaign` / `scenarios` 三层，以及跨三者的业务场景。
+- 各层已有实现不代表对应规格全部落地；跨层业务场景仍有未覆盖部分，详见根 [`AGENTS.md`](../AGENTS.md)「业务回归用例」。
+- 活动流程实验节点目前仍是浏览器本地草稿，尚未进入管理 API / `gmp-core`，也不代表真实分组或执行。见[变更记录](../docs/history/changes/2026-11-03-activity-flow-experiment.md)。
 - 真实存储、真实渠道、真实数据源、部署形态。
 - 指标口径清单（边界文档 B6）。
 - **时间**。本层无时间概念：定时触发交给外部调度器，到点投事件，模型只对事件与状态作出反应。人工裁定，见 [任务卡](../docs/ai-loop/task-cards/23-experimentation-core.md)。
