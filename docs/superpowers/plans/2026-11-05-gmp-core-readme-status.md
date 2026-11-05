@@ -57,6 +57,6 @@
 
 向只读评估器提供 Issue #84、任务卡、设计稿、README 差异和验证证据；等待其 `PASS`。主 Agent 不自行宣布评估通过。
 
-- [ ] **Step 6: 写入变更证据并准备 PR**
+- [x] **Step 6: 写入变更证据并准备 PR**
 
 评估器 `PASS` 后，新增 `docs/history/changes/2026-11-05-gmp-core-readme-status.md`，记录本次事实修正、实际检查和未覆盖项；随后推送分支并创建关联 #84 的 PR，不合并。
