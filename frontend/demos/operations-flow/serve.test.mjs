@@ -54,10 +54,23 @@ async function startFrontend(port, apiPort, overrides = {}) {
 }
 
 async function stop(child) {
- if (child.exitCode !== null) return;
+ if (child.exitCode !== null || child.signalCode !== null) return;
  child.kill();
  await once(child, 'exit');
 }
+
+test('cleanup returns after a child has already exited by signal', async () => {
+ const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+ await once(child, 'spawn');
+ const exited = once(child, 'exit');
+ child.kill('SIGTERM');
+ await exited;
+ const outcome = await Promise.race([
+  stop(child).then(() => 'returned'),
+  new Promise(resolve => setTimeout(() => resolve('waiting'), 100)),
+ ]);
+ assert.equal(outcome, 'returned');
+});
 
 test('explicit container hosts serve the page and proxy the API', async () => {
  const api = await upstream('::1');
