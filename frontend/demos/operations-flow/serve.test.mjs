@@ -61,9 +61,9 @@ async function stop(child) {
 
 test('explicit container hosts serve the page and proxy the API', async () => {
  const api = await upstream('::1');
- const port = await availablePort('::1');
  let child;
  try {
+  const port = await availablePort('::1');
   child = await startFrontend(port, api.address().port, {
    GMP_DEMO_LISTEN_HOST: '::1', GMP_DEMO_API_HOST: '::1',
   });
@@ -98,9 +98,9 @@ test('empty API host fails before the frontend begins listening', async () => {
 
 test('default local hosts still proxy the API over loopback', async () => {
  const api = await upstream('127.0.0.1');
- const port = await availablePort('127.0.0.1');
  let child;
  try {
+  const port = await availablePort('127.0.0.1');
   child = await startFrontend(port, api.address().port);
   const response = await fetch(`http://127.0.0.1:${port}/api/v1/campaigns`);
   assert.equal(response.status, 200);
