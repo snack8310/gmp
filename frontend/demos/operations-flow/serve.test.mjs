@@ -37,15 +37,20 @@ async function startFrontend(port, apiPort, overrides = {}) {
   env: { ...env, ...overrides }, stdio: ['ignore', 'pipe', 'pipe'],
  });
  let output = '';
- await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => reject(Error(`frontend did not listen: ${output}`)), 4000);
-  child.stdout.on('data', chunk => {
-   output += chunk;
-   if (output.includes('"event":"listening"')) { clearTimeout(timeout); resolve(); }
+ try {
+  await new Promise((resolve, reject) => {
+   const timeout = setTimeout(() => reject(Error(`frontend did not listen: ${output}`)), 4000);
+   child.stdout.on('data', chunk => {
+    output += chunk;
+    if (output.includes('"event":"listening"')) { clearTimeout(timeout); resolve(); }
+   });
+   child.once('exit', code => { clearTimeout(timeout); reject(Error(`frontend exited ${code}: ${output}`)); });
   });
-  child.once('exit', code => { clearTimeout(timeout); reject(Error(`frontend exited ${code}: ${output}`)); });
- });
- return child;
+  return child;
+ } catch (error) {
+  await stop(child);
+  throw error;
+ }
 }
 
 async function stop(child) {
@@ -57,10 +62,11 @@ async function stop(child) {
 test('explicit container hosts serve the page and proxy the API', async () => {
  const api = await upstream('::1');
  const port = await availablePort('::1');
- const child = await startFrontend(port, api.address().port, {
-  GMP_DEMO_LISTEN_HOST: '::1', GMP_DEMO_API_HOST: '::1',
- });
+ let child;
  try {
+  child = await startFrontend(port, api.address().port, {
+   GMP_DEMO_LISTEN_HOST: '::1', GMP_DEMO_API_HOST: '::1',
+  });
   const page = await fetch(`http://[::1]:${port}/`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<html/);
@@ -68,7 +74,7 @@ test('explicit container hosts serve the page and proxy the API', async () => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { campaigns: [{ id: 'configured-upstream' }] });
  } finally {
-  await stop(child);
+  if (child) await stop(child);
   api.close();
   await once(api, 'close');
  }
@@ -93,13 +99,14 @@ test('empty API host fails before the frontend begins listening', async () => {
 test('default local hosts still proxy the API over loopback', async () => {
  const api = await upstream('127.0.0.1');
  const port = await availablePort('127.0.0.1');
- const child = await startFrontend(port, api.address().port);
+ let child;
  try {
+  child = await startFrontend(port, api.address().port);
   const response = await fetch(`http://127.0.0.1:${port}/api/v1/campaigns`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { campaigns: [{ id: 'configured-upstream' }] });
  } finally {
-  await stop(child);
+  if (child) await stop(child);
   api.close();
   await once(api, 'close');
  }
