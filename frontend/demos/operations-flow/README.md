@@ -13,6 +13,10 @@ node frontend/demos/operations-flow/serve.mjs 8081 8082
 
 打开 `http://127.0.0.1:8081`。演示入口在同一源代理 `/api/v1/*` 到管理 API。只用普通静态服务启动页面时没有 API 代理，活动列表和活动内容不可用。默认 API 基址使用当前页面源；需要覆盖时，在载入 `app.mjs` 前设置 `window.CAMPAIGN_API_BASE`。
 
+容器试运行在仓库根目录执行 `docker compose build` 和 `docker compose up -d --wait`，访问同一地址，停止时执行 `docker compose down`。Compose 为页面和管理 API 分别启动容器，页面通过内部服务名代理 API；宿主机只映射页面的 `127.0.0.1:8081`。可在启动命令前设置 `GMP_DEMO_PORT` 改宿主机端口。需要外部访问时，应由带 TLS 和访问控制的反向代理接入页面端口；演示本身没有鉴权，不应直接公开。
+
+容器启动将 `GMP_DEMO_LISTEN_HOST` 设为 `0.0.0.0`、`GMP_DEMO_API_HOST` 设为 `api`。直接运行 `serve.mjs` 时这两项默认都是 `127.0.0.1`，原本机命令无需修改。显式设置为空会使入口启动失败。
+
 单文件导出：
 
 ```sh
@@ -54,6 +58,7 @@ node frontend/demos/operations-flow/export.mjs /tmp/gmp-activity-demo.html
 - 受众和实验定义及模拟样本仅保存在当前浏览器；本机 API 仅持有活动引用所需的人群 ID 与显示名。不上传名单、不接真实渠道、不调用生产分桶算法，也不执行真实触达。
 - 活动流程边由管理 API 当前进程持有；进程重启会恢复构造种子。受众引用、回执条件和活动内边语义不由浏览器临时推断。
 - 流程实验节点只属于浏览器草稿，不具备管理 API/Core 的保存、跨设备同步、生产染色或真实指标口径。损坏的草稿原文会保留并阻止继续保存；浏览器写入失败时当前会话的修改不会在刷新后恢复。后续接入 API/Core 需单独设计版本化契约。
+- Docker 只封装上述演示：API 容器重启后活动、投放项和服务端流程边恢复构造种子；受众、实验与流程实验草稿保留在原浏览器，换设备不会同步。
 - 旧版离线页面不能读取新版浏览器缓存。需要回退时，先把 `gmp-audience-demo-v1-backup-v4` 的原文恢复到 `gmp-audience-demo-v1`，再打开旧版页面；新版期间所做的修改不会出现在备份中。
 
 ## 验证

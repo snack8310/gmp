@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 
 const listenPort = Number(process.argv[2] || 8081);
 const apiPort = Number(process.argv[3] || 8082);
+const listenHost = process.env.GMP_DEMO_LISTEN_HOST ?? '127.0.0.1';
+const apiHost = process.env.GMP_DEMO_API_HOST ?? '127.0.0.1';
 if (!Number.isInteger(listenPort) || !Number.isInteger(apiPort) || listenPort < 1 || apiPort < 1 || listenPort === apiPort) throw Error('Pass distinct listen and API ports');
+if (!listenHost.trim() || !apiHost.trim()) throw Error('Pass non-empty listen and API hosts');
 const files = new Set(['index.html', 'style.css', 'activity-navigation.css', 'activity-flow-canvas.css', 'flow-experiment.css', 'experiment-page.css', 'activity-flow-canvas.mjs', 'flow-experiment-graph.mjs', 'flow-experiment-draft.mjs', 'flow-experiment-ui.mjs', 'activity-routing.mjs', 'activity-navigation.mjs', 'app.mjs', 'audience.mjs', 'audience-ui.mjs', 'experiment-ui.mjs', 'campaign-activities.mjs', 'campaign-ui.mjs', 'campaign-api-client.mjs', 'campaign-controller.mjs']);
 
 const server = createServer(async (incoming, outgoing) => {
@@ -13,7 +16,7 @@ const server = createServer(async (incoming, outgoing) => {
   const pathname = new URL(incoming.url, 'http://localhost').pathname;
   if (pathname.startsWith('/api/v1/')) {
    await new Promise(resolve => {
-    const upstream = request({ hostname: '127.0.0.1', port: apiPort, path: incoming.url, method: incoming.method, headers: { 'content-type': incoming.headers['content-type'] || 'application/json' } }, response => {
+    const upstream = request({ hostname: apiHost, port: apiPort, path: incoming.url, method: incoming.method, headers: { 'content-type': incoming.headers['content-type'] || 'application/json' } }, response => {
      status = response.statusCode;
      outgoing.writeHead(status, { 'content-type': response.headers['content-type'] || 'application/json' });
      response.pipe(outgoing); response.on('end', resolve);
@@ -35,4 +38,4 @@ const server = createServer(async (incoming, outgoing) => {
  console.info(JSON.stringify({ component: 'campaign-demo-server', method: incoming.method, status, duration_ms: Date.now() - started }));
 });
 server.on('error', error => { console.error(JSON.stringify({ component: 'campaign-demo-server', event: 'listen_failed', code: error.code })); process.exitCode = 1; });
-server.listen(listenPort, '127.0.0.1', () => console.info(JSON.stringify({ component: 'campaign-demo-server', event: 'listening', port: listenPort, api_port: apiPort })));
+server.listen(listenPort, listenHost, () => console.info(JSON.stringify({ component: 'campaign-demo-server', event: 'listening', host: listenHost, port: listenPort, api_host: apiHost, api_port: apiPort })));

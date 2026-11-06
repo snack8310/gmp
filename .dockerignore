@@ -1,0 +1,10 @@
+*
+!management/
+!management/**
+!frontend/
+!frontend/demos/
+!frontend/demos/operations-flow/
+!frontend/demos/operations-flow/**
+frontend/demos/operations-flow/*.test.mjs
+frontend/demos/operations-flow/*-check.mjs
+frontend/demos/operations-flow/export.mjs

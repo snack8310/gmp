@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8082/api/v1/campaigns"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      GMP_DEMO_LISTEN_HOST: 0.0.0.0
+      GMP_DEMO_API_HOST: api
+    ports:
+      - "127.0.0.1:${GMP_DEMO_PORT:-8081}:8081"
+    restart: unless-stopped
