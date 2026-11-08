@@ -8,12 +8,24 @@
 
 ```sh
 cd management
+export MYSQL_DSN
+export MYSQL_MAX_OPEN_CONNS
+export MYSQL_MAX_IDLE_CONNS
+export MYSQL_CONN_MAX_LIFETIME_SEC
 go run ./cmd/campaign-api -addr 127.0.0.1:8081
 ```
 
-`-addr` 必填。服务端是本 V1 的活动及投放项状态真源。一个进程中的连续 HTTP 请求读写同一份受互斥锁保护的内存状态；启动时加载构造活动与目录种子，删除后当前进程不会重新加载。**进程重启会重置活动、投放项编辑及动态目录项，恢复初始种子**，没有磁盘持久化或多实例同步。客户端本地缓存不能覆盖服务端状态。
+`-addr` 和上述 MySQL 设置都必填。`MYSQL_DSN` 必须指向平台自有 MySQL 中已创建的数据库；不要将凭据写入仓库或日志。启动时检查连接并应用仓库内的加法迁移；缺配置、连接失败、迁移失败或 schema 版本不受支持时进程退出，不回退到内存状态。活动、投放项、流程边、人群引用、执行 / 回执日志及 ID 分配序列写入平台 MySQL，进程重启后仍可读取。每次管理配置写操作在数据库事务与共享写锁内加载、校验并替换完整配置，保证多进程写入不会丢失并发更新。执行日志按 execution key 首次写入；首次有效回执生效，相同回执重放不再触发流程边，冲突回执拒绝。Outbox 未纳入，不保证数据库提交与后续渠道副作用之间的跨进程恢复。该实现目前面向演示与架构验证，整份管理配置读写会随数据量增长而变慢。
 
-服务仅用于本机演示，不具备认证、授权或生产持久化能力；不要绑定公网地址或用于真实运营数据。服务不读取浏览器 `localStorage`，不访问数据库、Redis、消息队列或真实渠道。浏览器在加载时把本地共享人群的 ID 与名称写入 API 目录；圈选规则及模拟样本仍留在浏览器。HTTP 请求是唯一外部读写面：读请求只读进程内状态，写请求只写进程内状态。请求日志为结构化 JSON，仅记录方法、状态码和耗时，不记录请求体、凭据或个人信息。
+当前迁移只新增平台管理与执行 / 回执表，不修改或迁移旧数据；应用版本回退时保留 schema 与数据，不自动执行破坏性删除。独立 demo 用户池表由 `management/internal/management/demo_user_pool.sql` 显式创建和写入构造数据，不属于自动迁移，也不能作为生产用户池 schema。删除这些表需要单独的变更计划与人工审批。
+
+服务不具备认证或授权能力，不应直接公开或接入真实运营数据。API 当前不创建人群来源，也不读写人群成员或保存成员快照；外层 `MySQLStore.NewDemoAudienceSource` 可从同一 `*sql.DB` 连接池只读查询仓库提供的 demo 表，但尚未接入 API 求值。共用连接池意味着底层数据库账户的读 / 写权限仍需部署侧限制；当前代码路径只对来源表执行查询，不能据此声称数据库权限已经只读隔离。服务不访问 Redis、消息队列或真实渠道。浏览器仍在载入时同步共享人群的 ID 与名称，圈选规则及模拟样本留在浏览器。HTTP 与 MySQL 操作使用结构化日志，只记录方法 / 操作、结果与耗时，不记录 DSN、请求体、用户标识或业务载荷。
+
+### MySQL 人群来源适配器（尚未接入 API）
+
+`management.MySQLAudienceSource` 是外层只读查询适配器，不由当前 API 启动器创建。`MySQLStore.NewDemoAudienceSource` 从平台 store 复用同一个连接池，使用固定的 demo 表 / 列映射和显式分页大小；初始化会检查 demo 表的 InnoDB、列类型、UID 唯一键与稳定游标主键。demo 表须由仓库提供的独立 SQL 文件显式创建。通用 `NewMySQLAudienceSource` 供未来来源集成使用，调用方须提供 `Table`、`UIDColumn`、`CursorColumn`、`Attributes` 映射、`PageSize`，以及确认 UID 唯一、游标唯一且稳定的 `UIDUnique`、`CursorUnique` / `CursorStable` 声明。表名只接受 `table` 或 `database.table`，列名只接受简单 SQL 标识符；通用来源的唯一性和稳定性由来源契约提供，适配器不扫描整张表来推断它们。
+
+`ReadPage` 使用游标分页，只选择 UID、游标和显式映射的属性列；它不提供写方法、不缓存来源成员、不记录成员、属性或游标值。demo fixture 仅含构造用户数据；适配器尚未接入 `/api/v1` 的人群求值流程。实际生产用户池 schema、可读字段、筛选规则、分页字段和访问授权仍待确认，因此不能视为已接入真实人群。
 
 ## 资源模型
 
@@ -46,7 +58,7 @@ go run ./cmd/campaign-api -addr 127.0.0.1:8081
 
 活动流程对象包含 `id`、`entries[]`、`edges[]`。入口路由把唯一活动受众或包内各臂分配给起始投放项；回执边把动作成功 / 失败等契约结果连接到后续投放项。回执边目标沿用上游回执 UID，不重新枚举人群。单步草稿可以暂时没有流程或入口；完整活动 core 只接受合法的受众、入口流程与投放项。未完成管理草稿不能开始本地演练。
 
-创建活动只接受 `{ "name": "活动名称" }`，返回含服务端分配 `id` 和空 `treatments` 的草稿。选择活动受众后才可新增投放项。创建投放项接受 `name`、`actionId` 和可选 `slotId`，不接受客户端 `id` 或投放项人群。活动及投放项 ID 均由服务端分配，在同一进程内唯一；改名不改 ID，删除后当前进程不复用 ID。重启后内存状态和分配序列重置，本 API 不保证跨重启唯一。
+创建活动只接受 `{ "name": "活动名称" }`，返回含服务端分配 `id` 和空 `treatments` 的草稿。选择活动受众后才可新增投放项。创建投放项接受 `name`、`actionId` 和可选 `slotId`，不接受客户端 `id` 或投放项人群。活动及投放项 ID 均由服务端分配，分配序列保存在 MySQL；改名不改 ID，删除后也不复用已分配 ID。浏览器本地缓存不能覆盖服务端状态。
 
 `PUT /campaigns/{campaignId}` 接受活动名称等基本字段；`id` 必须与路径一致，`treatments` 必须包含原有全部投放项 ID。活动受众只能通过 `/audience` 更新，流程只能通过 `/flow` 更新。若活动更新请求省略 `audience`，服务端保留当前受众。所有写入均在服务端重校验修改后的活动，通过后才替换状态。
 
@@ -85,7 +97,7 @@ go run ./cmd/campaign-api -addr 127.0.0.1:8081
 - 同一活动内多个展示投放项占同一展示位时，须由同一实验包的不同臂证明互斥；其他冲突返回 `409 slot_conflict`。推送不参与展示位竞争。本 V1 不提供决策表编辑接口。
 - 流程边端点必须在本活动，不能指向自己；边 ID、条件必须非空且不得重复。回执条件必须由来源动作声明；流程图不能有循环。删除被入口路由或现有边引用的投放项返回冲突，保留原状态。
 
-初始活动种子为 `campaign-branch`、`campaign-single`、`campaign-empty`、`campaign-no-edges`，与前端演示常用 ID 对齐。`campaign-branch` 选择单一普通组并按 RCS 成功 / 失败回执分支；`campaign-no-edges` 选择一个实验人群包并将 A、B、对照臂分别路由。浏览器在加载时同步本地普通人群的 ID 与名称到 API 目录；新建或改名时同步当前引用。进程重启会丢失动态目录项，重新打开演示后会从浏览器本地定义重新写入。活动受众占用与投放项引用占用均由使用情况查询返回；删除接口会同时检查活动选择和流程入口，防止悬空引用。
+新安装的 MySQL schema 不会自动写入活动、投放项、人群引用或浏览器草稿种子。活动与投放项需通过 API 创建；普通人群引用由浏览器在载入、保存或改名时同步到 API，并持久化在平台 MySQL。实验包臂引用仍由客户端目录提供，当前 API 不保存实验定义或分流记录。活动受众占用与投放项引用占用均由使用情况查询返回；删除接口会同时检查活动选择和流程入口，防止悬空引用。
 
 ## 错误语义
 
@@ -99,9 +111,10 @@ go run ./cmd/campaign-api -addr 127.0.0.1:8081
 | `409` | `id_conflict`, `missing_activity_audience`, `audience_conflict`, `flow_conflict`, `flow_id_conflict`, `invalid_entry_route`, `entry_outside_audience`, `entry_conflict`, `edge_conflict`, `flow_cycle`, `slot_conflict`, `treatment_set_conflict` | 受众或流程并发冲突、引用关系或同位竞争无效 |
 | `415` | `unsupported_media_type` | 写入请求不是 JSON |
 | `422` | `unknown_action`, `unavailable_action`, `unknown_audience`, `unavailable_audience`, `missing_slot`, `unknown_slot`, `unexpected_slot`, `invalid_edge_condition` | 引用、展示位或动作回执契约不满足要求 |
+| `500` | `storage_unavailable` | 平台 MySQL 读写、迁移或事务失败；API 不切换到内存状态 |
 
 ## 验证与兼容边界
 
-`management/internal/httpapi/http_test.go` 检验活动受众、流程入口 / 回执边、乐观冲突、动作与人群目录、展示位及进程重启语义；`frontend/demos/operations-flow/campaign-http-check.mjs` 检验前端通过 V1 创建并配置活动、实验臂路由和同位冲突。
+`management/internal/httpapi/http_test.go` 检验活动受众、流程入口 / 回执边、乐观冲突、动作与人群目录、展示位及演示内存替身语义；`management/internal/management/mysql_store_integration_test.go` 使用 `GMP_TEST_MYSQL_DSN` 验证 MySQL 迁移、跨重启读取、跨实例 ID 分配和失败事务回滚。`frontend/demos/operations-flow/campaign-http-check.mjs` 检验前端通过 V1 创建并配置活动、实验臂路由和同位冲突。
 
 本次对尚未合并的 `/api/v1` 原地破坏性更新，不增加 V2 或旧字段兼容层。旧 `audienceRefs[]`、`treatments[].audienceRef`、`/audiences` 及 `expectedAudienceRefs` 不再接受；仓库唯一演示客户端同步迁移。该变更仅影响本机演示 API，不涉及持久化迁移、生产数据、外部渠道或真实触达。

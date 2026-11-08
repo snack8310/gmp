@@ -152,6 +152,45 @@ func TestAReceiptThatMatchesNothingIsRefused(t *testing.T) {
 	}
 }
 
+func TestMemoryLogDoesNotClearTheFirstAcceptedReceipt(t *testing.T) {
+	log := campaign.NewMemoryLog()
+	delivered := campaign.Execution{
+		Key: "execution-key", Campaign: "campaign", Treatment: "treatment", UID: "uid",
+		Action: sendSMS, State: campaign.StateDelivered, ExternalRef: "delivery-ref",
+	}
+	if err := log.Append(delivered); err != nil {
+		t.Fatalf("appending execution: %v", err)
+	}
+	accepted := delivered
+	accepted.State = campaign.StateArrived
+	accepted.Outcome = campaign.OutcomeSuccess
+	accepted.ReceiptExternalRef = "receipt-ref"
+	accepted.ReceiptAttributes = map[string]string{"status": "arrived"}
+	if err := log.Update(accepted); err != nil {
+		t.Fatalf("recording receipt: %v", err)
+	}
+	if err := log.Update(delivered); !errors.Is(err, campaign.ErrConflictingReceipt) {
+		t.Fatalf("stale execution update error = %v, want ErrConflictingReceipt", err)
+	}
+	got, found, err := log.Lookup(delivered.Key)
+	if err != nil || !found || got.State != campaign.StateArrived || got.Outcome != campaign.OutcomeSuccess || got.ReceiptExternalRef != "receipt-ref" {
+		t.Fatalf("stale update changed accepted receipt: %#v (found=%v err=%v)", got, found, err)
+	}
+}
+
+func TestRunnerRequiresAtomicReceiptAcceptance(t *testing.T) {
+	w := newWorld(t, 1)
+	_, err := campaign.NewRunner(campaign.RunnerSpec{
+		Audiences: w.audiences, Log: updateOnlyLog{Log: campaign.NewMemoryLog()},
+		Events: campaign.DiscardEvents(), MaxAttempts: 1,
+	})
+	if !errors.Is(err, campaign.ErrReceiptAcceptanceUnavailable) {
+		t.Fatalf("runner construction error = %v, want ErrReceiptAcceptanceUnavailable", err)
+	}
+}
+
+type updateOnlyLog struct{ campaign.Log }
+
 // Retrying must reuse the key. A fresh one would make the downstream treat the
 // retry as another delivery, and the person receives two of something.
 func TestRetryingReusesTheSameKey(t *testing.T) {

@@ -13,9 +13,9 @@ import (
 	"github.com/snack8310/gmp/management/internal/management"
 )
 
-type api struct{ store *management.Store }
+type api struct{ store management.Repository }
 
-func NewHandler(store *management.Store, logger *slog.Logger) http.Handler {
+func NewHandler(store management.Repository, logger *slog.Logger) http.Handler {
 	a := &api{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/campaigns", a.campaigns)
@@ -92,7 +92,12 @@ func decode(w http.ResponseWriter, r *http.Request, into any) bool {
 func (a *api) campaigns(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, 200, map[string]any{"campaigns": a.store.Campaigns()})
+		campaigns, p := a.store.Campaigns()
+		if p != nil {
+			writeProblem(w, p)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"campaigns": campaigns})
 	case http.MethodPost:
 		var input struct {
 			Name string `json:"name"`
@@ -304,7 +309,12 @@ func (a *api) references(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"audienceReferences": a.store.AudienceReferences()})
+	references, p := a.store.AudienceReferences()
+	if p != nil {
+		writeProblem(w, p)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"audienceReferences": references})
 }
 
 func (a *api) usages(w http.ResponseWriter, r *http.Request) {

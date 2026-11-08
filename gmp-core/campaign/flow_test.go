@@ -2,6 +2,7 @@ package campaign_test
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
@@ -121,6 +122,103 @@ func TestAReceiptEdgeRunsTheNextStepWithoutANewAudience(t *testing.T) {
 	}
 }
 
+func TestConcurrentIdenticalReceiptsPublishAndFollowOnlyOnce(t *testing.T) {
+	w := newWorld(t, 1)
+	firstAction := registerPush(t, "concurrent-first", campaign.OutcomeSuccess, campaign.OutcomeFailure)
+	nextAction := registerPush(t, "concurrent-next")
+	first := treatmentOn(t, firstAction, "first-step", w.definition("concurrent-entry"))
+	next := treatmentOn(t, nextAction, "next-step", w.definition("concurrent-entry"))
+	flow := mustFlow(t, "concurrent-receipt",
+		campaign.EdgeSpec{From: first.ID(), To: next.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess},
+	)
+	built := mustCampaign(t, "concurrent-receipt", flow, first, next)
+
+	baseLog := campaign.NewMemoryLog()
+	log := &simultaneousLookupLog{Log: baseLog, ReceiptAcceptor: baseLog, ready: make(chan struct{})}
+	events := &countingEventSink{}
+	runner, err := campaign.NewRunner(campaign.RunnerSpec{
+		Audiences: w.audiences, Log: log, Events: events, MaxAttempts: 1,
+	})
+	if err != nil {
+		t.Fatalf("building the runner: %v", err)
+	}
+	deliverer := campaign.NewMemoryDeliverer()
+	if err := runner.RegisterDeliverer(nextAction.ID(), deliverer); err != nil {
+		t.Fatalf("wiring the next treatment: %v", err)
+	}
+	execution := campaign.Execution{
+		Key: "concurrent-receipt-key", Campaign: built.ID(), Treatment: first.ID(),
+		UID: w.people[0].UID, Action: firstAction.ID(), State: campaign.StateDelivered,
+	}
+	if err := baseLog.Append(execution); err != nil {
+		t.Fatalf("appending the source execution: %v", err)
+	}
+	receipt := campaign.Receipt{Key: execution.Key, Arrived: true, Outcome: campaign.OutcomeSuccess}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- runner.RecordReceipt(built, receipt) }()
+	}
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatalf("recording an identical concurrent receipt: %v", err)
+		}
+	}
+
+	if got := events.count(campaign.ArrivedEvent(firstAction.ID())); got != 1 {
+		t.Fatalf("arrival events = %d, want one accepted receipt event", got)
+	}
+	if got := len(deliverer.Calls()); got != 1 {
+		t.Fatalf("receipt edge deliveries = %d, want one", got)
+	}
+}
+
+type simultaneousLookupLog struct {
+	campaign.Log
+	campaign.ReceiptAcceptor
+	mu      sync.Mutex
+	lookups int
+	ready   chan struct{}
+}
+
+func (l *simultaneousLookupLog) Lookup(key campaign.IdempotencyKey) (campaign.Execution, bool, error) {
+	execution, found, err := l.Log.Lookup(key)
+	l.mu.Lock()
+	l.lookups++
+	wait := l.lookups <= 2
+	if l.lookups == 2 {
+		close(l.ready)
+	}
+	l.mu.Unlock()
+	if wait {
+		<-l.ready
+	}
+	return execution, found, err
+}
+
+type countingEventSink struct {
+	mu     sync.Mutex
+	events []campaign.Event
+}
+
+func (s *countingEventSink) Publish(event campaign.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *countingEventSink) count(name campaign.EventName) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, event := range s.events {
+		if event.Name == name {
+			count++
+		}
+	}
+	return count
+}
+
 // RCS success goes to mail and failure goes to SMS. Each person is on exactly
 // one of those two edges. The later treatments match nobody by audience.
 func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
@@ -140,7 +238,7 @@ func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
 		campaign.EdgeSpec{From: rcs.ID(), To: sms.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeFailure},
 	)
 	built := mustCampaign(t, "rcs-then-mail-or-sms", flow, rcs, mail, sms)
-	runner, _, deliverers, _ := flowRunner(t, w.audiences, rcsAction, mailAction, smsAction)
+	runner, log, deliverers, events := flowRunner(t, w.audiences, rcsAction, mailAction, smsAction)
 
 	report, err := runner.Run(built, rcs.ID(), "entry", audience.Live())
 	if err != nil {
@@ -181,6 +279,35 @@ func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
 				t.Fatalf("%s failed but mail=%v sms=%v", uid, mailUIDs[uid], smsUIDs[uid])
 			}
 		}
+	}
+
+	for _, execution := range report.Executions {
+		if want[execution.UID] != campaign.OutcomeSuccess {
+			continue
+		}
+		publishedBeforeReplay := len(events.published)
+		mailCallsBeforeReplay := len(deliverers[mailAction.ID()].Calls())
+		if err := runner.RecordReceipt(built, campaign.Receipt{
+			Key: execution.Key, Arrived: true, Outcome: campaign.OutcomeSuccess,
+		}); err != nil {
+			t.Fatalf("replaying the same receipt: %v", err)
+		}
+		if len(events.published) != publishedBeforeReplay || len(deliverers[mailAction.ID()].Calls()) != mailCallsBeforeReplay {
+			t.Fatal("replaying the same receipt published or delivered the branch again")
+		}
+		if err := runner.RecordReceipt(built, campaign.Receipt{
+			Key: execution.Key, Arrived: false, Outcome: campaign.OutcomeFailure,
+		}); !errors.Is(err, campaign.ErrConflictingReceipt) {
+			t.Fatalf("conflicting receipt error = %v, want ErrConflictingReceipt", err)
+		}
+		stored, found, err := log.Lookup(execution.Key)
+		if err != nil || !found || stored.Outcome != campaign.OutcomeSuccess || stored.State != campaign.StateArrived {
+			t.Fatalf("conflicting receipt changed stored execution to state %q outcome %q (found=%v err=%v)", stored.State, stored.Outcome, found, err)
+		}
+		if uidsOf(deliverers[smsAction.ID()].Calls())[execution.UID] {
+			t.Fatalf("conflicting receipt sent the failure branch to %s", execution.UID)
+		}
+		break
 	}
 }
 

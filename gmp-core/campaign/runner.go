@@ -38,6 +38,7 @@ type Report struct {
 type Runner struct {
 	audiences   *audience.Service
 	log         Log
+	receipts    ReceiptAcceptor
 	events      EventSink
 	deliverers  map[ActionID]Deliverer
 	maxAttempts int
@@ -67,6 +68,10 @@ func NewRunner(spec RunnerSpec) (*Runner, error) {
 	if spec.Log == nil {
 		return nil, errors.New("campaign: runner has no execution log")
 	}
+	receipts, ok := spec.Log.(ReceiptAcceptor)
+	if !ok {
+		return nil, ErrReceiptAcceptanceUnavailable
+	}
 	if spec.Events == nil {
 		return nil, ErrNoEventSink
 	}
@@ -76,6 +81,7 @@ func NewRunner(spec RunnerSpec) (*Runner, error) {
 	return &Runner{
 		audiences:   spec.Audiences,
 		log:         spec.Log,
+		receipts:    receipts,
 		events:      spec.Events,
 		deliverers:  make(map[ActionID]Deliverer),
 		maxAttempts: spec.MaxAttempts,
@@ -260,18 +266,27 @@ func (r *Runner) RecordReceipt(c Campaign, receipt Receipt) error {
 	if err := c.receiptOutcome(treatment, receipt.Outcome); err != nil {
 		return err
 	}
+	if execution.HasReceipt() && !execution.MatchesReceipt(receipt) {
+		return fmt.Errorf("%w: %q", ErrConflictingReceipt, receipt.Key)
+	}
+	if execution.HasReceipt() {
+		return nil
+	}
 	name := NotArrivedEvent(execution.Action)
 	execution.State = StateNotArrived
 	if receipt.Arrived {
 		name = ArrivedEvent(execution.Action)
 		execution.State = StateArrived
 	}
-	if receipt.ExternalRef != "" {
-		execution.ExternalRef = receipt.ExternalRef
-	}
+	execution.ReceiptExternalRef = receipt.ExternalRef
+	execution.ReceiptAttributes = cloneAttributes(receipt.Attributes)
 	execution.Outcome = receipt.Outcome
-	if err := r.log.Update(execution); err != nil {
+	firstAccepted, err := r.receipts.AcceptReceipt(execution)
+	if err != nil {
 		return err
+	}
+	if !firstAccepted {
+		return nil
 	}
 	if err := r.publish(execution, name, receipt.Attributes); err != nil {
 		return err
@@ -387,4 +402,15 @@ func (r *Runner) publish(execution Execution, name EventName, attributes map[str
 		return fmt.Errorf("campaign: publishing %q for %q: %w", name, execution.Key, err)
 	}
 	return nil
+}
+
+func cloneAttributes(attributes map[string]string) map[string]string {
+	if attributes == nil {
+		return nil
+	}
+	owned := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		owned[key] = value
+	}
+	return owned
 }

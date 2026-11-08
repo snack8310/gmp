@@ -25,6 +25,15 @@ var (
 	// ErrNoSuchTreatment is returned when a run names a treatment the campaign
 	// does not hold.
 	ErrNoSuchTreatment = errors.New("campaign: campaign does not hold this treatment")
+	// ErrConflictingReceipt is returned when an execution already has an
+	// accepted receipt and a different receipt arrives for the same key.
+	ErrConflictingReceipt = errors.New("campaign: a different receipt was already accepted for this execution")
+	// ErrExecutionReceiptRequired is returned when a receipt is accepted for an
+	// execution that has not yet been classified by a receipt.
+	ErrExecutionReceiptRequired = errors.New("campaign: accepting a receipt requires a receipted execution")
+	// ErrReceiptAcceptanceUnavailable is returned when a runner's log does not
+	// provide atomic receipt acceptance.
+	ErrReceiptAcceptanceUnavailable = errors.New("campaign: execution log does not support atomic receipt acceptance")
 )
 
 // State is where one execution has got to.
@@ -53,18 +62,56 @@ const (
 // the placement a result cannot be attributed to an arm, and without the
 // treatment there is no saying how a treatment did.
 type Execution struct {
-	Key         IdempotencyKey
-	Campaign    CampaignID
-	Treatment   TreatmentID
-	UID         audience.UID
-	Action      ActionID
-	Placements  []audience.Placement
-	State       State
-	Attempts    int
+	Key        IdempotencyKey
+	Campaign   CampaignID
+	Treatment  TreatmentID
+	UID        audience.UID
+	Action     ActionID
+	Placements []audience.Placement
+	State      State
+	Attempts   int
+	// ExternalRef is the reference returned when the delivery was accepted.
 	ExternalRef string
 	// Outcome is the receipt result in the action's vocabulary, empty until a
 	// receipt classifies one.
 	Outcome Outcome
+	// ReceiptExternalRef is the downstream's reference reported by the first
+	// accepted receipt, separate from the reference returned when delivery was
+	// accepted.
+	ReceiptExternalRef string
+	// ReceiptAttributes are the attributes supplied with the accepted receipt.
+	ReceiptAttributes map[string]string
+}
+
+// HasReceipt reports whether a receipt has classified this execution.
+func (e Execution) HasReceipt() bool {
+	return e.State == StateArrived || e.State == StateNotArrived
+}
+
+// MatchesReceipt reports whether a receipt exactly matches this execution's
+// accepted receipt snapshot.
+func (e Execution) MatchesReceipt(receipt Receipt) bool {
+	if !e.HasReceipt() || e.Outcome != receipt.Outcome || e.ReceiptExternalRef != receipt.ExternalRef || !sameStringMap(e.ReceiptAttributes, receipt.Attributes) {
+		return false
+	}
+	return (e.State == StateArrived) == receipt.Arrived
+}
+
+func (e Execution) sameAcceptedReceipt(other Execution) bool {
+	return e.HasReceipt() && other.HasReceipt() && e.State == other.State && e.Outcome == other.Outcome &&
+		e.ReceiptExternalRef == other.ReceiptExternalRef && sameStringMap(e.ReceiptAttributes, other.ReceiptAttributes)
+}
+
+func sameStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if other, ok := right[key]; !ok || other != value {
+			return false
+		}
+	}
+	return true
 }
 
 // Log keeps executions. Records are filed under the idempotency key, which is
@@ -74,6 +121,12 @@ type Log interface {
 	Update(Execution) error
 	Lookup(IdempotencyKey) (Execution, bool, error)
 	All() ([]Execution, error)
+}
+
+// ReceiptAcceptor atomically stores the first receipt for an execution. It
+// reports false when the same receipt was already accepted.
+type ReceiptAcceptor interface {
+	AcceptReceipt(Execution) (bool, error)
 }
 
 // MemoryLog is an in-memory Log: the first implementation.
@@ -103,11 +156,36 @@ func (l *MemoryLog) Append(execution Execution) error {
 func (l *MemoryLog) Update(execution Execution) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if _, held := l.entries[execution.Key]; !held {
+	previous, held := l.entries[execution.Key]
+	if !held {
 		return fmt.Errorf("%w: %q", ErrNoSuchExecution, execution.Key)
+	}
+	if previous.HasReceipt() && !previous.sameAcceptedReceipt(execution) {
+		return fmt.Errorf("%w: %q", ErrConflictingReceipt, execution.Key)
 	}
 	l.entries[execution.Key] = execution
 	return nil
+}
+
+// AcceptReceipt implements ReceiptAcceptor.
+func (l *MemoryLog) AcceptReceipt(execution Execution) (bool, error) {
+	if !execution.HasReceipt() {
+		return false, ErrExecutionReceiptRequired
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	previous, held := l.entries[execution.Key]
+	if !held {
+		return false, fmt.Errorf("%w: %q", ErrNoSuchExecution, execution.Key)
+	}
+	if previous.HasReceipt() {
+		if !previous.sameAcceptedReceipt(execution) {
+			return false, fmt.Errorf("%w: %q", ErrConflictingReceipt, execution.Key)
+		}
+		return false, nil
+	}
+	l.entries[execution.Key] = execution
+	return true, nil
 }
 
 // Lookup implements Log.
