@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/snack8310/gmp/management/internal/management"
 )
 
@@ -211,6 +212,133 @@ func TestMySQLStoreRollsBackARejectedDatabaseWrite(t *testing.T) {
 	if problem := store.DeleteGroupAudienceReference(groupID); problem != nil {
 		t.Fatalf("deleting rollback audience fixture: %v", problem)
 	}
+}
+
+func TestOpenMySQLStoreRejectsNonTransactionalSchema(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		t.Fatalf("opening MySQL store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing MySQL store: %v", err)
+	}
+
+	adminDB := openMySQLAdminDB(t, config.DSN)
+	defer adminDB.Close()
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_write_lock ENGINE=MyISAM"); err != nil {
+		t.Fatalf("converting write lock table to non-transactional engine: %v", err)
+	}
+
+	if store, err := management.OpenMySQLStore(context.Background(), config, logger); err == nil {
+		_ = store.Close()
+		t.Fatal("opening MySQL store succeeded with a non-transactional write lock table")
+	}
+}
+
+func TestOpenMySQLStoreRejectsMissingRequiredUniqueIndex(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		t.Fatalf("opening MySQL store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing MySQL store: %v", err)
+	}
+
+	adminDB := openMySQLAdminDB(t, config.DSN)
+	defer adminDB.Close()
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_campaigns DROP INDEX uq_gmp_management_campaign_hash"); err != nil {
+		t.Fatalf("dropping campaign identity unique index: %v", err)
+	}
+
+	if store, err := management.OpenMySQLStore(context.Background(), config, logger); err == nil {
+		_ = store.Close()
+		t.Fatal("opening MySQL store succeeded without the campaign identity unique index")
+	}
+}
+
+func TestOpenMySQLStoreRejectsColumnTypeDrift(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		t.Fatalf("opening MySQL store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing MySQL store: %v", err)
+	}
+
+	adminDB := openMySQLAdminDB(t, config.DSN)
+	defer adminDB.Close()
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_campaigns MODIFY COLUMN name VARCHAR(8) NOT NULL"); err != nil {
+		t.Fatalf("changing campaign name column type: %v", err)
+	}
+
+	if store, err := management.OpenMySQLStore(context.Background(), config, logger); err == nil {
+		_ = store.Close()
+		t.Fatal("opening MySQL store succeeded with a drifted campaign name column type")
+	}
+}
+
+func isolatedMySQLIntegrationConfig(t *testing.T) management.MySQLConfig {
+	t.Helper()
+	dsn := os.Getenv("GMP_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("GMP_TEST_MYSQL_DSN is required for the MySQL integration contract")
+	}
+
+	parsed, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("parsing isolated MySQL test DSN: %v", err)
+	}
+	adminConfig := *parsed
+	adminConfig.DBName = ""
+	adminDB, err := sql.Open("mysql", adminConfig.FormatDSN())
+	if err != nil {
+		t.Fatalf("opening isolated MySQL admin connection: %v", err)
+	}
+	defer adminDB.Close()
+
+	databaseName := fmt.Sprintf("gmp_test_schema_%d", time.Now().UnixNano())
+	if _, err := adminDB.ExecContext(context.Background(), "CREATE DATABASE `"+databaseName+"`"); err != nil {
+		t.Fatalf("creating isolated schema database: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupDB, err := sql.Open("mysql", adminConfig.FormatDSN())
+		if err != nil {
+			t.Errorf("opening isolated MySQL cleanup connection: %v", err)
+			return
+		}
+		defer cleanupDB.Close()
+		if _, err := cleanupDB.ExecContext(context.Background(), "DROP DATABASE `"+databaseName+"`"); err != nil {
+			t.Errorf("dropping isolated schema database: %v", err)
+		}
+	})
+
+	parsed.DBName = databaseName
+	return management.MySQLConfig{
+		DSN:             parsed.FormatDSN(),
+		MaxOpenConns:    4,
+		MaxIdleConns:    2,
+		ConnMaxLifetime: time.Minute,
+	}
+}
+
+func openMySQLAdminDB(t *testing.T, dsn string) *sql.DB {
+	t.Helper()
+	parsed, err := mysql.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("parsing isolated MySQL test DSN: %v", err)
+	}
+	adminDB, err := sql.Open("mysql", parsed.FormatDSN())
+	if err != nil {
+		t.Fatalf("opening isolated MySQL admin connection: %v", err)
+	}
+	t.Cleanup(func() { _ = adminDB.Close() })
+	return adminDB
 }
 
 func mysqlIntegrationConfig(t *testing.T) management.MySQLConfig {

@@ -124,21 +124,9 @@ func (s *MySQLStore) migrate(ctx context.Context) error {
 }
 
 func (s *MySQLStore) verifySchema(ctx context.Context) error {
-	for _, query := range []string{
-		"SELECT lock_id FROM gmp_management_write_lock LIMIT 0",
-		"SELECT sequence_name, next_value FROM gmp_management_sequences LIMIT 0",
-		"SELECT campaign_pk, id_hash, id_value, name, audience_type, audience_group_id, audience_bundle_id FROM gmp_management_campaigns LIMIT 0",
-		"SELECT treatment_pk, campaign_pk, id_hash, id_value, name, action_id, slot_id FROM gmp_management_treatments LIMIT 0",
-		"SELECT campaign_pk, flow_id FROM gmp_management_flows LIMIT 0",
-		"SELECT entry_pk, campaign_pk, entry_order, group_id, kind FROM gmp_management_flow_entries LIMIT 0",
-		"SELECT entry_pk, treatment_order, treatment_id FROM gmp_management_flow_entry_treatments LIMIT 0",
-		"SELECT edge_pk, campaign_pk, edge_order, id_value, from_treatment_id, to_treatment_id, condition_label FROM gmp_management_flow_edges LIMIT 0",
-		"SELECT reference_pk, identity_hash, reference_type, bundle_id, group_id, name, bundle_name, available FROM gmp_management_audience_references LIMIT 0",
-	} {
-		if _, err := s.db.ExecContext(ctx, query); err != nil {
-			s.logFailure("schema_check", err)
-			return errors.New("management: required MySQL schema is unavailable")
-		}
+	if err := verifyManagementSchema(ctx, s.db); err != nil {
+		s.logFailure("schema_check", err)
+		return errors.New("management: required MySQL schema is unavailable")
 	}
 	return nil
 }
