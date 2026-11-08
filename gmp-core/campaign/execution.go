@@ -28,6 +28,12 @@ var (
 	// ErrConflictingReceipt is returned when an execution already has an
 	// accepted receipt and a different receipt arrives for the same key.
 	ErrConflictingReceipt = errors.New("campaign: a different receipt was already accepted for this execution")
+	// ErrExecutionReceiptRequired is returned when a receipt is accepted for an
+	// execution that has not yet been classified by a receipt.
+	ErrExecutionReceiptRequired = errors.New("campaign: accepting a receipt requires a receipted execution")
+	// ErrReceiptAcceptanceUnavailable is returned when a runner's log does not
+	// provide atomic receipt acceptance.
+	ErrReceiptAcceptanceUnavailable = errors.New("campaign: execution log does not support atomic receipt acceptance")
 )
 
 // State is where one execution has got to.
@@ -117,6 +123,12 @@ type Log interface {
 	All() ([]Execution, error)
 }
 
+// ReceiptAcceptor atomically stores the first receipt for an execution. It
+// reports false when the same receipt was already accepted.
+type ReceiptAcceptor interface {
+	AcceptReceipt(Execution) (bool, error)
+}
+
 // MemoryLog is an in-memory Log: the first implementation.
 type MemoryLog struct {
 	mu      sync.Mutex
@@ -153,6 +165,27 @@ func (l *MemoryLog) Update(execution Execution) error {
 	}
 	l.entries[execution.Key] = execution
 	return nil
+}
+
+// AcceptReceipt implements ReceiptAcceptor.
+func (l *MemoryLog) AcceptReceipt(execution Execution) (bool, error) {
+	if !execution.HasReceipt() {
+		return false, ErrExecutionReceiptRequired
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	previous, held := l.entries[execution.Key]
+	if !held {
+		return false, fmt.Errorf("%w: %q", ErrNoSuchExecution, execution.Key)
+	}
+	if previous.HasReceipt() {
+		if !previous.sameAcceptedReceipt(execution) {
+			return false, fmt.Errorf("%w: %q", ErrConflictingReceipt, execution.Key)
+		}
+		return false, nil
+	}
+	l.entries[execution.Key] = execution
+	return true, nil
 }
 
 // Lookup implements Log.

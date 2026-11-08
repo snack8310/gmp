@@ -178,6 +178,19 @@ func TestMemoryLogDoesNotClearTheFirstAcceptedReceipt(t *testing.T) {
 	}
 }
 
+func TestRunnerRequiresAtomicReceiptAcceptance(t *testing.T) {
+	w := newWorld(t, 1)
+	_, err := campaign.NewRunner(campaign.RunnerSpec{
+		Audiences: w.audiences, Log: updateOnlyLog{Log: campaign.NewMemoryLog()},
+		Events: campaign.DiscardEvents(), MaxAttempts: 1,
+	})
+	if !errors.Is(err, campaign.ErrReceiptAcceptanceUnavailable) {
+		t.Fatalf("runner construction error = %v, want ErrReceiptAcceptanceUnavailable", err)
+	}
+}
+
+type updateOnlyLog struct{ campaign.Log }
+
 // Retrying must reuse the key. A fresh one would make the downstream treat the
 // retry as another delivery, and the person receives two of something.
 func TestRetryingReusesTheSameKey(t *testing.T) {

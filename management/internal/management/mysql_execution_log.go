@@ -127,6 +127,64 @@ func (l *MySQLExecutionLog) Update(execution campaign.Execution) error {
 	return nil
 }
 
+func (l *MySQLExecutionLog) AcceptReceipt(execution campaign.Execution) (bool, error) {
+	started := time.Now()
+	if !execution.HasReceipt() {
+		return false, l.failure("accept_receipt", started, campaign.ErrExecutionReceiptRequired)
+	}
+	ctx := context.Background()
+	hash := executionHash(execution.Key)
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	defer tx.Rollback()
+
+	previous, found, err := loadExecutionForUpdate(ctx, tx, hash[:])
+	if err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	if !found {
+		return false, l.failure("accept_receipt", started, fmt.Errorf("%w: %q", campaign.ErrNoSuchExecution, execution.Key))
+	}
+	if previous.Key != execution.Key {
+		return false, l.failure("accept_receipt", started, ErrExecutionKeyCollision)
+	}
+	previousReceipt, hasReceipt, err := loadExecutionReceipt(ctx, tx, hash[:], previous)
+	if err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	if hasReceipt {
+		if !execution.MatchesReceipt(previousReceipt) {
+			return false, l.conflict("accept_receipt", started)
+		}
+		if err := tx.Commit(); err != nil {
+			return false, l.failure("accept_receipt", started, err)
+		}
+		l.replayed("accept_receipt", started)
+		return false, nil
+	}
+
+	placements, err := json.Marshal(execution.Placements)
+	if err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE gmp_management_execution_records SET campaign_id = ?, treatment_id = ?, uid = ?, action_id = ?, placements = ?, state = ?, attempts = ?, external_ref = ? WHERE execution_hash = ?",
+		string(execution.Campaign), string(execution.Treatment), string(execution.UID), string(execution.Action), placements, string(execution.State), execution.Attempts, execution.ExternalRef, hash[:],
+	); err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	if err := insertExecutionReceipt(ctx, tx, hash[:], execution); err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, l.failure("accept_receipt", started, err)
+	}
+	l.success("accept_receipt", started)
+	return true, nil
+}
+
 func (l *MySQLExecutionLog) Lookup(key campaign.IdempotencyKey) (campaign.Execution, bool, error) {
 	started := time.Now()
 	hash := executionHash(key)
@@ -321,4 +379,8 @@ func (l *MySQLExecutionLog) failure(operation string, started time.Time, err err
 
 func (l *MySQLExecutionLog) success(operation string, started time.Time) {
 	l.logger.Info("mysql_execution_log_operation", "operation", operation, "result", "success", "duration_ms", time.Since(started).Milliseconds())
+}
+
+func (l *MySQLExecutionLog) replayed(operation string, started time.Time) {
+	l.logger.Info("mysql_execution_log_operation", "operation", operation, "result", "replayed", "duration_ms", time.Since(started).Milliseconds())
 }

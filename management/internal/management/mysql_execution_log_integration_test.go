@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
@@ -51,7 +52,8 @@ func TestMySQLExecutionLogPersistsReceiptAndRejectsConflicts(t *testing.T) {
 	receipted.Outcome = campaign.OutcomeSuccess
 	receipted.ReceiptExternalRef = "receipt-ref-synthetic"
 	receipted.ReceiptAttributes = map[string]string{"status": "arrived", "marker": "constructed"}
-	if err := log.Update(receipted); err != nil {
+	firstAccepted, err := log.AcceptReceipt(receipted)
+	if err != nil || !firstAccepted {
 		t.Fatalf("recording receipt: %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -75,20 +77,200 @@ func TestMySQLExecutionLogPersistsReceiptAndRejectsConflicts(t *testing.T) {
 	if err != nil || len(all) != 1 || !reflect.DeepEqual(all[0], receipted) {
 		t.Fatalf("all executions = %#v, err = %v", all, err)
 	}
-	if err := reopenedLog.Update(receipted); err != nil {
+	firstAccepted, err = reopenedLog.AcceptReceipt(receipted)
+	if err != nil || firstAccepted {
 		t.Fatalf("replaying identical receipt: %v", err)
 	}
 
 	conflict := receipted
 	conflict.State = campaign.StateNotArrived
 	conflict.Outcome = campaign.OutcomeFailure
-	if err := reopenedLog.Update(conflict); err != campaign.ErrConflictingReceipt {
+	if _, err := reopenedLog.AcceptReceipt(conflict); err != campaign.ErrConflictingReceipt {
 		t.Fatalf("conflicting receipt error = %v, want ErrConflictingReceipt", err)
 	}
 	stored, found, err := reopenedLog.Lookup(execution.Key)
 	if err != nil || !found || !reflect.DeepEqual(stored, receipted) {
 		t.Fatalf("conflicting receipt changed stored execution: %#v (found=%v err=%v)", stored, found, err)
 	}
+}
+
+func TestMySQLRunnerConcurrentIdenticalReceiptsPublishAndFollowOnce(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	stores := make([]*management.MySQLStore, 2)
+	for index := range stores {
+		store, err := management.OpenMySQLStore(context.Background(), config, logger)
+		if err != nil {
+			t.Fatalf("opening MySQL store %d: %v", index, err)
+		}
+		stores[index] = store
+		defer store.Close()
+	}
+
+	source, err := audience.RegisterSource(audience.SourceSpec{
+		ID: "receipt-test-source", Supply: audience.SupplyPull, Category: audience.CategoryExternal,
+	})
+	if err != nil {
+		t.Fatalf("registering test source: %v", err)
+	}
+	definition, err := audience.NewDefinition(audience.DefinitionSpec{ID: "receipt-test-audience", Source: source.ID()})
+	if err != nil {
+		t.Fatalf("building test audience: %v", err)
+	}
+	group := audience.Single(definition)
+	audiences := audience.NewService(nil)
+	if err := audiences.Register(source, audience.NewMemoryFeed(audience.Record{UID: "uid-receipt-test"})); err != nil {
+		t.Fatalf("registering audience feed: %v", err)
+	}
+	firstAction, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "receipt-test-first", Direction: campaign.DirectionPush, Required: []string{"copy"},
+		Outcomes: []campaign.Outcome{campaign.OutcomeSuccess, campaign.OutcomeFailure},
+	})
+	if err != nil {
+		t.Fatalf("registering first action: %v", err)
+	}
+	nextAction, err := campaign.RegisterAction(campaign.ActionSpec{
+		ID: "receipt-test-next", Direction: campaign.DirectionPush, Required: []string{"copy"},
+	})
+	if err != nil {
+		t.Fatalf("registering next action: %v", err)
+	}
+	firstCall, err := firstAction.Call(map[string]string{"copy": "synthetic first"})
+	if err != nil {
+		t.Fatalf("building first call: %v", err)
+	}
+	nextCall, err := nextAction.Call(map[string]string{"copy": "synthetic next"})
+	if err != nil {
+		t.Fatalf("building next call: %v", err)
+	}
+	firstTreatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "receipt-test-first", Call: firstCall})
+	if err != nil {
+		t.Fatalf("building first treatment: %v", err)
+	}
+	nextTreatment, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "receipt-test-next", Call: nextCall})
+	if err != nil {
+		t.Fatalf("building next treatment: %v", err)
+	}
+	flow, err := campaign.NewFlow(campaign.FlowSpec{
+		ID:      "receipt-test-flow",
+		Entries: []campaign.EntrySpec{{Group: group.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{firstTreatment.ID()}}},
+		Edges:   []campaign.EdgeSpec{{From: firstTreatment.ID(), To: nextTreatment.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess}},
+	})
+	if err != nil {
+		t.Fatalf("building test flow: %v", err)
+	}
+	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "receipt-test-campaign", Priority: campaign.NewPriority(10), Audience: audience.SelectGroup(group),
+		Treatments: []campaign.Treatment{firstTreatment, nextTreatment}, Flow: flow,
+	})
+	if err != nil {
+		t.Fatalf("building test campaign: %v", err)
+	}
+
+	execution := campaign.Execution{
+		Key: "execution-key-concurrent-identical", Campaign: built.ID(), Treatment: firstTreatment.ID(),
+		UID: "uid-receipt-test", Action: firstAction.ID(), State: campaign.StateDelivered, Attempts: 1,
+	}
+	if err := stores[0].ExecutionLog().Append(execution); err != nil {
+		t.Fatalf("appending source execution: %v", err)
+	}
+	barrier := &receiptReadBarrier{ready: make(chan struct{})}
+	events := &integrationEventSink{}
+	runners := make([]*campaign.Runner, 2)
+	deliverers := make([]*campaign.MemoryDeliverer, 2)
+	for index := range runners {
+		runner, err := campaign.NewRunner(campaign.RunnerSpec{
+			Audiences: audiences,
+			Log: &receiptLookupBarrierLog{
+				Log: stores[index].ExecutionLog(), ReceiptAcceptor: stores[index].ExecutionLog(), barrier: barrier,
+			},
+			Events: events, MaxAttempts: 1,
+		})
+		if err != nil {
+			t.Fatalf("building runner %d: %v", index, err)
+		}
+		deliverers[index] = campaign.NewMemoryDeliverer()
+		if err := runner.RegisterDeliverer(nextAction.ID(), deliverers[index]); err != nil {
+			t.Fatalf("wiring next action for runner %d: %v", index, err)
+		}
+		runners[index] = runner
+	}
+
+	receipt := campaign.Receipt{Key: execution.Key, Arrived: true, Outcome: campaign.OutcomeSuccess}
+	results := make(chan error, len(runners))
+	for _, runner := range runners {
+		go func(runner *campaign.Runner) { results <- runner.RecordReceipt(built, receipt) }(runner)
+	}
+	for range runners {
+		if err := <-results; err != nil {
+			t.Fatalf("recording concurrent identical receipt: %v", err)
+		}
+	}
+	if got := events.count(campaign.ArrivedEvent(firstAction.ID())); got != 1 {
+		t.Fatalf("arrival events = %d, want one", got)
+	}
+	if got := events.count(campaign.DeliveredEvent(nextAction.ID())); got != 1 {
+		t.Fatalf("next-step delivery events = %d, want one", got)
+	}
+	callCount := len(deliverers[0].Calls()) + len(deliverers[1].Calls())
+	if callCount != 1 {
+		t.Fatalf("next-step deliverer calls = %d, want one", callCount)
+	}
+}
+
+type receiptReadBarrier struct {
+	mu      sync.Mutex
+	lookups int
+	ready   chan struct{}
+}
+
+func (b *receiptReadBarrier) wait() {
+	b.mu.Lock()
+	b.lookups++
+	wait := b.lookups <= 2
+	if b.lookups == 2 {
+		close(b.ready)
+	}
+	b.mu.Unlock()
+	if wait {
+		<-b.ready
+	}
+}
+
+type receiptLookupBarrierLog struct {
+	campaign.Log
+	campaign.ReceiptAcceptor
+	barrier *receiptReadBarrier
+}
+
+func (l *receiptLookupBarrierLog) Lookup(key campaign.IdempotencyKey) (campaign.Execution, bool, error) {
+	execution, found, err := l.Log.Lookup(key)
+	l.barrier.wait()
+	return execution, found, err
+}
+
+type integrationEventSink struct {
+	mu     sync.Mutex
+	events []campaign.Event
+}
+
+func (s *integrationEventSink) Publish(event campaign.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+	return nil
+}
+
+func (s *integrationEventSink) count(name campaign.EventName) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, event := range s.events {
+		if event.Name == name {
+			count++
+		}
+	}
+	return count
 }
 
 func TestMySQLExecutionLogConcurrentReceiptsKeepOneWinner(t *testing.T) {
