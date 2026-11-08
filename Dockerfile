@@ -1,6 +1,7 @@
 FROM golang:1.27-alpine AS api-build
 
 WORKDIR /src/management
+COPY gmp-core/ /src/gmp-core/
 COPY management/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/campaign-api ./cmd/campaign-api
 

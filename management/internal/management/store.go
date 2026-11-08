@@ -19,7 +19,29 @@ type Store struct {
 	nextTreatment uint64
 }
 
+type Repository interface {
+	Actions() []Action
+	AudienceReferences() ([]AudienceReference, *Problem)
+	Campaigns() ([]Campaign, *Problem)
+	Campaign(id string) (Campaign, *Problem)
+	CreateCampaign(name string) (Campaign, *Problem)
+	UpdateCampaign(id string, next Campaign) (Campaign, *Problem)
+	UpdateFlow(campaignID string, expectedEntries []EntryRoute, expectedEdges []Edge, flow Flow) (Campaign, *Problem)
+	UpdateAudienceSelection(campaignID string, expected, nextSelection *AudienceSelection) (Campaign, *Problem)
+	DeleteCampaign(id string) *Problem
+	CreateTreatment(campaignID string, treatment Treatment) (Treatment, *Problem)
+	UpdateTreatment(campaignID, treatmentID string, treatment Treatment) (Treatment, *Problem)
+	DeleteTreatment(campaignID, treatmentID string) *Problem
+	UpsertGroupAudienceReference(groupID, name string) (AudienceReference, *Problem)
+	DeleteGroupAudienceReference(groupID string) *Problem
+	Usages(ref AudienceRef) ([]Usage, *Problem)
+}
+
 func NewStore() *Store {
+	return newStore(true)
+}
+
+func newStore(seedDemo bool) *Store {
 	s := &Store{
 		campaigns: make(map[string]Campaign),
 		actions: []Action{
@@ -29,7 +51,10 @@ func NewStore() *Store {
 			{ID: "action-show-image", Name: "展示图片", RequiresSlot: true, Available: true},
 			{ID: "action-retired", Name: "已停用动作", Available: false},
 		},
-		references: []AudienceReference{
+		slots: map[string]bool{"slot-home-banner": true, "slot-home-hero": true},
+	}
+	if seedDemo {
+		s.references = []AudienceReference{
 			{Type: "group", GroupID: "group-new", Name: "新客人群组", Available: true},
 			{Type: "group", GroupID: "group-recall", Name: "跨境召回人群组", Available: true},
 			{Type: "group", GroupID: "group-removed", Name: "旧人群组", Available: false},
@@ -37,14 +62,13 @@ func NewStore() *Store {
 			{Type: "arm", BundleID: "bundle-warmup", BundleName: "预热实验人群包", GroupID: "group-arm-b", Name: "B 臂", Available: true},
 			{Type: "arm", BundleID: "bundle-warmup", BundleName: "预热实验人群包", GroupID: "group-arm-control", Name: "对照臂", Available: true},
 			{Type: "arm", BundleID: "bundle-retired", BundleName: "已停用实验人群包", GroupID: "group-arm-retired", Name: "旧臂", Available: false},
-		},
-		slots: map[string]bool{"slot-home-banner": true, "slot-home-hero": true},
-	}
-	for _, c := range campaignSeeds() {
-		if p := validateCampaign(c, s.actions, s.references, s.slots); p != nil {
-			panic(p)
 		}
-		s.campaigns[c.ID] = c
+		for _, c := range campaignSeeds() {
+			if p := validateCampaign(c, s.actions, s.references, s.slots); p != nil {
+				panic(p)
+			}
+			s.campaigns[c.ID] = c
+		}
 	}
 	return s
 }
@@ -57,11 +81,11 @@ func (s *Store) Actions() []Action {
 	return out
 }
 
-func (s *Store) AudienceReferences() []AudienceReference {
-	return append([]AudienceReference{}, s.references...)
+func (s *Store) AudienceReferences() ([]AudienceReference, *Problem) {
+	return append([]AudienceReference{}, s.references...), nil
 }
 
-func (s *Store) Campaigns() []Campaign {
+func (s *Store) Campaigns() ([]Campaign, *Problem) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Campaign, 0, len(s.campaigns))
@@ -69,7 +93,7 @@ func (s *Store) Campaigns() []Campaign {
 		out = append(out, c.clone())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	return out, nil
 }
 
 func (s *Store) Campaign(id string) (Campaign, *Problem) {

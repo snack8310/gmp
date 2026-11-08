@@ -3,6 +3,11 @@ services:
     build:
       context: .
       target: api
+    environment:
+      MYSQL_DSN: ${MYSQL_DSN:?设置可访问的 MySQL 数据库 DSN}
+      MYSQL_MAX_OPEN_CONNS: ${MYSQL_MAX_OPEN_CONNS:?设置 MySQL 最大连接数}
+      MYSQL_MAX_IDLE_CONNS: ${MYSQL_MAX_IDLE_CONNS:?设置 MySQL 空闲连接数}
+      MYSQL_CONN_MAX_LIFETIME_SEC: ${MYSQL_CONN_MAX_LIFETIME_SEC:?设置 MySQL 连接最长存活秒数}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8082/api/v1/campaigns"]
       interval: 5s

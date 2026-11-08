@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,9 +21,24 @@ func main() {
 		logger.Error("missing_listen_address")
 		os.Exit(2)
 	}
+	config, err := management.MySQLConfigFromEnv(os.LookupEnv)
+	if err != nil {
+		logger.Error("mysql_configuration_invalid", "error", err.Error())
+		os.Exit(2)
+	}
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		logger.Error("mysql_store_start_failed", "error_type", fmt.Sprintf("%T", err))
+		os.Exit(1)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			logger.Error("mysql_store_close_failed", "error_type", fmt.Sprintf("%T", err))
+		}
+	}()
 	server := &http.Server{
 		Addr:              *addr,
-		Handler:           httpapi.NewHandler(management.NewStore(), logger),
+		Handler:           httpapi.NewHandler(store, logger),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	logger.Info("campaign_api_starting", "addr", *addr)

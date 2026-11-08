@@ -1,4 +1,6 @@
 *
+!gmp-core/
+!gmp-core/**
 !management/
 !management/**
 !frontend/
