@@ -231,6 +231,14 @@ func TestDemoAudienceSourceUsesSharedMySQLStorePool(t *testing.T) {
 	if len(secondPage.Members) == 0 || secondPage.Members[0].UID == page.Members[0].UID {
 		t.Fatalf("keyset pagination repeated or omitted a member: first=%#v second=%#v", page.Members, secondPage.Members)
 	}
+	largePageSource, err := store.NewDemoAudienceSource(1_000_000_000, logger)
+	if err != nil {
+		t.Fatalf("building a source with an explicit large page size: %v", err)
+	}
+	largePage, err := largePageSource.ReadPage(context.Background(), nil)
+	if err != nil || len(largePage.Members) != 4 {
+		t.Fatalf("large-page source read returned %d members, err = %v", len(largePage.Members), err)
+	}
 	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_demo_user_pool DROP INDEX uq_gmp_demo_user_pool_uid"); err != nil {
 		t.Fatalf("removing the demo UID uniqueness contract: %v", err)
 	}

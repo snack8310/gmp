@@ -285,7 +285,7 @@ func (s *MySQLAudienceSource) ReadPage(ctx context.Context, cursor *string) (Aud
 		cursor string
 		member AudienceMember
 	}
-	items := make([]scannedMember, 0, s.cfg.PageSize+1)
+	items := make([]scannedMember, 0)
 	for rows.Next() {
 		var cursorValue, uid sql.NullString
 		attributes := make([]sql.NullString, len(s.attributeNames))
