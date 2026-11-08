@@ -42,6 +42,9 @@ func OpenMySQLStore(ctx context.Context, config MySQLConfig, logger *slog.Logger
 		config.MaxIdleConns > config.MaxOpenConns || config.ConnMaxLifetime <= 0 {
 		return nil, errors.New("management: invalid MySQL configuration")
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	parsed, err := mysql.ParseDSN(config.DSN)
 	if err != nil || parsed.DBName == "" {
 		return nil, errors.New("management: MYSQL_DSN must be valid and include a database name")
@@ -49,6 +52,7 @@ func OpenMySQLStore(ctx context.Context, config MySQLConfig, logger *slog.Logger
 	parsed.ParseTime = true
 	db, err := sql.Open("mysql", parsed.FormatDSN())
 	if err != nil {
+		logMySQLFailure(logger, "open_connection", err)
 		return nil, fmt.Errorf("management: opening MySQL driver: %w", err)
 	}
 	db.SetMaxOpenConns(config.MaxOpenConns)
@@ -56,10 +60,8 @@ func OpenMySQLStore(ctx context.Context, config MySQLConfig, logger *slog.Logger
 	db.SetConnMaxLifetime(config.ConnMaxLifetime)
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
+		logMySQLFailure(logger, "check_connection", err)
 		return nil, errors.New("management: MySQL connection check failed")
-	}
-	if logger == nil {
-		logger = slog.Default()
 	}
 	store := &MySQLStore{db: db, logger: logger}
 	if err := store.migrate(ctx); err != nil {
@@ -71,7 +73,13 @@ func OpenMySQLStore(ctx context.Context, config MySQLConfig, logger *slog.Logger
 }
 
 func (s *MySQLStore) Close() error {
-	return s.db.Close()
+	err := s.db.Close()
+	if err != nil {
+		s.logFailure("close_connection_pool", err)
+		return err
+	}
+	s.logger.Info("mysql_store_operation", "operation", "close_connection_pool", "result", "success")
+	return nil
 }
 
 // ExecutionLog returns a persistent campaign log backed by the store's pool.
@@ -177,7 +185,11 @@ func splitSQLStatements(script string) []string {
 }
 
 func (s *MySQLStore) logFailure(operation string, err error) {
-	s.logger.Error("mysql_store_operation", "operation", operation, "result", "failed", "error_type", fmt.Sprintf("%T", err))
+	logMySQLFailure(s.logger, operation, err)
+}
+
+func logMySQLFailure(logger *slog.Logger, operation string, err error) {
+	logger.Error("mysql_store_operation", "operation", operation, "result", "failed", "error_type", fmt.Sprintf("%T", err))
 }
 
 func storageProblem() *Problem {
