@@ -4,7 +4,7 @@
 ## 项目结构
 
 - `gmp-core/`：Go 业务模型、规则与回归场景。当前代码仍有内存 Store；目标是按 [Issue #88](https://github.com/snack8310/gmp/issues/88) 将存储移到外层业务应用。
-- `management/`：独立 Go module，V1 活动与投放项管理 REST API；活动配置与人群引用由平台自有 MySQL 持久化。Core 领域转换、实验定义存储和真实人群来源查询仍未接入。
+- `management/`：独立 Go module，V1 活动与投放项管理 REST API；活动配置、人群引用及执行 / 回执日志由平台自有 MySQL 持久化。合成用户池 SQL 与同连接池只读适配器已提供，但尚未接入 API 求值；Core 领域转换、实验定义与染色存储仍未接入。
 - `frontend/`：前端展示层，目前包含独立、零框架依赖的 [运营流程沙盘 Demo](frontend/demos/operations-flow/README.md)。
 - `docs/`：领域规格、产品设计与协作证据。
 
@@ -47,4 +47,4 @@ Compose 启动前必须从安全配置来源注入 `MYSQL_DSN`、`MYSQL_MAX_OPEN
 
 ## 活动管理 API（本机演示）
 
-在 `management/` 下从安全配置来源注入四项必填 `MYSQL_*` 变量后，运行 `go run ./cmd/campaign-api -addr 127.0.0.1:8081`。接口提供活动、投放项的增删改查，以及动作、人群引用目录和占用查询。活动配置及普通人群引用写入平台 MySQL；API 不读取前端的圈选规则或名单样本。当前实现会在事务内加载与替换完整配置，面向演示与架构验证，不代表生产规模就绪。请求、响应及限制见 [活动管理 REST API](docs/api/campaign-management-api.md)。
+在 `management/` 下从安全配置来源注入四项必填 `MYSQL_*` 变量后，运行 `go run ./cmd/campaign-api -addr 127.0.0.1:8081`。接口提供活动、投放项的增删改查，以及动作、人群引用目录和占用查询。活动配置及普通人群引用写入平台 MySQL；API 不读取前端的圈选规则或名单样本。外层还提供同一连接池的执行 / 回执日志和 demo 用户池只读分页适配器，但未接入 API 的运行流程。当前实现面向演示与架构验证，不代表生产规模就绪。请求、响应及限制见 [活动管理 REST API](docs/api/campaign-management-api.md)。

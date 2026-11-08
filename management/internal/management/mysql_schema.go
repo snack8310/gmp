@@ -162,6 +162,39 @@ var managementSchemaContract = []mysqlSchemaTable{
 		},
 		uniqueKeys: [][]string{{"reference_pk"}, {"identity_hash"}},
 	},
+	{
+		name: "gmp_management_execution_records",
+		columns: []mysqlSchemaColumn{
+			{name: "execution_hash", sqlType: "binary(32)"},
+			{name: "execution_key", sqlType: "longtext"},
+			{name: "campaign_id", sqlType: "longtext"},
+			{name: "treatment_id", sqlType: "longtext"},
+			{name: "uid", sqlType: "longtext"},
+			{name: "action_id", sqlType: "longtext"},
+			{name: "placements", sqlType: "json"},
+			{name: "state", sqlType: "varchar(32)"},
+			{name: "attempts", sqlType: "int"},
+			{name: "external_ref", sqlType: "longtext"},
+		},
+		uniqueKeys: [][]string{{"execution_hash"}},
+	},
+	{
+		name: "gmp_management_execution_receipts",
+		columns: []mysqlSchemaColumn{
+			{name: "execution_hash", sqlType: "binary(32)"},
+			{name: "arrived", sqlType: "tinyint(1)"},
+			{name: "outcome", sqlType: "longtext"},
+			{name: "external_ref", sqlType: "longtext"},
+			{name: "attributes", sqlType: "json"},
+		},
+		uniqueKeys: [][]string{{"execution_hash"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"execution_hash"},
+			referencedTable:  "gmp_management_execution_records",
+			referencedColumn: []string{"execution_hash"},
+			onDelete:         "CASCADE",
+		}},
+	},
 }
 
 func verifyManagementSchema(ctx context.Context, db *sql.DB) error {

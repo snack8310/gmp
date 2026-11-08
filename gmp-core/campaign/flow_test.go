@@ -140,7 +140,7 @@ func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
 		campaign.EdgeSpec{From: rcs.ID(), To: sms.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeFailure},
 	)
 	built := mustCampaign(t, "rcs-then-mail-or-sms", flow, rcs, mail, sms)
-	runner, _, deliverers, _ := flowRunner(t, w.audiences, rcsAction, mailAction, smsAction)
+	runner, log, deliverers, events := flowRunner(t, w.audiences, rcsAction, mailAction, smsAction)
 
 	report, err := runner.Run(built, rcs.ID(), "entry", audience.Live())
 	if err != nil {
@@ -181,6 +181,35 @@ func TestReceiptBranchSendsMailOnSuccessAndSMSOnFailure(t *testing.T) {
 				t.Fatalf("%s failed but mail=%v sms=%v", uid, mailUIDs[uid], smsUIDs[uid])
 			}
 		}
+	}
+
+	for _, execution := range report.Executions {
+		if want[execution.UID] != campaign.OutcomeSuccess {
+			continue
+		}
+		publishedBeforeReplay := len(events.published)
+		mailCallsBeforeReplay := len(deliverers[mailAction.ID()].Calls())
+		if err := runner.RecordReceipt(built, campaign.Receipt{
+			Key: execution.Key, Arrived: true, Outcome: campaign.OutcomeSuccess,
+		}); err != nil {
+			t.Fatalf("replaying the same receipt: %v", err)
+		}
+		if len(events.published) != publishedBeforeReplay || len(deliverers[mailAction.ID()].Calls()) != mailCallsBeforeReplay {
+			t.Fatal("replaying the same receipt published or delivered the branch again")
+		}
+		if err := runner.RecordReceipt(built, campaign.Receipt{
+			Key: execution.Key, Arrived: false, Outcome: campaign.OutcomeFailure,
+		}); !errors.Is(err, campaign.ErrConflictingReceipt) {
+			t.Fatalf("conflicting receipt error = %v, want ErrConflictingReceipt", err)
+		}
+		stored, found, err := log.Lookup(execution.Key)
+		if err != nil || !found || stored.Outcome != campaign.OutcomeSuccess || stored.State != campaign.StateArrived {
+			t.Fatalf("conflicting receipt changed stored execution to state %q outcome %q (found=%v err=%v)", stored.State, stored.Outcome, found, err)
+		}
+		if uidsOf(deliverers[smsAction.ID()].Calls())[execution.UID] {
+			t.Fatalf("conflicting receipt sent the failure branch to %s", execution.UID)
+		}
+		break
 	}
 }
 

@@ -16,6 +16,19 @@ import (
 
 var mysqlIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+var demoAudienceSchemaContract = mysqlSchemaTable{
+	name: "gmp_demo_user_pool",
+	columns: []mysqlSchemaColumn{
+		{name: "member_id", sqlType: "bigint unsigned", autoIncrement: true},
+		{name: "uid", sqlType: "varchar(128)"},
+		{name: "region", sqlType: "varchar(64)"},
+		{name: "lifecycle", sqlType: "varchar(32)"},
+		{name: "inactive_days", sqlType: "int"},
+		{name: "tier", sqlType: "varchar(32)"},
+	},
+	uniqueKeys: [][]string{{"member_id"}, {"uid"}},
+}
+
 // MySQLAudienceSourceConfig describes an explicit projection from a source
 // table or view. UID uniqueness and cursor uniqueness/stability are asserted
 // by the caller because MySQL does not expose unique-index metadata for views.
@@ -54,6 +67,49 @@ type MySQLAudienceSource struct {
 	cfg            MySQLAudienceSourceConfig
 	attributeNames []string
 	logger         *slog.Logger
+}
+
+// DemoAudienceSourceConfig returns the repository-owned synthetic user pool
+// projection. The page size is explicit so callers cannot inherit an invented
+// production default.
+func DemoAudienceSourceConfig(pageSize int) (MySQLAudienceSourceConfig, error) {
+	maxInt := int(^uint(0) >> 1)
+	if pageSize <= 0 || pageSize == maxInt {
+		return MySQLAudienceSourceConfig{}, errors.New("management: demo audience page size must be a positive integer below the platform limit")
+	}
+	return MySQLAudienceSourceConfig{
+		Table:        "gmp_demo_user_pool",
+		UIDColumn:    "uid",
+		UIDUnique:    true,
+		CursorColumn: "member_id",
+		CursorUnique: true,
+		CursorStable: true,
+		Attributes: map[string]string{
+			"region":        "region",
+			"lifecycle":     "lifecycle",
+			"inactive_days": "inactive_days",
+			"tier":          "tier",
+		},
+		PageSize: pageSize,
+	}, nil
+}
+
+// NewDemoAudienceSource reads the constructed demo pool through this store's
+// existing connection pool. The source adapter only issues SELECT statements.
+func (s *MySQLStore) NewDemoAudienceSource(pageSize int, logger *slog.Logger) (*MySQLAudienceSource, error) {
+	cfg, err := DemoAudienceSourceConfig(pageSize)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyMySQLTable(context.Background(), s.db, demoAudienceSchemaContract); err != nil {
+		s.logger.Error("mysql_audience_source_schema", "operation", "validate_demo_pool", "result", "failed", "error_type", fmt.Sprintf("%T", err))
+		return nil, errors.New("management: demo audience table does not match its declared schema")
+	}
+	s.logger.Info("mysql_audience_source_schema", "operation", "validate_demo_pool", "result", "success")
+	if logger == nil {
+		logger = s.logger
+	}
+	return NewMySQLAudienceSource(s.db, cfg, logger)
 }
 
 // NewMySQLAudienceSource validates the configured projection and confirms

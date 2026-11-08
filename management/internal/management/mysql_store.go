@@ -17,7 +17,15 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-const managementMigrationID = "001_management"
+type managementMigration struct {
+	id   string
+	file string
+}
+
+var managementMigrations = []managementMigration{
+	{id: "001_management", file: "migrations/001_management.sql"},
+	{id: "002_execution_receipts", file: "migrations/002_execution_receipts.sql"},
+}
 
 type MySQLStore struct {
 	db     *sql.DB
@@ -66,16 +74,21 @@ func (s *MySQLStore) Close() error {
 	return s.db.Close()
 }
 
+// ExecutionLog returns a persistent campaign log backed by the store's pool.
+func (s *MySQLStore) ExecutionLog() *MySQLExecutionLog {
+	return newMySQLExecutionLog(s.db, s.logger)
+}
+
 func (s *MySQLStore) migrate(ctx context.Context) error {
-	raw, err := fs.ReadFile(migrationFiles, "migrations/001_management.sql")
+	first, err := fs.ReadFile(migrationFiles, managementMigrations[0].file)
 	if err != nil {
 		return fmt.Errorf("management: reading embedded MySQL migration: %w", err)
 	}
-	statements := splitSQLStatements(string(raw))
-	if len(statements) == 0 {
+	firstStatements := splitSQLStatements(string(first))
+	if len(firstStatements) == 0 {
 		return errors.New("management: embedded MySQL migration is empty")
 	}
-	if _, err := s.db.ExecContext(ctx, statements[0]); err != nil {
+	if _, err := s.db.ExecContext(ctx, firstStatements[0]); err != nil {
 		s.logFailure("migration_table", err)
 		return errors.New("management: creating MySQL migration ledger failed")
 	}
@@ -84,7 +97,7 @@ func (s *MySQLStore) migrate(ctx context.Context) error {
 		s.logFailure("migration_read", err)
 		return errors.New("management: reading MySQL migration ledger failed")
 	}
-	found := false
+	applied := make(map[string]bool, len(managementMigrations))
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -92,9 +105,15 @@ func (s *MySQLStore) migrate(ctx context.Context) error {
 			s.logFailure("migration_read", err)
 			return errors.New("management: reading MySQL migration ledger failed")
 		}
-		if id == managementMigrationID {
-			found = true
-		} else {
+		known := false
+		for _, migration := range managementMigrations {
+			if migration.id == id {
+				known = true
+				applied[id] = true
+				break
+			}
+		}
+		if !known {
 			_ = rows.Close()
 			return fmt.Errorf("management: unsupported MySQL schema migration %q", id)
 		}
@@ -107,18 +126,33 @@ func (s *MySQLStore) migrate(ctx context.Context) error {
 	if err := rows.Close(); err != nil {
 		return errors.New("management: closing MySQL migration result failed")
 	}
-	if !found {
-		for _, statement := range statements[1:] {
+	for _, migration := range managementMigrations {
+		if applied[migration.id] {
+			continue
+		}
+		raw, err := fs.ReadFile(migrationFiles, migration.file)
+		if err != nil {
+			return fmt.Errorf("management: reading embedded MySQL migration %s: %w", migration.id, err)
+		}
+		statements := splitSQLStatements(string(raw))
+		if len(statements) == 0 {
+			return fmt.Errorf("management: embedded MySQL migration %s is empty", migration.id)
+		}
+		start := 0
+		if migration.id == managementMigrations[0].id {
+			start = 1
+		}
+		for _, statement := range statements[start:] {
 			if _, err := s.db.ExecContext(ctx, statement); err != nil {
 				s.logFailure("migration_apply", err)
 				return errors.New("management: applying MySQL schema migration failed")
 			}
 		}
-		if _, err := s.db.ExecContext(ctx, "INSERT IGNORE INTO gmp_management_schema_migrations (migration_id) VALUES (?)", managementMigrationID); err != nil {
+		if _, err := s.db.ExecContext(ctx, "INSERT IGNORE INTO gmp_management_schema_migrations (migration_id) VALUES (?)", migration.id); err != nil {
 			s.logFailure("migration_record", err)
 			return errors.New("management: recording MySQL schema migration failed")
 		}
-		s.logger.Info("mysql_schema_migration", "migration_id", managementMigrationID, "result", "applied")
+		s.logger.Info("mysql_schema_migration", "migration_id", migration.id, "result", "applied")
 	}
 	return s.verifySchema(ctx)
 }

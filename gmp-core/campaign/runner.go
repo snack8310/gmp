@@ -260,15 +260,20 @@ func (r *Runner) RecordReceipt(c Campaign, receipt Receipt) error {
 	if err := c.receiptOutcome(treatment, receipt.Outcome); err != nil {
 		return err
 	}
+	if execution.HasReceipt() && !execution.MatchesReceipt(receipt) {
+		return fmt.Errorf("%w: %q", ErrConflictingReceipt, receipt.Key)
+	}
+	if execution.HasReceipt() {
+		return nil
+	}
 	name := NotArrivedEvent(execution.Action)
 	execution.State = StateNotArrived
 	if receipt.Arrived {
 		name = ArrivedEvent(execution.Action)
 		execution.State = StateArrived
 	}
-	if receipt.ExternalRef != "" {
-		execution.ExternalRef = receipt.ExternalRef
-	}
+	execution.ReceiptExternalRef = receipt.ExternalRef
+	execution.ReceiptAttributes = cloneAttributes(receipt.Attributes)
 	execution.Outcome = receipt.Outcome
 	if err := r.log.Update(execution); err != nil {
 		return err
@@ -387,4 +392,15 @@ func (r *Runner) publish(execution Execution, name EventName, attributes map[str
 		return fmt.Errorf("campaign: publishing %q for %q: %w", name, execution.Key, err)
 	}
 	return nil
+}
+
+func cloneAttributes(attributes map[string]string) map[string]string {
+	if attributes == nil {
+		return nil
+	}
+	owned := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		owned[key] = value
+	}
+	return owned
 }
