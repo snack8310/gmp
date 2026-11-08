@@ -30,8 +30,12 @@
 | Core 与 MySQL Runner 并发用例：`go test -race` | 通过 | 两条并发路径均无竞态报告。 |
 | 两模块：`go build ./...`、`go vet ./...`、格式检查 | 通过 | Core 与 management 分别执行；改动 Go 文件由 `gofmt` 格式化。 |
 | `python3 test/docs/consistency_check.py`、`git diff --check` | 通过 | 文档一致性检查全部通过；差异无空白错误。 |
-| GitHub `gates` | 通过 | 本地代码提交 SHA 的 checks 成功；后续送审继续以 Draft PR 当前 head 的 checks 为准。 |
-| 独立只读评估器 | `PASS` | 审查代码提交 `963d88c3c4e52a8afde04226c43925453b54f004`；未要求补充验证。 |
+| GitHub `gates` | 通过 | run 105 对送审 HEAD `acfe1d6cd6361ead844403a7ae575426c5c49e2a` 返回 `completed/success`。 |
+| 独立只读评估器 | `PASS` | 代码裁决审查 `963d88c3c4e52a8afde04226c43925453b54f004`；最终载体复核审查 HEAD `acfe1d6cd6361ead844403a7ae575426c5c49e2a`，无阻断问题、无缺失验证。 |
+
+## 送审与合并授权
+
+- 用户明确要求合并当前切片；最新送审载体评估为 `PASS`。据此将 PR #89 转为 Ready 并按 squash 规则合并；Issue #88 因完整验收范围仍未完成而保持开放。实际合并状态与提交 SHA 以 GitHub PR #89 元数据为准。
 
 ## 风险与未覆盖项
 
