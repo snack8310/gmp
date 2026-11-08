@@ -283,6 +283,58 @@ func TestOpenMySQLStoreRejectsColumnTypeDrift(t *testing.T) {
 	}
 }
 
+func TestOpenMySQLStoreRejectsMissingRequiredForeignKey(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		t.Fatalf("opening MySQL store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing MySQL store: %v", err)
+	}
+
+	adminDB := openMySQLAdminDB(t, config.DSN)
+	defer adminDB.Close()
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_treatments DROP FOREIGN KEY fk_gmp_management_treatment_campaign"); err != nil {
+		t.Fatalf("dropping treatment campaign foreign key: %v", err)
+	}
+
+	assertMySQLStoreRejectsSchema(t, config, logger, "required treatment campaign foreign key")
+}
+
+func TestOpenMySQLStoreRejectsDriftedForeignKeyDeleteRule(t *testing.T) {
+	config := isolatedMySQLIntegrationConfig(t)
+	logger := slog.New(slog.NewJSONHandler(ioDiscard{}, nil))
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err != nil {
+		t.Fatalf("opening MySQL store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("closing MySQL store: %v", err)
+	}
+
+	adminDB := openMySQLAdminDB(t, config.DSN)
+	defer adminDB.Close()
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_treatments DROP FOREIGN KEY fk_gmp_management_treatment_campaign"); err != nil {
+		t.Fatalf("dropping treatment campaign foreign key: %v", err)
+	}
+	if _, err := adminDB.ExecContext(context.Background(), "ALTER TABLE gmp_management_treatments ADD CONSTRAINT fk_gmp_management_treatment_campaign FOREIGN KEY (campaign_pk) REFERENCES gmp_management_campaigns (campaign_pk) ON DELETE RESTRICT"); err != nil {
+		t.Fatalf("adding treatment campaign foreign key with drifted delete rule: %v", err)
+	}
+
+	assertMySQLStoreRejectsSchema(t, config, logger, "treatment campaign foreign key with a drifted delete rule")
+}
+
+func assertMySQLStoreRejectsSchema(t *testing.T, config management.MySQLConfig, logger *slog.Logger, contract string) {
+	t.Helper()
+	store, err := management.OpenMySQLStore(context.Background(), config, logger)
+	if err == nil {
+		_ = store.Close()
+		t.Fatalf("opening MySQL store succeeded with %s", contract)
+	}
+}
+
 func isolatedMySQLIntegrationConfig(t *testing.T) management.MySQLConfig {
 	t.Helper()
 	dsn := os.Getenv("GMP_TEST_MYSQL_DSN")

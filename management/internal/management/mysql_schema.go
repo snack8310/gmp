@@ -16,9 +16,17 @@ type mysqlSchemaColumn struct {
 }
 
 type mysqlSchemaTable struct {
-	name       string
-	columns    []mysqlSchemaColumn
-	uniqueKeys [][]string
+	name        string
+	columns     []mysqlSchemaColumn
+	uniqueKeys  [][]string
+	foreignKeys []mysqlSchemaForeignKey
+}
+
+type mysqlSchemaForeignKey struct {
+	columns          []string
+	referencedTable  string
+	referencedColumn []string
+	onDelete         string
 }
 
 var managementSchemaContract = []mysqlSchemaTable{
@@ -68,6 +76,12 @@ var managementSchemaContract = []mysqlSchemaTable{
 			{name: "slot_id", sqlType: "longtext", nullable: true},
 		},
 		uniqueKeys: [][]string{{"treatment_pk"}, {"campaign_pk", "id_hash"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"campaign_pk"},
+			referencedTable:  "gmp_management_campaigns",
+			referencedColumn: []string{"campaign_pk"},
+			onDelete:         "CASCADE",
+		}},
 	},
 	{
 		name: "gmp_management_flows",
@@ -76,6 +90,12 @@ var managementSchemaContract = []mysqlSchemaTable{
 			{name: "flow_id", sqlType: "longtext"},
 		},
 		uniqueKeys: [][]string{{"campaign_pk"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"campaign_pk"},
+			referencedTable:  "gmp_management_campaigns",
+			referencedColumn: []string{"campaign_pk"},
+			onDelete:         "CASCADE",
+		}},
 	},
 	{
 		name: "gmp_management_flow_entries",
@@ -87,6 +107,12 @@ var managementSchemaContract = []mysqlSchemaTable{
 			{name: "kind", sqlType: "varchar(16)"},
 		},
 		uniqueKeys: [][]string{{"entry_pk"}, {"campaign_pk", "entry_order"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"campaign_pk"},
+			referencedTable:  "gmp_management_campaigns",
+			referencedColumn: []string{"campaign_pk"},
+			onDelete:         "CASCADE",
+		}},
 	},
 	{
 		name: "gmp_management_flow_entry_treatments",
@@ -96,6 +122,12 @@ var managementSchemaContract = []mysqlSchemaTable{
 			{name: "treatment_id", sqlType: "longtext"},
 		},
 		uniqueKeys: [][]string{{"entry_pk", "treatment_order"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"entry_pk"},
+			referencedTable:  "gmp_management_flow_entries",
+			referencedColumn: []string{"entry_pk"},
+			onDelete:         "CASCADE",
+		}},
 	},
 	{
 		name: "gmp_management_flow_edges",
@@ -109,6 +141,12 @@ var managementSchemaContract = []mysqlSchemaTable{
 			{name: "condition_label", sqlType: "longtext"},
 		},
 		uniqueKeys: [][]string{{"edge_pk"}, {"campaign_pk", "edge_order"}},
+		foreignKeys: []mysqlSchemaForeignKey{{
+			columns:          []string{"campaign_pk"},
+			referencedTable:  "gmp_management_campaigns",
+			referencedColumn: []string{"campaign_pk"},
+			onDelete:         "CASCADE",
+		}},
 	},
 	{
 		name: "gmp_management_audience_references",
@@ -168,6 +206,18 @@ func verifyMySQLTable(ctx context.Context, db *sql.DB, contract mysqlSchemaTable
 	for _, expected := range contract.uniqueKeys {
 		if !hasUniqueIndex(indexes, expected) {
 			return fmt.Errorf("table %s is missing a required unique key", contract.name)
+		}
+	}
+	foreignKeys, err := readMySQLForeignKeys(ctx, db, contract.name)
+	if err != nil {
+		return fmt.Errorf("reading foreign keys for %s: %w", contract.name, err)
+	}
+	if len(foreignKeys) != len(contract.foreignKeys) {
+		return fmt.Errorf("table %s does not match the required foreign key contract", contract.name)
+	}
+	for _, expected := range contract.foreignKeys {
+		if !hasForeignKey(foreignKeys, expected) {
+			return fmt.Errorf("table %s does not match the required foreign key contract", contract.name)
 		}
 	}
 	return nil
@@ -272,4 +322,79 @@ func hasUniqueIndex(indexes map[string]mysqlIndexInfo, columns []string) bool {
 		}
 	}
 	return false
+}
+
+type mysqlForeignKeyInfo struct {
+	columns          []string
+	referencedTable  string
+	referencedColumn []string
+	onDelete         string
+}
+
+func readMySQLForeignKeys(ctx context.Context, db *sql.DB, tableName string) ([]mysqlForeignKeyInfo, error) {
+	rows, err := db.QueryContext(ctx,
+		"SELECT k.CONSTRAINT_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, k.ORDINAL_POSITION, r.DELETE_RULE "+
+			"FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS k "+
+			"JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS r "+
+			"ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND r.TABLE_NAME = k.TABLE_NAME "+
+			"WHERE k.CONSTRAINT_SCHEMA = DATABASE() AND k.TABLE_NAME = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL "+
+			"ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION",
+		tableName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	foreignKeys := make([]mysqlForeignKeyInfo, 0)
+	byName := make(map[string]int)
+	for rows.Next() {
+		var name, column, referencedTable, referencedColumn, deleteRule string
+		var position int
+		if err := rows.Scan(&name, &column, &referencedTable, &referencedColumn, &position, &deleteRule); err != nil {
+			return nil, err
+		}
+		index, exists := byName[name]
+		if !exists {
+			index = len(foreignKeys)
+			byName[name] = index
+			foreignKeys = append(foreignKeys, mysqlForeignKeyInfo{
+				referencedTable: referencedTable,
+				onDelete:        strings.ToUpper(deleteRule),
+			})
+		}
+		foreignKey := &foreignKeys[index]
+		if position != len(foreignKey.columns)+1 || !strings.EqualFold(foreignKey.referencedTable, referencedTable) || !strings.EqualFold(foreignKey.onDelete, deleteRule) {
+			return nil, errors.New("foreign key metadata is inconsistent")
+		}
+		foreignKey.columns = append(foreignKey.columns, column)
+		foreignKey.referencedColumn = append(foreignKey.referencedColumn, referencedColumn)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return foreignKeys, nil
+}
+
+func hasForeignKey(actual []mysqlForeignKeyInfo, expected mysqlSchemaForeignKey) bool {
+	for _, candidate := range actual {
+		if !strings.EqualFold(candidate.referencedTable, expected.referencedTable) || !strings.EqualFold(candidate.onDelete, expected.onDelete) ||
+			!equalColumnList(candidate.columns, expected.columns) || !equalColumnList(candidate.referencedColumn, expected.referencedColumn) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func equalColumnList(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !strings.EqualFold(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
 }
