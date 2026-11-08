@@ -3,7 +3,7 @@
 
 ## 项目结构
 
-- `gmp-core/`：Go 领域模型、接口、内存实现、业务回归与原有 CLI 演示。
+- `gmp-core/`：Go 业务模型、规则与回归场景。当前代码仍有内存 Store；目标是按 [Issue #88](https://github.com/snack8310/gmp/issues/88) 将存储移到外层业务应用。
 - `management/`：独立 Go module，V1 活动与投放项管理 REST API（进程内状态）。
 - `frontend/`：前端展示层，目前包含独立、零框架依赖的 [运营流程沙盘 Demo](frontend/demos/operations-flow/README.md)。
 - `docs/`：领域规格、产品设计与协作证据。
