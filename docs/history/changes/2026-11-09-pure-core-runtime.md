@@ -28,11 +28,11 @@
 | MySQL 专项集成 | 通过 | 本地 MySQL 8.4 的临时 schema 验证回执和染色并发行为；临时 schema 已删除，项目容器已停止。 |
 | 两个 Go module 的 `go build ./...`、`go vet ./...` | 通过 | `gmp-core` 与 `management` 均通过构建和静态检查。 |
 | `gofmt`、`git diff --check`、`python3 test/docs/consistency_check.py` | 通过 | 格式、差异空白和文档一致性检查通过。 |
-| `python3 test/docs/consistency_check_test.py` | 通过 | 文档门禁变异测试 19 项通过；夹具纳入 `management/`，以覆盖文档链接指向的迁移后运行时文件。 |
-| 独立只读评估器 | `PASS` | 未发现阻断问题；送审 SHA 的 CI 与最终评估仍待 Draft PR 创建后核实。 |
+| `python3 test/docs/consistency_check_test.py` | 通过 | 文档门禁变异测试通过；夹具纳入 `management/`，以覆盖文档链接指向的迁移后运行时文件。 |
+| 独立只读评估器 | `PASS` | 预提交实现快照评估通过；当时 Draft PR 与送审 SHA 对应的 CI 尚未创建。 |
 
 ## 风险与未覆盖项
 
 - 真风险（放行后续跟进）：Core 静态门禁维护 AST 类型与别名识别，未来修改时应保留浅拷贝共享切片反例，并继续验证合法只读用法。
 - 本次不覆盖：生产用户池、真实渠道、Outbox 和崩溃恢复、生产部署及 Issue #88 全部 CRUD。
-- 需要后续动作：Draft PR 创建后核对 CI 的 `headSha` 与送审提交一致，再进行提交后最终评估；无 Outbox 的恢复限制仍需由后续设计处理。
+- 需要后续动作：无 Outbox 的恢复限制由后续设计处理；仓外 Go importer 按 CHANGELOG 中的迁移要求升级。
