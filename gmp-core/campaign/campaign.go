@@ -8,6 +8,7 @@ import (
 )
 
 var (
+	ErrUnbuiltCampaign = errors.New("campaign: campaign was not built through a constructor")
 	// ErrMissingCampaignID is returned when a campaign has no identity.
 	ErrMissingCampaignID = errors.New("campaign: campaign id is empty")
 	// ErrDuplicateTreatment is returned when one treatment id appears twice in

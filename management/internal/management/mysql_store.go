@@ -25,6 +25,7 @@ type managementMigration struct {
 var managementMigrations = []managementMigration{
 	{id: "001_management", file: "migrations/001_management.sql"},
 	{id: "002_execution_receipts", file: "migrations/002_execution_receipts.sql"},
+	{id: "003_experiment_colorings", file: "migrations/003_experiment_colorings.sql"},
 }
 
 type MySQLStore struct {
@@ -168,7 +169,7 @@ func (s *MySQLStore) migrate(ctx context.Context) error {
 func (s *MySQLStore) verifySchema(ctx context.Context) error {
 	if err := verifyManagementSchema(ctx, s.db); err != nil {
 		s.logFailure("schema_check", err)
-		return errors.New("management: required MySQL schema is unavailable")
+		return fmt.Errorf("management: required MySQL schema is unavailable: %w", err)
 	}
 	return nil
 }

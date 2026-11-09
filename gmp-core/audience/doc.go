@@ -1,19 +1,12 @@
-// Package audience answers two questions about one audience definition: who
-// are these people, and does this one person count.
+// Package audience holds audience definitions and evaluates explicit records
+// against them.
 //
-// Those are the only two things this layer offers. They are the same
-// definition used in opposite directions -- enumeration may run offline and
-// take minutes over millions, while a decision happens on the request path
-// with an app waiting -- and they must agree. A definition that answers them
-// differently breaks the model silently: the slot-serving path only ever asks
-// about one id, so nothing would ever reconcile it against an enumeration.
+// It does not enumerate or fetch members. A caller supplies one source record
+// and the assignment facts needed by share conditions; the package returns a
+// match result and any placement values derivable from those facts.
 //
-// The layer sits above experimentation and imports nothing else. A share of an
-// assignment is an ordinary condition here, the same kind of thing as "spent
-// over a hundred" -- this package never buckets anyone itself.
-//
-// Nothing here reads a clock. Time enters as data: a source reports how long
-// ago an event happened, and conditions compare that against a configured
-// window. Waiting until a moment arrives belongs to whatever schedules the
-// work, outside this model entirely.
+// The package sits above experimentation. It never chooses a bucket or
+// persists a coloring. Source and record values describe facts supplied by an
+// outer application, and time-window conditions compare the ages carried by
+// those records without reading a clock or scheduling work.
 package audience

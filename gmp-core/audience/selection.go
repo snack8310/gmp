@@ -17,32 +17,22 @@ type Selection struct {
 }
 
 // SelectGroup makes one ordinary group the entry audience.
-func SelectGroup(group Group) Selection {
-	return Selection{group: group}
-}
+func SelectGroup(group Group) Selection { return Selection{group: group} }
 
-// SelectBundle makes one published experiment bundle the entry audience.
-func SelectBundle(bundle Bundle) Selection {
-	return Selection{bundle: &bundle}
-}
+// SelectBundle makes one experiment bundle the entry audience.
+func SelectBundle(bundle Bundle) Selection { return Selection{bundle: &bundle} }
 
-// Validate checks that the selection contains exactly one built audience
-// object and that an experiment bundle is published and active.
+// Validate checks only the values in the selection. Current component
+// availability is a runtime concern for the application layer.
 func (s Selection) Validate() error {
 	if s.group.ID() != "" && s.bundle != nil {
 		return ErrInvalidSelection
 	}
 	if s.bundle != nil {
-		if s.bundle.id == "" || s.bundle.state == nil {
+		if s.group.ID() != "" || s.bundle.id == "" {
 			return ErrInvalidSelection
 		}
-		if !s.bundle.state.published.Load() {
-			return ErrUnpublishedBundle
-		}
-		if !s.bundle.Available() {
-			return ErrGroupUnavailable
-		}
-		return nil
+		return s.bundle.Validate()
 	}
 	if s.group.ID() == "" {
 		return ErrInvalidSelection
@@ -70,43 +60,15 @@ func (s Selection) Groups() []Group {
 // IsBundle reports whether this selection is an experiment bundle.
 func (s Selection) IsBundle() bool { return s.bundle != nil }
 
-// Group returns one selected group by identity.
-func (s Selection) Group(id GroupID) (Group, bool) {
-	for _, group := range s.Groups() {
-		if group.ID() == id {
-			return group, true
-		}
-	}
-	return Group{}, false
-}
-
-// ValidateSelection checks both the selection shape and that each group is
-// registered and available in this audience service.
-func (s *Service) ValidateSelection(selection Selection) error {
-	if err := selection.Validate(); err != nil {
-		return err
-	}
-	for _, group := range selection.Groups() {
-		if err := s.ValidateGroup(group); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// MatchSelection returns the selected group containing uid, if any. Bundle
-// arms are mutually exclusive; more than one matching arm means the bundle's
-// audience definition no longer describes one experiment partition.
-func (s *Service) MatchSelection(selection Selection, mode Mode, uid UID) (Group, bool, error) {
-	if uid == "" {
-		return Group{}, false, ErrEmptyUID
-	}
-	if err := s.ValidateSelection(selection); err != nil {
+// Match returns the selected group containing record, using only explicit
+// records and assignment facts.
+func (s Selection) Match(record Record, facts AssignmentFacts) (Group, bool, error) {
+	if err := s.Validate(); err != nil {
 		return Group{}, false, err
 	}
 	var matched Group
-	for _, group := range selection.Groups() {
-		in, err := s.DecideGroup(group, mode, uid)
+	for _, group := range s.Groups() {
+		in, err := group.Matches(record, facts)
 		if err != nil {
 			return Group{}, false, err
 		}
@@ -122,4 +84,14 @@ func (s *Service) MatchSelection(selection Selection, mode Mode, uid UID) (Group
 		return Group{}, false, nil
 	}
 	return matched, true, nil
+}
+
+// Group returns one selected group by identity.
+func (s Selection) Group(id GroupID) (Group, bool) {
+	for _, group := range s.Groups() {
+		if group.ID() == id {
+			return group, true
+		}
+	}
+	return Group{}, false
 }

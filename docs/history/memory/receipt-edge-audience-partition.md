@@ -6,12 +6,12 @@
 - 跨层回归必须断言下一步实际执行的 UID 集合等于命中该边的回执 UID 集合。只断言「有人被执行」或「人数大于零」不算覆盖。
 - 回执边上的下一次执行使用独立 execution key，并由上游 key 派生。回归应验证下游 key 与上游 key 不同、上游回执仍关联原执行，且 placements 沿边复制。
 - 当前类型无法表达“下一投放项绑定另一份非空且不相交的人群”的旧反例；不得为保留旧测试形状而把人群字段加回 `Treatment`。改由类型边界禁止重新圈人，并用 UID、key 与 placements 断言验证沿边执行。
-- 存储层必须原子地区分某回执的首次接受与完全相同的重放；只有首次接受者可以发布对应事件并推进回执边。单独保证回执记录幂等不足以保证流程副作用幂等。该边界由 `campaign.ReceiptAcceptor` 的首次接受结果、`NewRunner` 对此能力的构造期检查，以及 MySQL + Runner 并发集成用例固化。
-- 规则由 [`gmp-core/scenarios/receiptflow_test.go`](../../../gmp-core/scenarios/receiptflow_test.go) 的串行与按回执分支用例，以及 [`gmp-core/campaign/flow_test.go`](../../../gmp-core/campaign/flow_test.go) 的 key 与 placements 断言承接。
+- 存储层必须原子地区分某回执的首次接受与完全相同的重放；只有首次接受者可以发布对应事件并推进回执边。单独保证回执记录幂等不足以保证流程副作用幂等。该边界由 management MySQL execution log 的首次接受结果、`management/internal/application.Runtime.RecordReceipt` 的调用顺序，以及 MySQL + 应用 Runtime 并发集成用例固化。
+- 规则由 [`gmp-core/scenarios/pure_scenarios_test.go`](../../../gmp-core/scenarios/pure_scenarios_test.go) 的跨层身份断言、[`gmp-core/campaign/pure_transitions_test.go`](../../../gmp-core/campaign/pure_transitions_test.go) 的 key 与 placements 转换断言，以及 [`management/internal/application/runtime_mysql_integration_test.go`](../../../management/internal/application/runtime_mysql_integration_test.go) 的首次接受用例承接。
 
 ## 原因
 
-活动内下一步的人来自回执，不来自目标投放项的人群枚举。当前模型把这一点固化在类型里：投放项没有人群字段，流程边只连接投放项，runner 将上游 UID、派生执行 key 和 placements 带到下一步。跨层用例需验证这条身份链，避免后续重新引入目标人群枚举或丢失归因。
+活动内下一步的人来自回执，不来自目标投放项的人群枚举。当前模型把这一点固化在类型里：投放项没有人群字段，流程边只连接投放项，Core 的纯转换将上游 UID、派生执行 key 和 placements 带到下一步，外层 Runtime 执行该意图。跨层用例需验证这条身份链，避免后续重新引入目标人群枚举或丢失归因。
 
 另一个独立边界是执行副作用：两个并发回调可能都先读到“尚无回执”。存储必须只选定一个首次接受者；否则即使唯一键和回执值幂等，两个 Runner 仍会分别发布事件和沿边执行。Outbox 不在当前范围，因此数据库提交后的进程崩溃恢复仍不由此保证。
 

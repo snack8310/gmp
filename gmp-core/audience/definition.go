@@ -29,13 +29,14 @@ type Definition struct {
 	id         DefinitionID
 	source     SourceID
 	conditions []Condition
+	bundleID   BundleID
 }
 
 // DefinitionSpec is the input to building a Definition.
 type DefinitionSpec struct {
 	// ID identifies the definition.
 	ID DefinitionID
-	// Source is which registered source the people come from.
+	// Source identifies which descriptor describes the input records.
 	Source SourceID
 	// Conditions all have to hold. An empty set means everyone the source
 	// yields, which is a legitimate definition.

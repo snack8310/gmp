@@ -1,427 +1,92 @@
-// Command gmp-demo walks the business scenarios over the in-memory model and
-// prints what happens.
-//
-// It exists to make the model visible, not to test it: the regression cases
-// live in the scenarios package and run under go test. Nothing here reads
-// configuration, listens on anything, or writes to disk.
 package main
 
 import (
 	"fmt"
-	"os"
-	"sort"
-	"time"
 
 	"github.com/snack8310/gmp/gmp-core/audience"
 	"github.com/snack8310/gmp/gmp-core/campaign"
-	"github.com/snack8310/gmp/gmp-core/scenarios"
+	"github.com/snack8310/gmp/gmp-core/experimentation"
 )
 
-const population = 1000
-
 func main() {
-	if err := run(os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "gmp-demo: %v\n", err)
-		os.Exit(1)
+	assignment, err := newAssignment()
+	check(err)
+	bucket, err := experimentation.Calculate(assignment, "constructed-demo-uid", experimentation.FNV1aV1{})
+	check(err)
+
+	source, err := audience.NewSource(audience.SourceSpec{
+		ID: "demo-source", Supply: audience.SupplyPull, Category: audience.CategoryExternal,
+	})
+	check(err)
+	condition, err := audience.Share(assignment, bucket)
+	check(err)
+	definition, err := audience.NewDefinition(audience.DefinitionSpec{
+		ID: "demo-audience", Source: source.ID(), Conditions: []audience.Condition{condition},
+	})
+	check(err)
+	group := audience.Single(definition)
+	record := audience.Record{UID: "constructed-demo-uid"}
+	facts := audience.AssignmentFacts{{Definition: assignment, Bucket: bucket}}
+	matched, err := definition.Matches(record, facts)
+	check(err)
+
+	firstAction, err := campaign.NewAction(campaign.ActionSpec{
+		ID: "demo-first-action", Direction: campaign.DirectionPush,
+		Outcomes: []campaign.Outcome{campaign.OutcomeSuccess, campaign.OutcomeFailure},
+	})
+	check(err)
+	nextAction, err := campaign.NewAction(campaign.ActionSpec{
+		ID: "demo-next-action", Direction: campaign.DirectionPush,
+		Outcomes: []campaign.Outcome{campaign.OutcomeSuccess, campaign.OutcomeFailure},
+	})
+	check(err)
+	firstCall, err := firstAction.Call(nil)
+	check(err)
+	nextCall, err := nextAction.Call(nil)
+	check(err)
+	first, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "demo-first-treatment", Call: firstCall})
+	check(err)
+	next, err := campaign.NewTreatment(campaign.TreatmentSpec{ID: "demo-next-treatment", Call: nextCall})
+	check(err)
+	flow, err := campaign.NewFlow(campaign.FlowSpec{
+		ID:      "demo-flow",
+		Entries: []campaign.EntrySpec{{Group: group.ID(), Kind: campaign.EntryStart, Treatments: []campaign.TreatmentID{first.ID()}}},
+		Edges:   []campaign.EdgeSpec{{From: first.ID(), To: next.ID(), Kind: campaign.EdgeOnReceipt, When: campaign.OutcomeSuccess}},
+	})
+	check(err)
+	built, err := campaign.NewCampaign(campaign.CampaignSpec{
+		ID: "demo-campaign", Priority: campaign.NewPriority(1), Audience: audience.SelectGroup(group),
+		Treatments: []campaign.Treatment{first, next}, Flow: flow,
+	})
+	check(err)
+	intent, shouldDeliver, err := campaign.PlanEntry(built, first.ID(), record, facts, "demo-occurrence")
+	check(err)
+	if !shouldDeliver {
+		panic("constructed demo record was unexpectedly excluded")
 	}
+	execution, err := campaign.CompleteDelivery(intent, 1, campaign.Ack{ExternalRef: "constructed-ack"}, true)
+	check(err)
+	transition, err := campaign.ApplyReceipt(built, execution, campaign.Receipt{
+		Key: execution.Key, Arrived: true, Outcome: campaign.OutcomeSuccess,
+	})
+	check(err)
+
+	fmt.Printf("assignment=%s share=%d matched=%t delivery_key=%s receipt_event=%s next_step=%s\n",
+		assignment.ID(), bucket.Value(), matched, intent.Key, transition.Event.Name, transition.Deliveries[0].Treatment)
 }
 
-func run(out *os.File) error {
-	stack, err := scenarios.NewStack(population)
+func newAssignment() (experimentation.Definition, error) {
+	split, err := experimentation.EqualSplit(2)
 	if err != nil {
-		return err
+		return experimentation.Definition{}, err
 	}
-	fmt.Fprintf(out, "抽象模型已装配：%d 人的样本，来源 %q，三层全部走内存实现\n", len(stack.People), scenarios.SourceID)
-	fmt.Fprintln(out, "不接数据库、不接渠道、不起服务。以下全部是模型算出来的真实结果。")
-
-	if err := showBannerContest(out, stack); err != nil {
-		return err
-	}
-	if err := showRollout(out, stack); err != nil {
-		return err
-	}
-	if err := showArms(out, stack); err != nil {
-		return err
-	}
-	armCampaign, err := showArmCampaign(out, stack)
-	if err != nil {
-		return err
-	}
-	if err := showDelivery(out, armCampaign); err != nil {
-		return err
-	}
-	if err := showTwoStep(out); err != nil {
-		return err
-	}
-	if err := showReceiptFlow(out, stack); err != nil {
-		return err
-	}
-	// A fresh stack: the sections above have already coloured this
-	// population, and a store that is already full would make the real run
-	// look as though it colours nobody either.
-	if err := showRehearsal(out); err != nil {
-		return err
-	}
-
-	fmt.Fprintln(out, "\n未覆盖：场景 ① 的「未使用」来自券系统，属另一个来源；一份人群定义能否跨多个来源仍是开放问题。")
-	return nil
+	return experimentation.NewDefinition(experimentation.DefinitionSpec{
+		ID: "demo-assignment", Split: split, Salt: "demo-salt", Algorithm: experimentation.FNV1aV1{}.Version(),
+	})
 }
 
-func section(out *os.File, title, note string) {
-	fmt.Fprintf(out, "\n── %s ──\n%s\n\n", title, note)
-}
-
-func showBannerContest(out *os.File, stack *scenarios.Stack) error {
-	section(out, "场景 ③ · APP 首页 banner",
-		"大促（优先级 100）与会员召回（优先级 50）抢同一个位子；大促内部用决策表分新客 / 老客。")
-
-	contest, err := stack.BannerContest()
+func check(err error) {
 	if err != nil {
-		return err
+		panic(err)
 	}
-	counts := map[string]int{}
-	shown := 0
-	for _, person := range stack.People {
-		decision, err := contest.Campaigns.Decide(scenarios.BannerSlot, person.UID, audience.Live())
-		if err != nil {
-			return err
-		}
-		if decision.Won {
-			counts[string(decision.Award.Campaign)+" / "+string(decision.Award.Treatment)]++
-		} else {
-			counts["无人接手"]++
-		}
-		if shown < 3 {
-			shown++
-			printOne(out, person, decision)
-		}
-	}
-	fmt.Fprintln(out, "  全样本落点：")
-	for _, line := range sorted(counts) {
-		fmt.Fprintf(out, "    %s\n", line)
-	}
-	return nil
-}
-
-func printOne(out *os.File, person audience.Record, decision campaign.Decision) {
-	tier := person.Attributes["tier"]
-	if decision.Won {
-		image, _ := decision.Award.Call.Param("image")
-		fmt.Fprintf(out, "  %s（%s）→ %s / %s，素材 %s\n",
-			person.UID, tier, decision.Award.Campaign, decision.Award.Treatment, image)
-	} else {
-		fmt.Fprintf(out, "  %s（%s）→ 什么都不给\n", person.UID, tier)
-	}
-	for _, loss := range decision.Losses {
-		fmt.Fprintf(out, "      留痕：%s / %s 未中，原因：%s\n", loss.Campaign, loss.Treatment, why(loss.Reason))
-	}
-}
-
-func showRollout(out *os.File, stack *scenarios.Stack) error {
-	section(out, "场景 ④ · 灰度放量",
-		"切 100 份，逐步纳入。关键不是纳入了多少，是已经进来的人一个都不掉。")
-
-	var previous map[audience.UID]bool
-	for _, step := range []int{5, 20, 100} {
-		service, err := stack.RolloutAdmitting(step)
-		if err != nil {
-			return err
-		}
-		current := map[audience.UID]bool{}
-		for _, person := range stack.People {
-			decision, err := service.Decide(scenarios.BannerSlot, person.UID, audience.Live())
-			if err != nil {
-				return err
-			}
-			if decision.Won {
-				current[person.UID] = true
-			}
-		}
-		dropped := 0
-		for uid := range previous {
-			if !current[uid] {
-				dropped++
-			}
-		}
-		fmt.Fprintf(out, "  放到前 %d 份：纳入 %d 人", step, len(current))
-		if previous == nil {
-			fmt.Fprintln(out, "")
-		} else {
-			fmt.Fprintf(out, "，上一步的人掉出去 %d 个\n", dropped)
-		}
-		previous = current
-	}
-	fmt.Fprintln(out, "  用「随机取 5%」的话，第二次取的跟第一次不是同一批人，而且不报错。")
-	return nil
-}
-
-func showArms(out *os.File, stack *scenarios.Stack) error {
-	section(out, "场景 ② · 双十一分组实验",
-		"近 30 天有加购的人切四份。对照组挂零个投放项，但必须在系统里存在。")
-
-	arms, err := stack.ExperimentArms()
-	if err != nil {
-		return err
-	}
-	base, err := stack.Audiences.Enumerate(arms.Base, audience.Live())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  基础人群：%d 人\n", len(base))
-	covered := 0
-	for _, name := range arms.Order {
-		members, err := stack.Audiences.Enumerate(arms.Arms[name], audience.Live())
-		if err != nil {
-			return err
-		}
-		covered += len(members)
-		note := ""
-		if name == arms.Control {
-			note = "  ← 对照组，挂 0 个投放项"
-		}
-		fmt.Fprintf(out, "    %-18s %d 人%s\n", name, len(members), note)
-	}
-	fmt.Fprintf(out, "  四臂合计 %d 人，与基础人群相差 %d —— 不重不漏\n", covered, covered-len(base))
-	return nil
-}
-
-func showRehearsal(out *os.File) error {
-	section(out, "演练 · 不能有副作用",
-		"演练走「只读问一下」：算份号但不写染色记录，否则演练会改变它要预览的东西。")
-
-	stack, err := scenarios.NewStack(population)
-	if err != nil {
-		return err
-	}
-	before := stack.Colouring.Size()
-	arms, err := stack.ExperimentArms()
-	if err != nil {
-		return err
-	}
-	if _, err = stack.Audiences.Enumerate(arms.Arms[arms.Control], audience.Rehearsal()); err != nil {
-		return err
-	}
-	afterRehearsal := stack.Colouring.Size()
-	if _, err := stack.Audiences.Enumerate(arms.Arms[arms.Control], audience.Live()); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  染色记录：演练前 %d，演练后 %d，真实跑一遍后 %d\n",
-		before, afterRehearsal, stack.Colouring.Size())
-	return nil
-}
-
-// why renders a loss reason for a human reading the demo. The reasons
-// themselves stay in the domain's own vocabulary; this is presentation.
-func showTwoStep(out *os.File) error {
-	section(out, "场景 ⑤ · 两级触达，靠回流时间窗",
-		"第一步发 WhatsApp，四小时后对未读的人发短信。边的条件是动作回执，不含「等四小时、且未读」，所以这两步仍是两个活动，第二步的人群定义建在回流来源上。同一活动里按回执走下一步则用活动流程的边。")
-
-	// A fresh stack: this chain registers its own backflow source.
-	stack, err := scenarios.NewStack(population)
-	if err != nil {
-		return err
-	}
-	chain, err := stack.CrossBorderWinBack()
-	if err != nil {
-		return err
-	}
-
-	first, err := chain.Runner.Run(chain.First, chain.FirstStep, "entry", audience.Live())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  第一步：发出 %d 条 WhatsApp\n", len(first.Executions))
-
-	var unread int
-	for i, execution := range first.Executions {
-		status := "yes"
-		if i%2 != 0 {
-			status = "no"
-			unread++
-		}
-		if err := chain.Runner.RecordReceipt(chain.First, campaign.Receipt{
-			Key: execution.Key, Arrived: true, Attributes: map[string]string{"read": status},
-		}); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintf(out, "  渠道回执：其中 %d 人未读（「未读」是渠道自己的说法，平台不解释）\n", unread)
-
-	tooSoon, err := chain.Runner.Run(chain.Second, chain.SecondStep, "follow-up", audience.Live())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  还没到四小时就跑第二步：触达 %d 人\n", len(tooSoon.Executions))
-
-	chain.Backflow.Advance(4 * time.Hour)
-	fmt.Fprintln(out, "  回流来源把时间推进四小时（时间归来源，核心从不问现在几点）")
-
-	second, err := chain.Runner.Run(chain.Second, chain.SecondStep, "follow-up", audience.Live())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  第二步：对 %d 人发短信 —— 正是未读的那批\n", len(second.Executions))
-	fmt.Fprintln(out, "  第二步不引用第一步的投放项：它是另一个活动，人群建在回流来源上。活动内按回执走下一步才用边。")
-	return nil
-}
-
-func why(reason campaign.LossReason) string {
-	switch reason {
-	case campaign.LossOutsideRollout:
-		return "不在当前放量范围内"
-	case campaign.LossAudienceDidNotMatch:
-		return "人群不命中"
-	case campaign.LossRoutedElsewhere:
-		return "决策表把他路由到别处"
-	case campaign.LossOnPriority:
-		return "优先级输了"
-	default:
-		return string(reason)
-	}
-}
-
-func showArmCampaign(out *os.File, stack *scenarios.Stack) (*scenarios.ArmCampaign, error) {
-	section(out, "场景 ② · 一个活动，挂住各个实验臂",
-		"活动选择一个实验人群包，流程把各臂分别路由到起始投放项；对照组显式不投放。")
-
-	built, err := stack.ArmCampaign()
-	if err != nil {
-		return nil, err
-	}
-	fmt.Fprintf(out, "  活动 %q，优先级穿透到下面所有投放项\n", built.Campaign.ID())
-	hangs := built.ByArm()
-	for _, name := range built.Arms.Order {
-		actions := hangs[name]
-		if len(actions) == 0 {
-			fmt.Fprintf(out, "    %-18s 挂 0 个投放项  ← 对照组，但它在系统里真实存在\n", name)
-			continue
-		}
-		fmt.Fprintf(out, "    %-18s %v\n", name, actions)
-	}
-	fmt.Fprintln(out, "  短信和券都是推送投放项，不占展示位；同一实验臂可以各执行一次。")
-
-	received := map[audience.UID][]campaign.ActionID{}
-	for _, treatment := range built.Treatments {
-		report, err := built.Runner.Run(built.Campaign, treatment.ID, "entry", audience.Live())
-		if err != nil {
-			return nil, err
-		}
-		fmt.Fprintf(out, "  投放项 %-16s → 人群 %-18s 动作 %-13s 投递 %d 人\n",
-			treatment.ID, treatment.Arm, treatment.Action, len(report.Executions))
-		for _, execution := range report.Executions {
-			received[execution.UID] = append(received[execution.UID], execution.Action)
-		}
-	}
-
-	fmt.Fprintln(out, "  再从人的角度看一遍，每个臂取一个样本：")
-	for _, name := range built.Arms.Order {
-		members, err := stack.Audiences.Enumerate(built.Arms.Arms[name], audience.Live())
-		if err != nil {
-			return nil, err
-		}
-		if len(members) == 0 {
-			continue
-		}
-		uid := members[0]
-		got := received[uid]
-		if len(got) == 0 {
-			fmt.Fprintf(out, "    %s（%s）什么都没收到\n", uid, name)
-			continue
-		}
-		placements, err := stack.Audiences.Placements(built.Arms.Arms[name], audience.Live(), uid)
-		if err != nil {
-			return nil, err
-		}
-		where := ""
-		if len(placements) > 0 {
-			where = placements[0].String()
-		}
-		fmt.Fprintf(out, "    %s（%s）收到 %v，落点 %s\n", uid, name, got, where)
-	}
-	fmt.Fprintln(out, "  每条执行记录都同时带着投放项与份号 —— 少一样，就有一边算不出账。")
-	fmt.Fprintln(out, "  未覆盖：哪个臂更好、差异显不显著，归实验服务，尚未建设。")
-	return built, nil
-}
-
-func showDelivery(out *os.File, built *scenarios.ArmCampaign) error {
-	section(out, "执行侧 · 幂等键贯穿三段",
-		"决策 → 投递 → 回执，三段带同一个键。断一节，那次执行就永远挂着，且不报错。")
-
-	delivery, err := built.Delivery(2)
-	if err != nil {
-		return err
-	}
-	// Learn the keys without sending, then make one of them fail every attempt.
-	planned, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Rehearsal())
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  演练：打算投递 %d 人，执行记录 %d 条（演练不落记录）\n",
-		len(planned.Planned), delivery.Log.Size())
-	if len(planned.Planned) == 0 {
-		return nil
-	}
-	doomed := planned.Planned[0].Key
-	delivery.Deliverer.FailNext(doomed, 99)
-
-	report, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Live())
-	if err != nil {
-		return err
-	}
-	var failed int
-	for _, execution := range report.Executions {
-		if execution.State == campaign.StateFailed {
-			failed++
-		}
-	}
-	fmt.Fprintf(out, "  真实跑：投递 %d 人，其中 %d 人重试耗尽仍失败\n", len(report.Executions), failed)
-
-	// Pick one the downstream actually took: a receipt saying something
-	// arrived, for a delivery that was never accepted, would be nonsense.
-	var sample campaign.Execution
-	for _, execution := range report.Executions {
-		if execution.State == campaign.StateDelivered {
-			sample = execution
-			break
-		}
-	}
-	if sample.Key == "" {
-		fmt.Fprintln(out, "  没有一条被下游接收，回执这一段跳过")
-		return nil
-	}
-	fmt.Fprintf(out, "  取一条被接收的看三段：\n")
-	fmt.Fprintf(out, "    决策产出 → 投放项 %s，落点 %s\n", sample.Treatment, sample.Placements[0])
-	fmt.Fprintf(out, "    投递携带 → 幂等键 %q，尝试 %d 次\n", sample.Key, sample.Attempts)
-	if err := delivery.Runner.RecordReceipt(delivery.Campaign, campaign.Receipt{Key: sample.Key, Arrived: true, ExternalRef: "carrier-8891"}); err != nil {
-		return err
-	}
-	closed, _, err := delivery.Log.Lookup(sample.Key)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "    回执带同一个键回来 → 状态 %s，外部标识 %s\n", closed.State, closed.ExternalRef)
-
-	if err := delivery.Runner.RecordReceipt(campaign.Campaign{}, campaign.Receipt{Key: "一个从没投递过的键", Arrived: true}); err != nil {
-		fmt.Fprintf(out, "  对不上的回执被拒绝：%v\n", err)
-	} else {
-		fmt.Fprintln(out, "  对不上的回执被接受了 —— 这是个缺陷")
-	}
-
-	before := delivery.Deliverer.Effects()
-	if _, err := delivery.Runner.Run(delivery.Campaign, delivery.Treatment, "entry", audience.Live()); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "  同一次进入重跑一遍：实际投递次数 %d → %d（键相同，下游认得出来）\n",
-		before, delivery.Deliverer.Effects())
-	fmt.Fprintf(out, "  失败的那 %d 人仍带着自己的份号入账 —— 剔掉他们等于偷偷筛人群\n", failed)
-	return nil
-}
-
-func sorted(counts map[string]int) []string {
-	out := make([]string, 0, len(counts))
-	for key, value := range counts {
-		out = append(out, fmt.Sprintf("%-40s %d 人", key, value))
-	}
-	sort.Strings(out)
-	return out
 }

@@ -8,28 +8,20 @@ import (
 var (
 	// ErrMissingSlotID is returned when a slot has no identity.
 	ErrMissingSlotID = errors.New("campaign: slot id is empty")
-	// ErrUnknownSlot is returned when something references a slot nobody
-	// registered.
-	ErrUnknownSlot = errors.New("campaign: no such registered slot")
-	// ErrDuplicateSlot is returned when one slot id is registered twice.
-	ErrDuplicateSlot = errors.New("campaign: slot registered twice")
+	ErrUnknownSlot   = errors.New("campaign: slot is absent from the supplied catalog")
 )
 
 // SlotID identifies a place where something can be shown.
 type SlotID string
 
-// Slot is somewhere a treatment can be placed.
-//
-// Slots are registered rather than named freely, for the same reason sources
-// and actions are: what exists is what engineering has wired up, and operations
-// picks from that list. A typo in a free-form name would otherwise produce a
-// slot nothing ever contends for, silently.
+// Slot is a value describing a place where a treatment can be shown. The
+// application supplies the available slot catalog to pure decisions.
 type Slot struct {
 	id SlotID
 }
 
-// RegisterSlot declares a slot.
-func RegisterSlot(id SlotID) (Slot, error) {
+// NewSlot builds a slot value.
+func NewSlot(id SlotID) (Slot, error) {
 	if id == "" {
 		return Slot{}, ErrMissingSlotID
 	}

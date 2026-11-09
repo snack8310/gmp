@@ -1,56 +1,73 @@
 # gmp-core
 
-本仓库的业务模型内核：领域类型、规则、校验、决策与状态转换。目标边界是 **Core 不持有任何数据存储**，包括内存 Store，也不直接访问数据库与外部链路。当前代码仍包含内存实现；其移出和调用边界调整由 [Issue #88](https://github.com/snack8310/gmp/issues/88) 跟进，尚未完成。
+`gmp-core` 只承载业务值、构造校验、确定性规则、决策和状态转换。它不读写数据库，不查询人群，不保存执行状态，也不投递动作或发布事件。需要存储的状态以显式值传入 Core，Core 返回下一状态或外部效果意图；应用层负责读取、提交、并发、幂等、重试、调度与副作用。
 
-语义的规格真源是 [`docs/domain/`](../docs/domain/)，不是本目录。本目录写实现，实现必须符合那边的语义；发现规格有洞走澄清，不在这里顺手补。
+Issue #90 完成了 Core 运行态边界迁移。旧 `Service`、`Runner`、Store / Feed / Log 接口及 Memory* 实现已删除；仓库调用方迁到 `management/internal/application` 和 MySQL 适配器。`gmp-core` Go API 属于破坏性变更，迁移入口见根目录 [`CHANGELOG.md`](../CHANGELOG.md)。管理 HTTP `/api/v1` 契约保持不变。
+
+领域语义的规格真源是 [`docs/domain/`](../docs/domain/)，不是本目录。发现规格有洞时走澄清，不在 Core 里添加未确认的业务事实。
 
 ## 依赖分层
 
-`gmp-core` 内部按依赖方向分层，下层不得依赖上层：
+下层不得依赖上层，依赖方向由 [`internal/arch`](internal/arch) 检查：
 
-| 层 | 允许依赖 | 本轮状态 |
+| 包 | 可以依赖 | 职责 |
 |---|---|---|
-| `scenarios` | 以下全部 | 已建立（跨层业务回归仍有未覆盖场景） |
-| `campaign` | `audience` | 业务模型已建立；当前实现仍含内存 Store，待按 #88 移出 |
-| `audience` | `experimentation` | 业务模型已建立；当前实现仍含内存 Store，待按 #88 移出 |
-| `experimentation` | **无** | 分配与染色规则已建立；染色记录的加载 / 保存应由外层应用负责，当前 `ColoringStore` 尚待按 #88 移出 |
+| `experimentation` | 无 | 确定性分桶、显式染色事实、组件状态值转换 |
+| `audience` | `experimentation` | 人群定义、规则校验、显式记录匹配与份号放置 |
+| `campaign` | `audience` | 活动配置、抢位决策、投递意图、执行 / 回执纯转换 |
+| `scenarios` | 以上全部 | 五个已建立跨层业务场景的纯值回归 |
 
-**`experimentation` 的零依赖不是约定，是一条检查**：[`internal/arch`](internal/arch) 解析该包下每个 Go 文件的 import，命中上层即失败；包被改名或删除时检查同样失败，而不是「零个文件、全部通过」。该检查随 `go test ./...` 在 CI 上真跑。
+`experimentation` 的零依赖与四个 Core 包不得声明运行时所有权类型、存储接口或外部副作用依赖，均由 `go test ./...` 中的 AST 门禁检查。空目录、空源码、禁止类型和禁止依赖都有门禁测试。
 
-零依赖是「未来把 `experimentation` 整块搬走、开放给第三方」的前提。单仓库下穿透它只需多写一行 import，且穿透之后不报错——直到想搬的那天才发现搬不动。
+## 纯值 API
 
-## 名词表
+- `experimentation.Calculate` / `ResolveAssignment` 接收显式算法、assignment key、definition、可选 component state 和已有染色，返回份号及待持久化染色值。数据库唯一键和首次写胜由外层处理。
+- `audience.Definition.Matches`、`Placements` 与 `Selection.Match` 只读取显式记录和 `AssignmentFacts`。`Source` 是来源描述值，不是查询端口；成员列表由外层适配器提供。
+- `campaign.Decide`、`PlanEntry`、`CompleteDelivery` 与 `ApplyReceipt` 返回决策、投递意图、执行值或回执转换。Core 不执行这些意图；应用层需先原子接受回执，再执行事件与后续投递。
+- `ComponentState`、`Bundle.Publish` 等 API 以值输入和返回新值表达状态转换。Core 不在多个调用之间保存运行态。
 
-英文名是跨子项目命名的依据。
+## 业务场景覆盖
 
-| 中文名 | 英文名 | 定义 |
+场景测试位于 `scenarios/`，只构造业务值，不使用内存数据库或伪造的运行时 Store。下表与根 [`AGENTS.md`](../AGENTS.md) 保持一致：
+
+| 场景 | 状态 | 当前回归覆盖 |
 |---|---|---|
-| 分流键 | `AssignmentKey` | 调用方传入的不透明标识。服务不关心它代表人、设备还是订单 |
-| 一次分流 | `AssignmentID` 标识 | 「把一批键切成若干份」这件事本身。标识**跨定义修订稳定**——染色记录按它归档，定义变了记录才跟得过去 |
-| 一次分流的定义 | `Definition` | 某次分流的切法、盐、算法版本、是否染色。**不可变**：改定义 = 在同一标识下新建一个 |
-| 份号 | `BucketNumber` | 键落在第几份。**从 1 起**，与领域文档「分流 E 第 2 份」逐字对齐。它是独立类型而非整数别名，**不能被直接当作切片下标**——一、二之差跨文档与代码时不报错 |
-| 切法 | `Split` | 把总量切成各份的权重。总量由调用方明写，**各份权重之和必须等于总量**，否则构造失败 |
-| 盐 | `Salt` | 混入哈希、使各次分流互相打散的值。**必填，服务不生成**——领域文档让跨租户隔离依赖盐里带租户，却从未定过盐的生成口径 |
-| 分桶算法 | `Algorithm` | 把（键、盐、总量）映射到空间中一个位置的纯函数 |
-| 算法版本 | `AlgorithmVersion` | 算法的版本标识。**必填，无默认值**——Go 的零值会把它静默填成空串，那样的分流看起来完整但无法回放 |
-| 染色 | `Coloring` | 把一次分配的结果固化下来，使它不随定义或算法的变化而改变。每次分流可选 |
-| 染色记录 | `ColoringRecord` | 一条染色：份号 + 当时用的算法版本 |
-| 只读问一下 | `PeekAssign` | 算份号但**不写**染色记录。演练走这个口子，否则演练会把人染色、改变后续真实执行 |
-| 对齐 | `Alignment` | 让本次分流取另一次分流的盐与切法，使同一个键落到同一份。运营配的是「跟哪次分流对齐」，不是盐 |
+| ① 新客首单转化 | **部分建立** | 注册满 24 小时、券成功投递事件回流与三天时间窗；“未使用”判定仍未建立 |
+| ② 双十一预热分组实验 | **分组、对照组与触达已建立** | 四臂分割、显式对照入口与其他三臂起始路由；指标未建立 |
+| ③ APP 首页 banner 个性化 | **已建立** | 新客 / 老客决策表、活动优先级抢位与失败留痕 |
+| ④ 新玩法灰度放量 | **放量单调性已建立** | 5% → 20% → 100% 扩大既有稳定分桶集合；执行部分未建立 |
+| ⑤ 跨境召回 · 两级触达 | **已建立** | 四小时窗口、未读条件、投递 / 回执 key 关联、UID / placements 沿回执边传递 |
 
-## 接口形状
+没有在表中扩大未确认场景。新客“未使用”仍是外部券系统持有的事实，是否由同一受众定义跨来源读取仍待业务确认；它不由本次改动推定。
 
-实验服务只认不透明的 `AssignmentKey`。Core 的纯分配计算是 `(分流键, 一次分流的定义) → 份号`。染色时，外层应用先读取既有记录；命中时直接返回其份号，未命中时调用 Core 计算并原子保存。并发冲突后由应用层重读已保存结果。此染色用例是 Issue #88 的设计提案，未实现。
+## 管理应用与本地演示
 
-**不得为图方便加「按人群分流」的便利接口**——那会把它绑死在本项目里，与「可开放给第三方」直接冲突。
+MySQL、人群源读取、染色持久化、执行 / 回执记录及 `Deliverer` / `EventPublisher` 由独立 `management` module 的应用层与适配器实现。外部数据库影响面如下：
 
-## 本轮未覆盖
+- `gmp_demo_user_pool` 只读；适配器按显式列映射做 keyset 分页，不缓存或复制名单。
+- 平台执行、回执和染色数据写入 `gmp_management_*` 表；染色使用新增 migration 003，不回填旧数据。
+- Demo 投递和事件只写结构化日志，不连接真实渠道。
 
-- 各层已有实现不代表对应规格全部落地；跨层业务场景仍有未覆盖部分，详见根 [`AGENTS.md`](../AGENTS.md)「业务回归用例」。
-- 活动流程实验节点目前仍是浏览器本地草稿，尚未进入管理 API / `gmp-core`，也不代表真实分组或执行。见[变更记录](../docs/history/changes/2026-11-03-activity-flow-experiment.md)。
-- `management` 本轮已为现有活动管理投影增加平台自有 MySQL 持久化，但尚未使用 Core 规则作为唯一业务语义；其通用只读 MySQL 来源适配器也未接入 `/api/v1` 或实际用户池。用户池 schema 与查询契约仍待提供，Core 不持有来源成员数据或快照。
-- 部署形态。
-- 指标口径清单（边界文档 B6）。
-- **时间**。本层无时间概念：定时触发交给外部调度器，到点投事件，模型只对事件与状态作出反应。人工裁定，见 [任务卡](../docs/ai-loop/task-cards/23-experimentation-core.md)。
-- **并发**。当前内存实现不能证明真实存储的并发唯一性；「同键并发首次分配只能产生一个份号」须由外层 MySQL 适配器契约与并发测试承接。本轮不声称并发已验证。
-- `docs/domain/` 与本实现之间的漂移检测。
+纯值演示不需要数据库：
+
+```sh
+cd gmp-core
+go run ./cmd/gmp-demo
+```
+
+MySQL 运行演示需要本机 MySQL、已导入的构造用户池表，以及从安全配置来源提供的四项 `MYSQL_*` 环境变量。先将 [`internal/management/demo_user_pool.sql`](../management/internal/management/demo_user_pool.sql) 应用到本地开发数据库，再运行：
+
+```sh
+cd management
+# 从安全配置来源注入 MYSQL_DSN、MYSQL_MAX_OPEN_CONNS、MYSQL_MAX_IDLE_CONNS、MYSQL_CONN_MAX_LIFETIME_SEC。
+go run ./cmd/gmp-demo
+```
+
+演示会运行纯 Core 规则，通过同一个 MySQL 连接池读取构造人群，并将执行与回执写入平台表。它不自动创建或填充人群表，不接生产用户池，也不发真实触达。MySQL 集成验证由 `GMP_TEST_MYSQL_DSN` 指向构造测试库。
+
+## 本地验证
+
+```sh
+(cd gmp-core && go test ./... && go vet ./... && go run ./cmd/gmp-demo)
+(cd management && go test ./... && go vet ./...)
+```

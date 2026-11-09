@@ -21,9 +21,9 @@
 
 - [`gmp-core/campaign/flow.go`](../../../gmp-core/campaign/flow.go)：活动流程、边、构造期拒绝（环、未声明的结果、拉类目标、并行与回执冲突）
 - [`gmp-core/campaign/action.go`](../../../gmp-core/campaign/action.go)：动作契约的回执结果
-- [`gmp-core/campaign/runner.go`](../../../gmp-core/campaign/runner.go)：回执之后沿匹配的边投递一跳
-- [`gmp-core/campaign/flow_test.go`](../../../gmp-core/campaign/flow_test.go)：串行、RCS 成功→邮件 / 失败→短信、契约其他结果、无边并行
-- [`gmp-core/campaign/treatment.go`](../../../gmp-core/campaign/treatment.go)、[`gmp-core/campaign/event.go`](../../../gmp-core/campaign/event.go)、[`gmp-core/scenarios/twostep.go`](../../../gmp-core/scenarios/twostep.go)、[`gmp-core/cmd/gmp-demo/main.go`](../../../gmp-core/cmd/gmp-demo/main.go)：去掉「活动内多步只靠互不相识的投放项」的现行说法
+- 回执后的外层编排现位于 [`management/internal/application/runtime.go`](../../../management/internal/application/runtime.go)，纯回执边转换位于 [`gmp-core/campaign/pure.go`](../../../gmp-core/campaign/pure.go)
+- 原运行时测试已迁出；当前 Core 规则回归位于 [`gmp-core/campaign/pure_transitions_test.go`](../../../gmp-core/campaign/pure_transitions_test.go) 与 [`gmp-core/campaign/pure_model_validation_test.go`](../../../gmp-core/campaign/pure_model_validation_test.go)
+- [`gmp-core/campaign/treatment.go`](../../../gmp-core/campaign/treatment.go)、[`gmp-core/campaign/event.go`](../../../gmp-core/campaign/event.go)、[`gmp-core/scenarios/pure_scenarios_test.go`](../../../gmp-core/scenarios/pure_scenarios_test.go)、[`gmp-core/cmd/gmp-demo/main.go`](../../../gmp-core/cmd/gmp-demo/main.go)：移除「活动内多步只靠互不相识的投放项」的过时说法；纯值跨层场景不再装配运行时
 - [`docs/ai-loop/task-cards/53-campaign-flow.md`](../../ai-loop/task-cards/53-campaign-flow.md)：入口检查
 
 ## 验证结果

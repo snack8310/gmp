@@ -258,6 +258,436 @@ var _ = scenarios.Anything
 	}
 }
 
+func TestCoreRejectsRuntimeOwnershipTypes(t *testing.T) {
+	for _, directory := range []string{"../../audience", "../../experimentation", "../../campaign", "../../scenarios"} {
+		t.Run(filepath.Base(directory), func(t *testing.T) {
+			if err := arch.NoRuntimeOwnership(directory); err != nil {
+				t.Fatalf("Core package %s owns runtime state or effects: %v", directory, err)
+			}
+		})
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnForbiddenType(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte("package model\ntype Runner struct{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a Runner declaration must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnOrdinaryNamedMutableOwner(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+type Coordinator struct { algorithms map[string]int }
+func (c *Coordinator) Register(name string, algorithm int) { c.algorithms[name] = algorithm }
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("an ordinary-named type with a mutable registry must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckRejectsImportedMutableNamedType(t *testing.T) {
+	cases := map[string]string{
+		"direct imported type": `type Coordinator struct { facts audience.AssignmentFacts }`,
+		"local alias to imported type": `type FactsAlias audience.AssignmentFacts
+type Coordinator struct { facts FactsAlias }`,
+		"imported struct with mutable field": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() { c.record.Attributes["x"] = "value" }`,
+		"local alias to imported struct with mutable field": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() {
+	record := c.record
+	record.Attributes["x"] = "value"
+}`,
+		"imported slice field copied before helper mutation": `type Coordinator struct { spec audience.BundleSpec }
+func (c Coordinator) Update() {
+	spec := c.spec
+	mutate(spec)
+}
+func mutate(spec audience.BundleSpec) { spec.Arms[0].ID = "changed" }`,
+		"pointer alias to imported struct with mutable field": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() {
+	record := &c.record
+	record.Attributes["x"] = "value"
+}`,
+		"composite alias to imported struct with mutable field": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() {
+	box := struct { record audience.Record }{record: c.record}
+	box.record.Attributes["x"] = "value"
+}`,
+		"receiver passed to mutating helper": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() { mutate(c) }
+func mutate(c Coordinator) { c.record.Attributes["x"] = "value" }`,
+		"method called on imported mutable aggregate": `type Coordinator struct { record audience.Record }
+func (c Coordinator) Update() { c.record.Mutate() }`,
+		"named alias to imported struct with mutable field": `type RecordAlias audience.Record
+type Coordinator struct { record RecordAlias }
+func (c Coordinator) Update() { c.record.Attributes["x"] = "value" }`,
+		"embedded imported struct with mutable field": `type Coordinator struct { audience.Record }
+func (c Coordinator) Update() { c.Attributes["x"] = "value" }`,
+	}
+	for name, declaration := range cases {
+		t.Run(name, func(t *testing.T) {
+			campaignDir := importedTypeFixture(t, declaration)
+			if err := arch.NoRuntimeOwnership(campaignDir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+				t.Fatalf("a receiver path containing an imported mutable reference must fail the runtime ownership check, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeOwnershipCheckAllowsImportedValueType(t *testing.T) {
+	campaignDir := importedTypeFixture(t, `type UIDAlias audience.UID
+type Model struct { uid UIDAlias }`)
+	if err := arch.NoRuntimeOwnership(campaignDir); err != nil {
+		t.Fatalf("an imported scalar alias must remain a valid value field, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckRejectsGenericFieldTypeParameter(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+type Box[T any] struct { state T }
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a generic field that can carry mutable runtime state must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckRejectsUnknownDotImportedNamedType(t *testing.T) {
+	campaignDir := importedTypeFixtureWithDotImport(t, `type Coordinator struct { formatter Stringer }`)
+	if err := arch.NoRuntimeOwnership(campaignDir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("an unresolved dot-imported named type must fail closed, got %v", err)
+	}
+}
+
+func importedTypeFixture(t *testing.T, campaignDeclaration string) string {
+	return writeImportedTypeFixture(t, `import "github.com/snack8310/gmp/gmp-core/audience"`, campaignDeclaration)
+}
+
+func importedTypeFixtureWithDotImport(t *testing.T, campaignDeclaration string) string {
+	return writeImportedTypeFixture(t, `import . "fmt"`, campaignDeclaration)
+}
+
+func writeImportedTypeFixture(t *testing.T, importDeclaration, campaignDeclaration string) string {
+	t.Helper()
+	moduleRoot := filepath.Join(t.TempDir(), "gmp-core")
+	audienceDir := filepath.Join(moduleRoot, "audience")
+	campaignDir := filepath.Join(moduleRoot, "campaign")
+	for _, dir := range []string{audienceDir, campaignDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(moduleRoot, "go.mod"): "module github.com/snack8310/gmp/gmp-core\n\ngo 1.24\n",
+		filepath.Join(audienceDir, "facts.go"): `package audience
+type AssignmentFacts []string
+type UID string
+type Record struct { Attributes map[string]string }
+func (r Record) Mutate() { r.Attributes["x"] = "value" }
+type BundleID string
+type GroupID string
+type BundleArm struct { ID GroupID }
+type BundleSpec struct { Arms []BundleArm }
+`,
+		filepath.Join(campaignDir, "model.go"): `package campaign
+` + importDeclaration + "\n" + campaignDeclaration + "\n",
+	}
+	for path, source := range files {
+		if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return campaignDir
+}
+
+func TestRuntimeOwnershipCheckFailsOnPointerReceiverStateMutation(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+type Coordinator struct { current int }
+func (c *Coordinator) Advance() { c.current++ }
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a pointer receiver that mutates persistent state must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnValueReceiverReferenceMutation(t *testing.T) {
+	dir := t.TempDir()
+	source := `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Update(key AssignmentKey, value BucketNumber) {
+	s.whitelist[key] = value
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a value receiver that mutates a shared reference field must fail, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsWhenReceiverReferenceEscapes(t *testing.T) {
+	cases := map[string]string{
+		"local alias": `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Update(key AssignmentKey, value BucketNumber) {
+	whitelist := s.whitelist
+	whitelist[key] = value
+}
+`,
+		"composite alias": `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Update(key AssignmentKey, value BucketNumber) {
+	box := struct { values map[AssignmentKey]BucketNumber }{values: s.whitelist}
+	box.values[key] = value
+}
+`,
+		"custom helper": `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Update(key AssignmentKey, value BucketNumber) {
+	set(s.whitelist, key, value)
+}
+func set(values map[AssignmentKey]BucketNumber, key AssignmentKey, value BucketNumber) {
+	values[key] = value
+}
+`,
+		"slice-bearing receiver passed to helper": `package campaign
+type Action struct { required []string }
+func (a Action) Rewrite() { rewrite(a) }
+func rewrite(action Action) { action.required[0] = "changed" }
+`,
+		"slice-bearing receiver copy passed to helper": `package campaign
+type Action struct { required []string }
+func (a Action) Rewrite() {
+	copy := a
+	rewrite(copy)
+}
+func rewrite(action Action) { action.required[0] = "changed" }
+`,
+	}
+	if len(cases) < 3 {
+		t.Fatalf("only %d reference escape paths are guarded", len(cases))
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+				t.Fatalf("receiver reference escape must fail the runtime ownership check, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnMutatingReferenceOperations(t *testing.T) {
+	cases := map[string]string{
+		"delete map entry": `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Delete(key AssignmentKey) { delete(s.whitelist, key) }
+`,
+		"clear map": `package experimentation
+type AssignmentKey string
+type BucketNumber int
+type ComponentState struct { whitelist map[AssignmentKey]BucketNumber }
+func (s ComponentState) Clear() { clear(s.whitelist) }
+`,
+		"append to slice": `package campaign
+type Action struct { required []string }
+func (a Action) Append() { _ = append(a.required, "value") }
+`,
+		"copy into slice": `package campaign
+type Action struct { required []string }
+func (a Action) Copy() { copy(a.required, []string{"value"}) }
+`,
+		"sort slice": `package campaign
+import "sort"
+type Action struct { required []string }
+func (a Action) Sort() { sort.Strings(a.required) }
+`,
+	}
+	if len(cases) < 5 {
+		t.Fatalf("only %d mutable reference operations are guarded", len(cases))
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+				t.Fatalf("mutating operation must fail the runtime ownership check, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsWhenAnAllowedReferenceFieldChangesShape(t *testing.T) {
+	dir := t.TempDir()
+	source := `package audience
+type Record struct { Attributes *Database }
+type Database struct{}
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("an allowlisted reference field with a different type must fail, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnNestedAnonymousMutableOwner(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+type Coordinator struct { state struct { algorithms map[string]int } }
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a nested anonymous mutable owner must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnPackageLevelMutableRegistry(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+var algorithms = map[string]int{}
+type Model struct{}
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a package-level mutable registry must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnForbiddenImport(t *testing.T) {
+	dir := t.TempDir()
+	source := "package model\nimport \"sync\"\ntype Model struct{}\n"
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a synchronization import must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnUnlistedExternalDependency(t *testing.T) {
+	dir := t.TempDir()
+	source := "package model\nimport \"example.com/sideeffect/client\"\ntype Model struct{}\n"
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("an unlisted dependency must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnFormattedOutput(t *testing.T) {
+	dir := t.TempDir()
+	source := `package experimentation
+import "fmt"
+func emit() { fmt.Println("output") }
+type Model struct{}
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("formatted output must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnUnlistedEffectInterface(t *testing.T) {
+	dir := t.TempDir()
+	source := `package model
+type Publisher interface { Publish([]byte) error }
+type Model struct{}
+`
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("an unlisted interface that can represent an external effect must fail, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnLogImport(t *testing.T) {
+	dir := t.TempDir()
+	source := "package model\nimport \"log\"\ntype Model struct{}\n"
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a logging import must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnClockAccess(t *testing.T) {
+	dir := t.TempDir()
+	source := "package model\nimport \"time\"\ntype Model struct{}\nvar _ = time.Now\n"
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrForbiddenRuntimeOwnership) {
+		t.Fatalf("a direct clock access must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsOnEmptySource(t *testing.T) {
+	if err := arch.NoRuntimeOwnership(t.TempDir()); !errors.Is(err, arch.ErrNoSourcesExamined) {
+		t.Fatalf("an empty source directory must fail the runtime ownership check, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsWhenOnlyTestsExist(t *testing.T) {
+	dir := t.TempDir()
+	source := "package model_test\ntype Fixture struct{}\n"
+	if err := os.WriteFile(filepath.Join(dir, "model_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrNoSourcesExamined) {
+		t.Fatalf("test files must not satisfy the production source lower bound, got %v", err)
+	}
+}
+
+func TestRuntimeOwnershipCheckFailsWithoutTypeDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.go"), []byte("package model\nfunc evaluate() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := arch.NoRuntimeOwnership(dir); !errors.Is(err, arch.ErrNoTypeDeclarations) {
+		t.Fatalf("a source directory with no type declarations must fail, got %v", err)
+	}
+}
+
 // And a package that is nothing but exempt files has had nothing checked, which
 // must read as a failure rather than a pass.
 func TestOnlyExemptFilesCountsAsNothingExamined(t *testing.T) {

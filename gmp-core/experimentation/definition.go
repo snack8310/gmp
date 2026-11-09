@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	ErrUnbuiltDefinition = errors.New("experimentation: definition was not built through a constructor")
 	// ErrMissingAssignmentID is returned when a definition carries no identity.
 	// Coloring records are filed under the identity, so an unnamed assignment
 	// could not keep its coloring across a change of definition.

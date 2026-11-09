@@ -15,8 +15,6 @@ var (
 	// ErrUnknownActionParameter is returned when a call carries something the
 	// action never asked for.
 	ErrUnknownActionParameter = errors.New("campaign: action call carries a parameter the action does not take")
-	// ErrDuplicateAction is returned when one action id is registered twice.
-	ErrDuplicateAction = errors.New("campaign: action registered twice")
 	// ErrUnknownDirection is returned when an action does not say which way it
 	// talks to the outside world.
 	ErrUnknownDirection = errors.New("campaign: action direction is not one of the known ways")
@@ -74,9 +72,8 @@ func (d Direction) validate() error {
 // message, grant an entitlement.
 type ActionID string
 
-// Action is a capability engineering has wired up. Which actions exist is not
-// a field an operator fills in freely; it mirrors what has been connected, the
-// same way sources do on the way in.
+// Action describes a capability made available by the application. Core builds
+// and validates the value; it does not keep an action registry.
 //
 // Each action states its own parameters. There is deliberately no shared notion
 // of "content" above them: a coupon id belongs to the coupon system and is only
@@ -96,7 +93,7 @@ type Action struct {
 	outcomes     []Outcome
 }
 
-// ActionSpec is the input to registering an action.
+// ActionSpec is the input to building an action value.
 type ActionSpec struct {
 	// ID identifies the action.
 	ID ActionID
@@ -114,8 +111,8 @@ type ActionSpec struct {
 	Outcomes []Outcome
 }
 
-// RegisterAction declares an action, which way it talks, and what it needs.
-func RegisterAction(spec ActionSpec) (Action, error) {
+// NewAction builds an action value, including direction, parameters and receipt outcomes.
+func NewAction(spec ActionSpec) (Action, error) {
 	if spec.ID == "" {
 		return Action{}, ErrMissingActionID
 	}
