@@ -28,6 +28,7 @@
 | MySQL 专项集成 | 通过 | 本地 MySQL 8.4 的临时 schema 验证回执和染色并发行为；临时 schema 已删除，项目容器已停止。 |
 | 两个 Go module 的 `go build ./...`、`go vet ./...` | 通过 | `gmp-core` 与 `management` 均通过构建和静态检查。 |
 | `gofmt`、`git diff --check`、`python3 test/docs/consistency_check.py` | 通过 | 格式、差异空白和文档一致性检查通过。 |
+| `python3 test/docs/consistency_check_test.py` | 通过 | 文档门禁变异测试 19 项通过；夹具纳入 `management/`，以覆盖文档链接指向的迁移后运行时文件。 |
 | 独立只读评估器 | `PASS` | 未发现阻断问题；送审 SHA 的 CI 与最终评估仍待 Draft PR 创建后核实。 |
 
 ## 风险与未覆盖项
