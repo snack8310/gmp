@@ -1,18 +1,10 @@
-// Package campaign decides what one person should be shown, and decides only
-// that.
+// Package campaign builds immutable activities, applies explicit rules, and
+// returns decision, delivery-intent, execution, and receipt-transition values.
 //
-// A treatment produces a result -- which registered action, with which
-// parameters -- and never calls anything outside. Keeping the decision apart
-// from the doing is what makes it possible to work out what someone would
-// receive without sending it, which matters because a send cannot be taken
-// back. It is nearly free to arrange now and expensive to retrofit later.
+// It does not load audiences, save executions, deliver actions, publish events,
+// retry work, or accept receipts atomically. An outer application owns those
+// operations and decides which returned intents to commit or perform.
 //
-// This layer sits above audience and imports nothing else. A rollout is
-// expressed as an audience definition -- the shares taken in so far -- because
-// a share is an ordinary condition about a person, and asking that way keeps
-// this package from reaching past the layer below it.
-//
-// A campaign may carry a flow. Edges in that flow say which treatment runs
-// after another's receipt, and which receipt outcome takes the edge. Treatments
-// with no receipt edge between them are entries and are started on their own.
+// The package sits above audience. It receives explicit records and assignment
+// facts and has no runtime dependency on experimentation or external systems.
 package campaign

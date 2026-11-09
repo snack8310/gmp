@@ -3,8 +3,8 @@
 
 ## 项目结构
 
-- `gmp-core/`：Go 业务模型、规则与回归场景。当前代码仍有内存 Store；目标是按 [Issue #88](https://github.com/snack8310/gmp/issues/88) 将存储移到外层业务应用。
-- `management/`：独立 Go module，V1 活动与投放项管理 REST API；活动配置、人群引用及执行 / 回执日志由平台自有 MySQL 持久化。合成用户池 SQL 与同连接池只读适配器已提供，但尚未接入 API 求值；Core 领域转换、实验定义与染色存储仍未接入。
+- `gmp-core/`：Go 业务值、规则、校验、决策、状态转换与纯值回归场景；不持有内存或持久化存储，也不执行外部副作用。说明见 [`gmp-core/README.md`](gmp-core/README.md)。
+- `management/`：独立 Go module，V1 活动管理 REST API 与 Core 应用运行时。管理配置、人群读取、染色、执行 / 回执 MySQL 持久化及渠道 / 事件端口均在 Core 外；MySQL Demo 使用构造数据，不接真实渠道。
 - `frontend/`：前端展示层，目前包含独立、零框架依赖的 [运营流程沙盘 Demo](frontend/demos/operations-flow/README.md)。
 - `docs/`：领域规格、产品设计与协作证据。
 
@@ -30,7 +30,23 @@ node frontend/demos/operations-flow/serve.mjs 8081 8082
 
 浏览器打开 `http://127.0.0.1:8081`。浏览器默认以页面同源地址访问活动 API，前端入口经 HTTP 转给管理 API；`serve.mjs` 换监听端口时无需改浏览器基址。单文件离线打开时默认无法管理活动。详见 [运行说明](frontend/demos/operations-flow/README.md)。
 
-原命令行领域演示保持不变：在 `gmp-core` 下执行 `go run ./cmd/gmp-demo`。
+Core 纯值演示不连接数据库：
+
+```sh
+cd gmp-core
+go run ./cmd/gmp-demo
+```
+
+## MySQL 业务运行 Demo
+
+此演示通过 management 应用运行 Core 流程，需使用本机 MySQL 和构造用户池。先将 [`management/internal/management/demo_user_pool.sql`](management/internal/management/demo_user_pool.sql) 应用到本地开发数据库；然后从安全配置来源注入 `MYSQL_DSN`、`MYSQL_MAX_OPEN_CONNS`、`MYSQL_MAX_IDLE_CONNS` 和 `MYSQL_CONN_MAX_LIFETIME_SEC`，运行：
+
+```sh
+cd management
+go run ./cmd/gmp-demo
+```
+
+Demo 只读 `gmp_demo_user_pool`，并将执行与回执写入平台自有表。投递 / 事件使用本地日志适配器，不连接真实渠道；不会自动创建或导入名单数据，也不要将生产 DSN 用于此演示。
 
 ## Docker 试运行
 

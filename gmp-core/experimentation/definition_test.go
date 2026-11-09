@@ -12,7 +12,7 @@ import (
 // The platform takes the target's salt and split, so the same key lands in the
 // same share under both.
 func TestAlignedAssignmentLandsKeysWhereItsTargetDoes(t *testing.T) {
-	service, _ := newService(t)
+	calculator := pureCalculator{}
 	target := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "phase-one",
 		Split:     mustEqualSplit(t, 4),
@@ -31,11 +31,11 @@ func TestAlignedAssignmentLandsKeysWhereItsTargetDoes(t *testing.T) {
 	}
 
 	for _, key := range keys("shopper", 500) {
-		here, err := service.Assign(target, key)
+		here, err := calculator.Assign(target, key)
 		if err != nil {
 			t.Fatalf("assigning %q under the target: %v", key, err)
 		}
-		there, err := service.Assign(aligned, key)
+		there, err := calculator.Assign(aligned, key)
 		if err != nil {
 			t.Fatalf("assigning %q under the aligned assignment: %v", key, err)
 		}
@@ -186,30 +186,30 @@ func TestDefinitionRequiresAnIDAndASplit(t *testing.T) {
 	}
 }
 
-func TestServiceRefusesAnUnbuiltDefinition(t *testing.T) {
-	service, _ := newService(t)
-	if _, err := service.Assign(experimentation.Definition{}, "shopper-1"); !errors.Is(err, experimentation.ErrUnbuiltDefinition) {
+func TestCalculateRefusesAnUnbuiltDefinition(t *testing.T) {
+	calculator := pureCalculator{}
+	if _, err := calculator.Assign(experimentation.Definition{}, "shopper-1"); !errors.Is(err, experimentation.ErrUnbuiltDefinition) {
 		t.Fatalf("expected an unbuilt-definition refusal, got %v", err)
 	}
 }
 
-func TestServiceRefusesAnEmptyKey(t *testing.T) {
-	service, _ := newService(t)
+func TestCalculateRefusesAnEmptyKey(t *testing.T) {
+	calculator := pureCalculator{}
 	definition := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "empty-key",
 		Split:     mustEqualSplit(t, 4),
 		Salt:      "empty-key",
 		Algorithm: algorithmUnderTest,
 	})
-	if _, err := service.Assign(definition, ""); !errors.Is(err, experimentation.ErrEmptyKey) {
+	if _, err := calculator.Assign(definition, ""); !errors.Is(err, experimentation.ErrEmptyKey) {
 		t.Fatalf("expected an empty-key refusal, got %v", err)
 	}
 }
 
 // A long key is not an error: the key is opaque and the caller decides what
 // goes in it.
-func TestServiceAcceptsALongKey(t *testing.T) {
-	service, _ := newService(t)
+func TestCalculateAcceptsALongKey(t *testing.T) {
+	calculator := pureCalculator{}
 	definition := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "long-key",
 		Split:     mustEqualSplit(t, 4),
@@ -217,37 +217,15 @@ func TestServiceAcceptsALongKey(t *testing.T) {
 		Algorithm: algorithmUnderTest,
 	})
 	long := experimentation.AssignmentKey(strings.Repeat("k", 100_000))
-	first, err := service.Assign(definition, long)
+	first, err := calculator.Assign(definition, long)
 	if err != nil {
 		t.Fatalf("assigning a long key: %v", err)
 	}
-	again, err := service.Assign(definition, long)
+	again, err := calculator.Assign(definition, long)
 	if err != nil {
 		t.Fatalf("re-assigning a long key: %v", err)
 	}
 	if first != again {
 		t.Fatalf("a long key moved from %s to %s", first, again)
-	}
-}
-
-// An assignment recorded under an algorithm the registry no longer holds must
-// fail rather than be recomputed under today's algorithm.
-func TestServiceRefusesAnUnknownAlgorithm(t *testing.T) {
-	service, _ := newService(t)
-	definition := mustDefine(t, experimentation.DefinitionSpec{
-		ID:        "retired-algorithm",
-		Split:     mustEqualSplit(t, 4),
-		Salt:      "retired-algorithm",
-		Algorithm: "fnv1a-v0",
-	})
-	if _, err := service.Assign(definition, "shopper-1"); !errors.Is(err, experimentation.ErrUnknownAlgorithm) {
-		t.Fatalf("expected an unknown-algorithm refusal, got %v", err)
-	}
-}
-
-// Rebinding a version would change how already recorded assignments replay.
-func TestAlgorithmVersionsCannotBeRebound(t *testing.T) {
-	if _, err := experimentation.NewAlgorithmRegistry(experimentation.FNV1aV1{}, experimentation.FNV1aV1{}); !errors.Is(err, experimentation.ErrDuplicateAlgorithm) {
-		t.Fatalf("expected a duplicate-version refusal, got %v", err)
 	}
 }

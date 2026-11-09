@@ -18,10 +18,10 @@
 
 ## 关键文件
 
-- [`gmp-core/scenarios/receiptflow.go`](../../../gmp-core/scenarios/receiptflow.go)：三条路径的共享装配
-- [`gmp-core/scenarios/receiptflow_test.go`](../../../gmp-core/scenarios/receiptflow_test.go)：串行、非入口拒绝、回执分支、无边并行、一投放项一动作
-- [`gmp-core/cmd/gmp-demo/receiptflow.go`](../../../gmp-core/cmd/gmp-demo/receiptflow.go)：demo 打印节，不断言输出快照
-- [`gmp-core/cmd/gmp-demo/main.go`](../../../gmp-core/cmd/gmp-demo/main.go)：在两级触达之后调用该节。实验臂那一节的函数体未改
+- 原 `receiptflow.go` 运行时装配已移除；纯值场景断言位于 [`gmp-core/scenarios/pure_scenarios_test.go`](../../../gmp-core/scenarios/pure_scenarios_test.go)
+- 原 Runner 集成测试已迁移到外层；回执原子接受与沿边身份由 [`management/internal/application/runtime_mysql_integration_test.go`](../../../management/internal/application/runtime_mysql_integration_test.go) 及 Core 纯转换用例承接
+- 纯值 Core Demo 位于 [`gmp-core/cmd/gmp-demo/main.go`](../../../gmp-core/cmd/gmp-demo/main.go)，MySQL 运行 Demo 位于 [`management/internal/application/demo.go`](../../../management/internal/application/demo.go)
+- [`gmp-core/scenarios/doc.go`](../../../gmp-core/scenarios/doc.go)：场景包只组织纯值回归
 - [`gmp-core/scenarios/doc.go`](../../../gmp-core/scenarios/doc.go)：说明 `ArmCampaign`、`ReceiptFlow`、`TwoStep` 是三种装配
 - [`docs/ai-loop/task-cards/55-flow-edge-scenarios.md`](../../ai-loop/task-cards/55-flow-edge-scenarios.md)：入口检查
 
@@ -42,7 +42,7 @@
 
 - 把串行下一步的人群改成与入口相同的 `tier=new`：`TestReceiptSerialReachesOnlyThePeopleOnTheReceipt` 失败，下一步不再指向用例写明的 returning 人群。
 - 把并行边改成成功回执边：`TestParallelEntriesRunTheirOwnAudiences` 失败，边的种类与用例写明的 `parallel` 不一致。
-- 临时放宽 `campaign/runner.go` 的边匹配，使成功边接受任何回执结果，随后还原该文件：`TestReceiptSerialReachesOnlyThePeopleOnTheReceipt` 与 `TestReceiptBranchSendsEachOutcomeDownItsOwnEdge` 失败，失败的人也走进了成功边。
+- 该历史变异针对旧 Runner，已随运行时迁出而不再适用；当前纯 Core 转换由 `TestApplyReceiptPreservesPersonAndPlacementOnEdge` 和 MySQL 首次接受用例共同验证。
 
 `git diff` 未改 `ArmCampaign`、`ExperimentArms`、`twostep.go` 与 `campaign` 包。
 

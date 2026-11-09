@@ -195,6 +195,19 @@ var managementSchemaContract = []mysqlSchemaTable{
 			onDelete:         "CASCADE",
 		}},
 	},
+	{
+		name: "gmp_management_experiment_colorings",
+		columns: []mysqlSchemaColumn{
+			{name: "assignment_hash", sqlType: "binary(32)"},
+			{name: "assignment_id", sqlType: "longtext"},
+			{name: "key_hash", sqlType: "binary(32)"},
+			{name: "assignment_key", sqlType: "longtext"},
+			{name: "bucket", sqlType: "int unsigned"},
+			{name: "algorithm", sqlType: "longtext"},
+			{name: "created_at", sqlType: "timestamp(6)"},
+		},
+		uniqueKeys: [][]string{{"assignment_hash", "key_hash"}},
+	},
 }
 
 func verifyManagementSchema(ctx context.Context, db *sql.DB) error {
@@ -228,7 +241,7 @@ func verifyMySQLTable(ctx context.Context, db *sql.DB, contract mysqlSchemaTable
 			return fmt.Errorf("table %s is missing column %s", contract.name, expected.name)
 		}
 		if !strings.EqualFold(actual.sqlType, expected.sqlType) || actual.nullable != expected.nullable || actual.autoIncrement != expected.autoIncrement {
-			return fmt.Errorf("table %s column %s does not match the required type contract", contract.name, expected.name)
+			return fmt.Errorf("table %s column %s does not match the required type contract: expected type=%s nullable=%t auto_increment=%t, got type=%s nullable=%t auto_increment=%t", contract.name, expected.name, expected.sqlType, expected.nullable, expected.autoIncrement, actual.sqlType, actual.nullable, actual.autoIncrement)
 		}
 	}
 

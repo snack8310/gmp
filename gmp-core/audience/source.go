@@ -72,11 +72,11 @@ func (c Category) validate() error {
 	}
 }
 
-// SourceID identifies a registered source.
+// SourceID identifies a source descriptor.
 type SourceID string
 
-// Source describes somewhere ids come from. Engineering registers these;
-// operations picks from the list and cannot wire up a new one.
+// Source describes a source of audience records. The outer application
+// chooses and reads the actual source; Core stores no source catalog.
 //
 // Values are immutable once built.
 type Source struct {
@@ -87,7 +87,7 @@ type Source struct {
 	declared    bool
 }
 
-// SourceSpec is the input to registering a source.
+// SourceSpec is the input to building a source descriptor.
 type SourceSpec struct {
 	// ID identifies the source.
 	ID SourceID
@@ -102,8 +102,8 @@ type SourceSpec struct {
 	BackflowGranularity time.Duration
 }
 
-// RegisterSource builds a source descriptor.
-func RegisterSource(spec SourceSpec) (Source, error) {
+// NewSource builds a source descriptor value.
+func NewSource(spec SourceSpec) (Source, error) {
 	if spec.ID == "" {
 		return Source{}, ErrMissingSourceID
 	}
@@ -155,17 +155,4 @@ type Record struct {
 	// EventAges is how long ago each named event happened, as the source
 	// observed it. An event that never happened is absent.
 	EventAges map[string]time.Duration
-}
-
-// Feed hands over what a source actually holds.
-//
-// The two methods are the two directions this layer exists to serve, and they
-// are deliberately separate: enumeration may run offline over everything,
-// while a lookup happens with a caller waiting. Implementations must answer
-// consistently -- a uid Lookup finds must be one All yields.
-type Feed interface {
-	// All yields every record this source currently holds.
-	All() ([]Record, error)
-	// Lookup finds one record without walking the rest.
-	Lookup(uid UID) (Record, bool, error)
 }

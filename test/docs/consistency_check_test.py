@@ -38,7 +38,7 @@ def case(name):
 # What the fixture has to contain: everything the documents point at. Copying
 # only docs/ made every link out of the tree look broken, which the cases
 # caught -- the fixture is part of what is being tested.
-FIXTURE_CONTENTS = ("docs", "AGENTS.md", "CONTRIBUTING.md", "README.md", "gmp-core", "test")
+FIXTURE_CONTENTS = ("docs", "AGENTS.md", "CONTRIBUTING.md", "README.md", "gmp-core", "management", "test")
 
 
 def copy_tree():

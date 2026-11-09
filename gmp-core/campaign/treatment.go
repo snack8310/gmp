@@ -39,7 +39,7 @@ type TreatmentSpec struct {
 	ID TreatmentID
 	// Slot is the display position for an action that requires one.
 	Slot SlotID
-	// Call is what it does: a registered action with its parameters.
+	// Call is what it does: a built action value with its parameters.
 	Call Call
 }
 

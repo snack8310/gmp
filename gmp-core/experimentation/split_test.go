@@ -44,7 +44,7 @@ func TestSplitRefusesWeightsThatDoNotSumToTheTotal(t *testing.T) {
 
 // A single share is legal and swallows everything.
 func TestSingleShareTakesEveryKey(t *testing.T) {
-	service, _ := newService(t)
+	calculator := pureCalculator{}
 	definition := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "single-share",
 		Split:     mustEqualSplit(t, 1),
@@ -52,7 +52,7 @@ func TestSingleShareTakesEveryKey(t *testing.T) {
 		Algorithm: algorithmUnderTest,
 	})
 	for _, key := range keys("shopper", 200) {
-		bucket, err := service.Assign(definition, key)
+		bucket, err := calculator.Assign(definition, key)
 		if err != nil {
 			t.Fatalf("assigning %q: %v", key, err)
 		}
@@ -65,7 +65,7 @@ func TestSingleShareTakesEveryKey(t *testing.T) {
 // Three equal shares of a total of three is exact -- no rounding, and every
 // share is actually reachable.
 func TestRatiosThatDoNotDivideEvenlyStayExact(t *testing.T) {
-	service, _ := newService(t)
+	calculator := pureCalculator{}
 	definition := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "thirds",
 		Split:     mustEqualSplit(t, 3),
@@ -74,7 +74,7 @@ func TestRatiosThatDoNotDivideEvenlyStayExact(t *testing.T) {
 	})
 	seen := make(map[int]bool)
 	for _, key := range keys("shopper", 500) {
-		bucket, err := service.Assign(definition, key)
+		bucket, err := calculator.Assign(definition, key)
 		if err != nil {
 			t.Fatalf("assigning %q: %v", key, err)
 		}
@@ -92,7 +92,7 @@ func TestRatiosThatDoNotDivideEvenlyStayExact(t *testing.T) {
 
 // A share with no weight owns none of the space and must never come back.
 func TestZeroWeightShareIsNeverAssigned(t *testing.T) {
-	service, _ := newService(t)
+	calculator := pureCalculator{}
 	split, err := experimentation.NewSplit(10, []int{5, 0, 5})
 	if err != nil {
 		t.Fatalf("carving a split with an empty middle share: %v", err)
@@ -104,7 +104,7 @@ func TestZeroWeightShareIsNeverAssigned(t *testing.T) {
 		Algorithm: algorithmUnderTest,
 	})
 	for _, key := range keys("shopper", 1000) {
-		bucket, err := service.Assign(definition, key)
+		bucket, err := calculator.Assign(definition, key)
 		if err != nil {
 			t.Fatalf("assigning %q: %v", key, err)
 		}
@@ -117,7 +117,7 @@ func TestZeroWeightShareIsNeverAssigned(t *testing.T) {
 // Shares are counted from one, matching how the domain documents name them.
 // Nothing may ever hand back the zero value as if it were a share.
 func TestShareNumbersAreCountedFromOne(t *testing.T) {
-	service, _ := newService(t)
+	calculator := pureCalculator{}
 	const shares = 4
 	definition := mustDefine(t, experimentation.DefinitionSpec{
 		ID:        "one-based",
@@ -126,7 +126,7 @@ func TestShareNumbersAreCountedFromOne(t *testing.T) {
 		Algorithm: algorithmUnderTest,
 	})
 	for _, key := range keys("shopper", 1000) {
-		bucket, err := service.Assign(definition, key)
+		bucket, err := calculator.Assign(definition, key)
 		if err != nil {
 			t.Fatalf("assigning %q: %v", key, err)
 		}

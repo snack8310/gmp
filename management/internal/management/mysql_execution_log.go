@@ -15,8 +15,10 @@ import (
 	"github.com/snack8310/gmp/gmp-core/campaign"
 )
 
-// ErrExecutionKeyCollision is returned if two distinct keys share one stored hash.
-var ErrExecutionKeyCollision = errors.New("management: execution key hash collision")
+var (
+	ErrExecutionKeyCollision    = errors.New("management: execution key hash collision")
+	ErrExecutionReceiptRequired = errors.New("management: accepting a receipt requires a receipted execution")
+)
 
 // MySQLExecutionLog stores campaign executions and their first accepted receipt.
 type MySQLExecutionLog struct {
@@ -29,8 +31,11 @@ func newMySQLExecutionLog(db *sql.DB, logger *slog.Logger) *MySQLExecutionLog {
 }
 
 func (l *MySQLExecutionLog) Append(execution campaign.Execution) error {
+	return l.AppendContext(context.Background(), execution)
+}
+
+func (l *MySQLExecutionLog) AppendContext(ctx context.Context, execution campaign.Execution) error {
 	started := time.Now()
-	ctx := context.Background()
 	hash := executionHash(execution.Key)
 	placements, err := json.Marshal(execution.Placements)
 	if err != nil {
@@ -78,8 +83,11 @@ func (l *MySQLExecutionLog) Append(execution campaign.Execution) error {
 }
 
 func (l *MySQLExecutionLog) Update(execution campaign.Execution) error {
+	return l.UpdateContext(context.Background(), execution)
+}
+
+func (l *MySQLExecutionLog) UpdateContext(ctx context.Context, execution campaign.Execution) error {
 	started := time.Now()
-	ctx := context.Background()
 	hash := executionHash(execution.Key)
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -128,11 +136,14 @@ func (l *MySQLExecutionLog) Update(execution campaign.Execution) error {
 }
 
 func (l *MySQLExecutionLog) AcceptReceipt(execution campaign.Execution) (bool, error) {
+	return l.AcceptReceiptContext(context.Background(), execution)
+}
+
+func (l *MySQLExecutionLog) AcceptReceiptContext(ctx context.Context, execution campaign.Execution) (bool, error) {
 	started := time.Now()
 	if !execution.HasReceipt() {
-		return false, l.failure("accept_receipt", started, campaign.ErrExecutionReceiptRequired)
+		return false, l.failure("accept_receipt", started, ErrExecutionReceiptRequired)
 	}
-	ctx := context.Background()
 	hash := executionHash(execution.Key)
 	tx, err := l.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -186,9 +197,13 @@ func (l *MySQLExecutionLog) AcceptReceipt(execution campaign.Execution) (bool, e
 }
 
 func (l *MySQLExecutionLog) Lookup(key campaign.IdempotencyKey) (campaign.Execution, bool, error) {
+	return l.LookupContext(context.Background(), key)
+}
+
+func (l *MySQLExecutionLog) LookupContext(ctx context.Context, key campaign.IdempotencyKey) (campaign.Execution, bool, error) {
 	started := time.Now()
 	hash := executionHash(key)
-	execution, found, err := readExecution(context.Background(), l.db, hash[:])
+	execution, found, err := readExecution(ctx, l.db, hash[:])
 	if err != nil {
 		return campaign.Execution{}, false, l.failure("lookup_execution", started, err)
 	}
@@ -200,8 +215,11 @@ func (l *MySQLExecutionLog) Lookup(key campaign.IdempotencyKey) (campaign.Execut
 }
 
 func (l *MySQLExecutionLog) All() ([]campaign.Execution, error) {
+	return l.AllContext(context.Background())
+}
+
+func (l *MySQLExecutionLog) AllContext(ctx context.Context) ([]campaign.Execution, error) {
 	started := time.Now()
-	ctx := context.Background()
 	tx, err := l.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return nil, l.failure("list_executions", started, err)

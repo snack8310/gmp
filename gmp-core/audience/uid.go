@@ -31,3 +31,8 @@ func (u UID) validate() error {
 func (u UID) assignmentKey() experimentation.AssignmentKey {
 	return experimentation.AssignmentKey(u)
 }
+
+// AssignmentKey returns the opaque key the experimentation layer accepts.
+func (u UID) AssignmentKey() experimentation.AssignmentKey {
+	return u.assignmentKey()
+}

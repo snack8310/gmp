@@ -6,9 +6,9 @@
 // listing and deciding stays with audience. What lands here is what no single
 // layer can show on its own.
 //
-// Everything runs over the in-memory implementations. No database, no channel,
-// no outside link: the point is to get real results out of the scenarios and
-// keep them as regression cases for the core model, not to stand a system up.
+// Every scenario runs over explicit business values and pure state transitions.
+// No database, channel, or outside link is constructed here: the point is to
+// keep the cross-layer business cases as regression tests for the core model.
 //
 // ArmCampaign is one campaign holding the arms of one assignment, and it has
 // no edges. ReceiptFlow is the other shape: edges on one campaign's flow.

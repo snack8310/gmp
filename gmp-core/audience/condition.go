@@ -44,8 +44,7 @@ type Condition interface {
 
 // evaluation carries what conditions need beyond the record itself.
 type evaluation struct {
-	experiments *experimentation.Service
-	mode        Mode
+	facts AssignmentFacts
 }
 
 // --- attribute ---------------------------------------------------------------
@@ -84,12 +83,8 @@ type shareCondition struct {
 	share      experimentation.BucketNumber
 }
 
-// Share matches people who fall into the given share of the given assignment.
-//
-// This is an ordinary condition, the same kind of thing as an attribute. This
-// package never buckets anyone: it asks the experimentation layer through the
-// only entry point that layer offers, and treats the answer as a fact about
-// the person.
+// Share matches records whose explicit assignment fact names the given share.
+// This package never assigns a bucket or reads a coloring store.
 func Share(assignment experimentation.Definition, share experimentation.BucketNumber) (Condition, error) {
 	if assignment.ID() == "" {
 		return nil, ErrUnbuiltShareCondition
@@ -103,25 +98,10 @@ func Share(assignment experimentation.Definition, share experimentation.BucketNu
 	return shareCondition{assignment: assignment, share: share}, nil
 }
 
-func (c shareCondition) matches(eval evaluation, record Record) (bool, error) {
-	if eval.experiments == nil {
-		return false, errors.New("audience: no experimentation service to ask about shares")
-	}
-	key := record.UID.assignmentKey()
-	var (
-		got experimentation.BucketNumber
-		err error
-	)
-	// The mode has to reach every call that could record a colouring, or a
-	// rehearsal would colour people through this condition while looking
-	// innocent everywhere else.
-	if eval.mode.IsRehearsal() {
-		got, err = eval.experiments.PeekAssign(c.assignment, key)
-	} else {
-		got, err = eval.experiments.Assign(c.assignment, key)
-	}
+func (c shareCondition) matches(eval evaluation, _ Record) (bool, error) {
+	got, err := eval.facts.bucketFor(c.assignment)
 	if err != nil {
-		return false, fmt.Errorf("audience: asking for the share of %q: %w", record.UID, err)
+		return false, err
 	}
 	return got == c.share, nil
 }
@@ -159,22 +139,10 @@ func ShareAtMost(assignment experimentation.Definition, upTo experimentation.Buc
 	return shareAtMostCondition{assignment: assignment, upTo: upTo}, nil
 }
 
-func (c shareAtMostCondition) matches(eval evaluation, record Record) (bool, error) {
-	if eval.experiments == nil {
-		return false, errors.New("audience: no experimentation service to ask about shares")
-	}
-	key := record.UID.assignmentKey()
-	var (
-		got experimentation.BucketNumber
-		err error
-	)
-	if eval.mode.IsRehearsal() {
-		got, err = eval.experiments.PeekAssign(c.assignment, key)
-	} else {
-		got, err = eval.experiments.Assign(c.assignment, key)
-	}
+func (c shareAtMostCondition) matches(eval evaluation, _ Record) (bool, error) {
+	got, err := eval.facts.bucketFor(c.assignment)
 	if err != nil {
-		return false, fmt.Errorf("audience: asking for the share of %q: %w", record.UID, err)
+		return false, err
 	}
 	return got.Value() <= c.upTo.Value(), nil
 }
